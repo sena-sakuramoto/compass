@@ -1,0 +1,581 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Search, FileSpreadsheet, FileJson, Users, Calendar, BarChart3, ListChecks, Plus, CheckCircle2, Download } from "lucide-react";
+import * as XLSX from "xlsx";
+import { BarChart as RBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from "recharts";
+
+// ====== 内蔵データ（起動時に全件反映。Excel/JSON読込で差し替え可） ======
+const FULL_JSON_TEXT = `{
+  "generated_at": "2025-10-04 15:19:48",
+  "projects": [
+    {"ProjectID":"P-0001","物件名":"LS_新宿南口 店舗新装","クライアント":"LS","LS担当者":"鈴木 花子","自社PM":"櫻本 聖成","ステータス":"設計中","優先度":"高","開始日":"2025-08-22","予定完了日":"2025-10-06","所在地/現地":"新宿区","フォルダURL":"","備考":""},
+    {"ProjectID":"P-0002","物件名":"LS_京都四条 改装","クライアント":"LS","LS担当者":"田中 一郎","自社PM":"しょーさん","ステータス":"見積","優先度":"中","開始日":"2025-08-22","予定完了日":"2025-10-21","所在地/現地":"京都市","フォルダURL":"","備考":""},
+    {"ProjectID":"P-0003","物件名":"麻布","クライアント":"LS","LS担当者":"本間 拓彌","自社PM":"近藤","ステータス":"設計中","優先度":"高","開始日":"2025-08-13","予定完了日":"2025-10-22","所在地/現地":"東京都麻布","フォルダURL":"https://drive.google.com/drive/folders/1UVK9RR0Sh6dj0oPO0ltIDHzm14o1kNM4?usp=drive_link","備考":""},
+    {"ProjectID":"P-0004","物件名":"横浜 桜木町_物販施設","クライアント":"MK","LS担当者":"三浦","自社PM":"櫻本 聖成","ステータス":"要見積","優先度":"中","開始日":"2025-09-02","予定完了日":"2025-11-05","所在地/現地":"横浜","フォルダURL":"","備考":""},
+    {"ProjectID":"P-0005","物件名":"逗子_小坪漁港_活性化PJ","クライアント":"自治体","LS担当者":"","自社PM":"櫻本 聖成","ステータス":"企画中","優先度":"高","開始日":"2025-08-01","予定完了日":"2026-01-31","所在地/現地":"逗子市","フォルダURL":"","備考":"ジャカランダストリート計画"}
+  ],
+  "people": [
+    {"氏名":"櫻本","役割":"PM/設計統括","メール":"s.sakuramoto@archi-prisma.co.jp","電話":"090-8205-9171"},
+    {"氏名":"中村","役割":"管理建築士/設計","メール":"s.nakamura@archi-prisma.co.jp","電話":""},
+    {"氏名":"近藤","役割":"設計/実務","メール":"a.kondo@archi-prisma.co.jp","電話":"080-6980-9332"},
+    {"氏名":"藤本","役割":"外注/CV・パース","メール":"k.fujimoto@archi-prisma.co.jp","電話":""},
+    {"氏名":"鈴木","役割":"外注/実測","メール":"k.suzuki@archi-prisma.co.jp","電話":""}
+  ],
+  "tasks": [
+    {"TaskID":"T001","ProjectID":"P-0001","タスク名":"基本設計_レイアウト案","タスク種別":"設計","担当者":"櫻本","優先度":"高","ステータス":"進行中","予定開始日":"2025-09-01","期限":"2025-09-08","実績開始日":"2025-09-02","実績完了日":"","工数見積(h)":16,"工数実績(h)":10,"依頼元/連絡先":"LS","progress":0.625,"start":"2025-09-01","end":"2025-09-08","duration_days":7,"assignee":"櫻本"},
+    {"TaskID":"T002","ProjectID":"P-0001","タスク名":"設備レイアウト調整","タスク種別":"設備","担当者":"中村","優先度":"中","ステータス":"未着手","予定開始日":"2025-09-05","期限":"2025-09-12","実績開始日":"","実績完了日":"","工数見積(h)":12,"工数実績(h)":"","依頼元/連絡先":"LS","progress":0,"start":"2025-09-05","end":"2025-09-12","duration_days":7,"assignee":"中村"},
+    {"TaskID":"T003","ProjectID":"P-0002","タスク名":"確認申請_図書","タスク種別":"申請","担当者":"近藤","優先度":"高","ステータス":"進行中","予定開始日":"2025-09-10","期限":"2025-09-25","実績開始日":"2025-09-11","実績完了日":"","工数見積(h)":32,"工数実績(h)":8,"依頼元/連絡先":"個人","progress":0.25,"start":"2025-09-10","end":"2025-09-25","duration_days":15,"assignee":"近藤"},
+    {"TaskID":"T004","ProjectID":"P-0003","タスク名":"実測・現調","タスク種別":"現調","担当者":"鈴木","優先度":"高","ステータス":"完了","予定開始日":"2025-09-02","期限":"2025-09-03","実績開始日":"2025-09-02","実績完了日":"2025-09-03","工数見積(h)":8,"工数実績(h)":8,"依頼元/連絡先":"LS","progress":1,"start":"2025-09-02","end":"2025-09-03","duration_days":1,"assignee":"鈴木"},
+    {"TaskID":"T005","ProjectID":"P-0002","タスク名":"意匠_実施図面(1)","タスク種別":"設計","担当者":"中村","優先度":"中","ステータス":"進行中","予定開始日":"2025-09-12","期限":"2025-09-22","実績開始日":"2025-09-13","実績完了日":"","工数見積(h)":24,"工数実績(h)":10,"依頼元/連絡先":"個人","progress":0.4167,"start":"2025-09-12","end":"2025-09-22","duration_days":10,"assignee":"中村"}
+  ]
+}`;
+const FULL_JSON = JSON.parse(FULL_JSON_TEXT);
+
+// ====== ユーティリティ（できるだけ素のJSに寄せ、最新構文依存を回避） ======
+const DAY = 24 * 60 * 60 * 1000;
+const STATUS_PROGRESS = { "未着手": 0, "進行中": 0.5, "保留": 0.2, "確認待ち": 0.6, "完了": 1 };
+function todayStr() { return fmt(new Date()); }
+function toNum(v) { const s = (v == null ? "" : String(v)).replace(/,/g, ""); const n = parseFloat(s); return isFinite(n) ? n : 0; }
+function d(s) { if (!s) return null; const dt = (s instanceof Date) ? s : new Date(String(s)); return isNaN(dt.getTime()) ? null : dt; }
+function fmt(dateLike) { const t = d(dateLike); if (!t) return ""; const y=t.getFullYear(); const m=String(t.getMonth()+1).padStart(2,"0"); const dd=String(t.getDate()).padStart(2,"0"); return `${y}-${m}-${dd}`; }
+
+// ====== ローカルストレージ ======
+const LS_KEY = "apdw_compass_v2";
+const LocalStore = {
+  load() { try { const t = localStorage.getItem(LS_KEY); if (t) return JSON.parse(t); } catch (e) {} return null; },
+  save(data) { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch (e) {} },
+  reset() { try { localStorage.removeItem(LS_KEY); } catch (e) {} },
+};
+
+// ====== 正規化 ======
+function normalizeData(input) {
+  const projects = (input.projects || []).map(p => ({ ...p }));
+  const tasks = (input.tasks || []).map((t, idx) => {
+    const start = t.start || t["予定開始日"] || t["実績開始日"] || "";
+    const end   = t.end   || t["期限"]       || t["実績完了日"] || "";
+    const est = toNum(t["工数見積(h)"]); const act = toNum(t["工数実績(h)"]);
+    var progress = (typeof t.progress === "number") ? t.progress : ((STATUS_PROGRESS[String(t["ステータス"])]) || 0);
+    if (est > 0 && !isNaN(act)) progress = Math.max(0, Math.min(1, act/est));
+    return {
+      TaskID: t.TaskID || `T${String(idx+1).padStart(3,'0')}`,
+      ProjectID: String(t.ProjectID || '').trim(),
+      タスク名: t["タスク名"] || t.name || "",
+      タスク種別: t["タスク種別"] || "",
+      担当者: t["担当者"] || t.assignee || "",
+      assignee: t.assignee || t["担当者"] || "",
+      優先度: t["優先度"] || "",
+      ステータス: t["ステータス"] || "",
+      予定開始日: start ? fmt(start) : "",
+      期限: end ? fmt(end) : "",
+      実績開始日: t["実績開始日"] ? fmt(t["実績開始日"]) : "",
+      実績完了日: t["実績完了日"] ? fmt(t["実績完了日"]) : "",
+      "工数見積(h)": est,
+      "工数実績(h)": act,
+      依頼元: t["依頼元/連絡先"] || t["依頼元"] || "",
+      progress,
+      start: start ? fmt(start) : "",
+      end: end ? fmt(end) : "",
+      duration_days: (function(){ const s=d(start), e=d(end); return (s&&e)? Math.max(0, Math.ceil((e.getTime()-s.getTime())/DAY)) : 0; })(),
+    };
+  });
+  const people = (input.people || []).map(p => ({ ...p }));
+  return { projects, tasks, people };
+}
+
+export default function APDWProjectCompassPreview() {
+  const [raw, setRaw] = useState(null);
+  const [search, setSearch] = useState("");
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [assigneeFilter, setAssigneeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [ganttMode, setGanttMode] = useState("projects");
+  const [openTaskDlg, setOpenTaskDlg] = useState(false);
+  const [openProjDlg, setOpenProjDlg] = useState(false);
+
+  useEffect(() => { const saved = LocalStore.load(); setRaw(normalizeData(saved || FULL_JSON)); }, []);
+  useEffect(() => { if (raw) LocalStore.save(raw); }, [raw]);
+
+  const projects = (raw && raw.projects) || [];
+  const tasks    = (raw && raw.tasks)    || [];
+  const people   = (raw && raw.people)   || [];
+
+  const projectMap = useMemo(() => { const m = {}; for (const p of projects) m[p.ProjectID] = p; return m; }, [projects]);
+  const assignees  = useMemo(() => { const s = new Set(); for (const t of tasks) { const a = String(t.assignee || t["担当者"] || ""); if (a) s.add(a); } return Array.from(s); }, [tasks]);
+  const statuses   = useMemo(() => { const s = new Set(); for (const t of tasks) { const st = String(t["ステータス"] || ""); if (st) s.add(st); } return Array.from(s); }, [tasks]);
+
+  const filteredTasks = useMemo(() => {
+    const q = (search || "").trim().toLowerCase();
+    return tasks.filter(t => {
+      const pidOK = projectFilter === "all" || String(t.ProjectID) === projectFilter;
+      const asOK  = assigneeFilter === "all" || String(t.assignee || t["担当者"]) === assigneeFilter;
+      const stOK  = statusFilter   === "all" || String(t["ステータス"]) === statusFilter;
+      const hay = `${t.TaskID||''} ${t['タスク名']||''} ${t['タスク種別']||''} ${t.assignee||t['担当者']||''} ${t['ステータス']||''} ${(projectMap[t.ProjectID]&&projectMap[t.ProjectID]['物件名'])||''}`.toLowerCase();
+      const qOK = q === "" || hay.indexOf(q) !== -1;
+      return pidOK && asOK && stOK && qOK;
+    });
+  }, [tasks, projectFilter, assigneeFilter, statusFilter, search, projectMap]);
+
+  const openCount = useMemo(() => filteredTasks.filter(t => t["ステータス"] !== "完了").length, [filteredTasks]);
+
+  const perProject = useMemo(() => {
+    const m = {};
+    for (const t of tasks) {
+      const pid = String(t.ProjectID || ""); if (!pid) continue;
+      const s = d(t.start || t["予定開始日"]); const e = d(t.end || t["期限"] || t["実績完了日"]);
+      const est = Math.max(0, toNum(t["工数見積(h)"]));
+      const prog = (isFinite(t.progress) ? t.progress : (STATUS_PROGRESS[String(t["ステータス"]) ] || 0));
+      if (!m[pid]) m[pid] = { ProjectID: pid, tasks: [], est: 0, weightedDone: 0, s: null, e: null };
+      m[pid].tasks.push(t); m[pid].est += est; m[pid].weightedDone += est * prog;
+      if (s) m[pid].s = (!m[pid].s || s < m[pid].s) ? s : m[pid].s;
+      if (e) m[pid].e = (!m[pid].e || e > m[pid].e) ? e : m[pid].e;
+    }
+    return Object.keys(m).map(pid => {
+      const x = m[pid]; const p = projectMap[pid] || {};
+      const progress = x.est
+        ? (x.weightedDone / x.est)
+        : (x.tasks.reduce((sum, t) => sum + (isFinite(t.progress) ? t.progress : (STATUS_PROGRESS[String(t["ステータス")] ] || 0)), 0) / (x.tasks.length || 1));
+      return {
+        ProjectID: pid,
+        name: p["物件名"] || pid,
+        status: p["ステータス"] || "",
+        priority: p["優先度"] || "",
+        start: x.s ? fmt(x.s) : (p["開始日"] || ""),
+        due:   x.e ? fmt(x.e) : (p["予定完了日"] || ""),
+        progress: Math.max(0, Math.min(1, progress)),
+        tasks: x.tasks.length,
+        s: x.s, e: x.e,
+      };
+    }).sort((a,b) => (a.due||"").localeCompare(b.due||""));
+  }, [tasks, projectMap]);
+
+  const gantt = useMemo(() => {
+    function build(items) {
+      if (!items.length) return { data: [], min: 0, max: 0, span: 0, ticks: [], minDate: null, maxDate: null, todayX: null };
+      const minMs = Math.min.apply(null, items.map(x => x.s.getTime()));
+      const maxMs = Math.max.apply(null, items.map(x => (x.e || x.s).getTime()));
+      const span = Math.max(1, Math.ceil((maxMs - minMs) / DAY));
+      var step = 1; if (span > 60) step = 7; if (span > 240) step = 30; const ticks = []; for (let i=0; i<=span; i+=step) ticks.push(i);
+      const data = items.map(x => { const start = Math.max(0, Math.floor((x.s.getTime() - minMs) / DAY)); const dur = Math.max(1, Math.ceil(((x.e || x.s).getTime() - x.s.getTime()) / DAY)); return { name: x.label, offset: start, duration: dur }; });
+      const today = new Date(); const todayX = (today.getTime()<minMs||today.getTime()>maxMs) ? null : Math.floor((today.getTime()-minMs)/DAY);
+      return { data, min: 0, max: span, span, ticks, minDate: new Date(minMs), maxDate: new Date(maxMs), todayX };
+    }
+    if (ganttMode === "projects") {
+      const by = {};
+      for (const t of filteredTasks) {
+        const pid = String(t.ProjectID || ""); if (!pid) continue;
+        const s = d(t.start || t["予定開始日"]); const e = d(t.end || t["期限"] || t["実績完了日"]); if (!s) continue; const end = e || s;
+        if (!by[pid]) by[pid] = { label: (projectMap[pid] && projectMap[pid]["物件名"]) || pid, s: s, end: end };
+        else { if (s < by[pid].s) by[pid].s = s; if (end > by[pid].end) by[pid].end = end; }
+      }
+      const items = Object.keys(by).map(pid => ({ id: pid, label: by[pid].label, s: by[pid].s, e: by[pid].end }));
+      return build(items);
+    }
+    const items = filteredTasks.map((t, i) => { const s = d(t.start || t["予定開始日"]); const e = d(t.end || t["期限"] || t["実績完了日"]); return s ? { id: t.TaskID || `T${i+1}`, label: `${t['タスク名']||'(無題)'} / ${t.assignee||t['担当者']||'未設定'}`, s: s, e: e || s } : null; }).filter(Boolean);
+    return build(items);
+  }, [filteredTasks, projectMap, ganttMode]);
+
+  function completeTask(taskId, done) {
+    setRaw(prev => {
+      const next = { ...prev };
+      next.tasks = prev.tasks.map(t => {
+        if (t.TaskID !== taskId) return t;
+        const now = todayStr();
+        const s = done ? "完了" : (t["ステータス"] || "進行中");
+        return { ...t, ステータス: s, 実績完了日: done ? now : (t["実績完了日"] || ""), progress: done ? 1 : (t.progress || (STATUS_PROGRESS[String(t["ステータス")] ] || 0)) };
+      });
+      return next;
+    });
+  }
+
+  function addTask(payload) {
+    setRaw(prev => {
+      const next = { ...prev };
+      const nextId = `T${String((prev.tasks ? prev.tasks.length : 0) + 1).padStart(3, '0')}`;
+      const row = {
+        TaskID: nextId,
+        ProjectID: String(payload.ProjectID || '').trim(),
+        タスク名: payload["タスク名"] || '',
+        タスク種別: payload["タスク種別"] || '',
+        担当者: payload["担当者"] || payload.assignee || '',
+        assignee: payload.assignee || payload["担当者"] || '',
+        優先度: payload["優先度"] || '中',
+        ステータス: payload["ステータス"] || '未着手',
+        予定開始日: payload["予定開始日"] || '',
+        期限: payload["期限"] || '',
+        実績開始日: payload["実績開始日"] || '',
+        実績完了日: payload["実績完了日"] || '',
+        "工数見積(h)": toNum(payload["工数見積(h)"] || 0),
+        "工数実績(h)": toNum(payload["工数実績(h)"] || 0),
+        依頼元: payload["依頼元"] || '',
+        progress: 0,
+        start: payload["予定開始日"] || '',
+        end: payload["期限"] || '',
+        duration_days: (function(){ const s=d(payload["予定開始日"]), e=d(payload["期限"]); return (s&&e)? Math.max(0, Math.ceil((e.getTime()-s.getTime())/DAY)) : 0; })(),
+      };
+      next.tasks = [row].concat(prev.tasks || []);
+      return next;
+    });
+  }
+
+  function addProject(payload) {
+    setRaw(prev => {
+      const next = { ...prev };
+      const count = (prev.projects ? prev.projects.length : 0) + 1;
+      const pid = payload.ProjectID || `P-${String(count).padStart(4, '0')}`;
+      const row = {
+        ProjectID: pid,
+        物件名: payload["物件名"] || '新規プロジェクト',
+        クライアント: payload["クライアント"] || '',
+        LS担当者: payload["LS担当者"] || '',
+        自社PM: payload["自社PM"] || '',
+        ステータス: payload["ステータス"] || '計画中',
+        優先度: payload["優先度"] || '中',
+        開始日: payload["開始日"] || '',
+        予定完了日: payload["予定完了日"] || '',
+        "所在地/現地": payload["所在地/現地"] || '',
+        フォルダURL: payload["フォルダURL"] || '',
+        備考: payload["備考"] || ''
+      };
+      next.projects = [row].concat(prev.projects || []);
+      return next;
+    });
+  }
+
+  const jsonInputRef = useRef(null);
+  const xlsxInputRef = useRef(null);
+  function exportJSON(){ const blob = new Blob([JSON.stringify(raw, null, 2)], {type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`apdw_compass_${todayStr()}.json`; a.click(); URL.revokeObjectURL(a.href); }
+  function exportExcel(){ const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(projects), 'Projects'); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tasks), 'Tasks'); XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(people), 'People'); XLSX.writeFile(wb, `APDW_Project_Compass_${todayStr()}.xlsx`); }
+  function onLoadJSON(e){ const f=e.target.files && e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ try{ setRaw(normalizeData(JSON.parse(String(r.result)))) }catch(err){ alert('JSONの解析に失敗しました。'); } }; r.readAsText(f,'utf-8'); }
+  async function onLoadExcel(e){ const f=e.target.files && e.target.files[0]; if(!f) return; const buf=await f.arrayBuffer(); const wb=XLSX.read(buf,{type:'array'}); const pick=(arr)=>arr.find(n=>wb.Sheets[n]); const snP=pick(['Projects','プロジェクト','プロジェクト概要']); const snT=pick(['Tasks','タスク']); const snPe=pick(['People','担当者']); if(!snP||!snT||!snPe){ alert('Projects/Tasks/People シートが見つかりません。'); return; } const projects=XLSX.utils.sheet_to_json(wb.Sheets[snP]); const tasks=XLSX.utils.sheet_to_json(wb.Sheets[snT]); const people=XLSX.utils.sheet_to_json(wb.Sheets[snPe]); setRaw(normalizeData({projects,tasks,people})); }
+
+  return (
+    <div className="w-full min-h-screen bg-gradient-to-b from-white to-slate-50">
+      {/* 上部バー（モバイルで固定） */}
+      <div className="sticky top-0 z-20 border-b bg-white/90 backdrop-blur px-4 py-3 flex items-center gap-2 justify-between">
+        <div>
+          <div className="text-base md:text-xl font-bold">APDW Project Compass</div>
+          <div className="text-xs md:text-sm text-slate-600">全プロジェクト・タスク反映／ガント（プロジェクト・タスク切替）／モバイル最適化</div>
+        </div>
+        <div className="hidden md:flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={exportJSON}><Download className="h-4 w-4 mr-1"/>JSON</Button>
+          <Button variant="outline" size="sm" onClick={exportExcel}><Download className="h-4 w-4 mr-1"/>Excel</Button>
+          <label className="inline-flex items-center"><input ref={jsonInputRef} type="file" accept="application/json" className="hidden" onChange={onLoadJSON} /><Button variant="secondary" size="sm" onClick={()=>jsonInputRef.current && jsonInputRef.current.click()}><FileJson className="h-4 w-4 mr-1"/>読み込み</Button></label>
+          <label className="inline-flex items-center"><input ref={xlsxInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onLoadExcel} /><Button size="sm" onClick={()=>xlsxInputRef.current && xlsxInputRef.current.click()}><FileSpreadsheet className="h-4 w-4 mr-1"/>読み込み</Button></label>
+        </div>
+      </div>
+
+      <div className="p-4 md:p-8">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-4">
+          <StatCard icon={<ListChecks className="h-4 w-4" />} label="タスク(表示中)" value={String(filteredTasks.length)} />
+          <StatCard icon={<Users className="h-4 w-4" />} label="メンバー" value={String(people.length)} />
+          <StatCard icon={<Calendar className="h-4 w-4" />} label="プロジェクト" value={String(projects.length)} />
+          <StatCard icon={<BarChart3 className="h-4 w-4" />} label="未完了タスク" value={String(openCount)} />
+        </div>
+
+        <Tabs defaultValue="gantt" className="w-full">
+          <TabsList className="grid w-full grid-cols-4 rounded-2xl">
+            <TabsTrigger value="overview">概要</TabsTrigger>
+            <TabsTrigger value="tasks">タスク</TabsTrigger>
+            <TabsTrigger value="gantt">ガント</TabsTrigger>
+            <TabsTrigger value="workload">人別負荷</TabsTrigger>
+          </TabsList>
+
+          {/* 概要 */}
+          <TabsContent value="overview" className="mt-4">
+            <Card className="rounded-2xl">
+              <CardHeader><CardTitle>プロジェクト進捗サマリ</CardTitle></CardHeader>
+              <div className="p-4">
+                <Filters {...{ projects, assignees, statuses, projectFilter, assigneeFilter, statusFilter, setProjectFilter, setAssigneeFilter, setStatusFilter, search, setSearch }} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4 mt-2">
+                  {perProject.map(p => (
+                    <motion.div key={p.ProjectID} initial={{opacity:0,y:6}} animate={{opacity:1,y:0}} transition={{duration:0.2}}>
+                      <div className="rounded-2xl border p-4 bg-white shadow-sm">
+                        <div className="flex items-center justify-between mb-1"><div className="font-semibold text-slate-800 truncate" title={p.name}>{p.name}</div><Badge>{p.status || ''}</Badge></div>
+                        <div className="text-xs text-slate-500 mb-2">{p.start || ''} → {p.due || ''}</div>
+                        <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden"><div className="h-2 bg-slate-800" style={{width:`${Math.round(p.progress*100)}%`}} /></div>
+                        <div className="flex justify-between mt-2 text-xs text-slate-600"><span>進捗 {Math.round(p.progress*100)}%</span><span>タスク {p.tasks}</span></div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </TabsContent>
+
+          {/* タスク */}
+          <TabsContent value="tasks" className="mt-4">
+            <Card className="rounded-2xl">
+              <CardHeader><CardTitle>タスク一覧</CardTitle></CardHeader>
+              <div className="p-4">
+                <Filters {...{ projects, assignees, statuses, projectFilter, assigneeFilter, statusFilter, setProjectFilter, setAssigneeFilter, setStatusFilter, search, setSearch }} />
+                {/* モバイル：カード、デスクトップ：テーブル */}
+                <div className="md:hidden grid grid-cols-1 gap-2 mt-3">
+                  {filteredTasks.map(t => (
+                    <div key={t.TaskID} className="rounded-2xl border bg-white p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium text-slate-800 truncate">{t['タスク名']}</div>
+                        <button className="text-slate-600" onClick={()=>completeTask(t.TaskID,true)} title="完了にする"><CheckCircle2 className="h-5 w-5"/></button>
+                      </div>
+                      <div className="text-xs text-slate-600 mt-1">{(projectMap[t.ProjectID]&&projectMap[t.ProjectID]['物件名'])||t.ProjectID} · {t.assignee||t['担当者']||'未設定'}</div>
+                      <div className="text-xs text-slate-500 mt-1">{t.start||t['予定開始日']} → {t.end||t['期限']||t['実績完了日']}</div>
+                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden mt-2"><div className="h-2 bg-slate-800" style={{width:`${Math.round(((isFinite(t.progress)?t.progress:(STATUS_PROGRESS[String(t['ステータス'])]||0))*100))}%`}} /></div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="hidden md:block overflow-auto rounded-2xl border mt-2">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-slate-600"><tr>
+                      <th className="text-left p-3">完了</th>
+                      <th className="text-left p-3">タスク名</th>
+                      <th className="text-left p-3">プロジェクト</th>
+                      <th className="text-left p-3">担当者</th>
+                      <th className="text-left p-3">予定</th>
+                      <th className="text-left p-3">工数(h)</th>
+                      <th className="text-left p-3">進捗</th>
+                      <th className="text-left p-3">優先度</th>
+                      <th className="text-left p-3">ステータス</th>
+                    </tr></thead>
+                    <tbody>
+                      {filteredTasks.map(t => (
+                        <tr key={t.TaskID} className="border-t">
+                          <td className="p-3"><input type="checkbox" onChange={(e)=>completeTask(t.TaskID,e.currentTarget.checked)} title="完了にする"/></td>
+                          <td className="p-3 font-medium text-slate-800">{t['タスク名']}</td>
+                          <td className="p-3">{(projectMap[t.ProjectID]&&projectMap[t.ProjectID]['物件名'])||t.ProjectID}</td>
+                          <td className="p-3">{t.assignee||t['担当者']||'未設定'}</td>
+                          <td className="p-3 whitespace-nowrap">{t.start||t['予定開始日']} → {t.end||t['期限']||t['実績完了日']}</td>
+                          <td className="p-3">{toNum(t['工数見積(h)'])||'-'}</td>
+                          <td className="p-3 w-40"><div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden"><div className="h-2 bg-slate-800" style={{width:`${Math.round(((isFinite(t.progress)?t.progress:(STATUS_PROGRESS[String(t['ステータス'])]||0))*100))}%`}} /></div></td>
+                          <td className="p-3">{t['優先度']||''}</td>
+                          <td className="p-3"><Badge variant="secondary">{t['ステータス']}</Badge></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </Card>
+          </TabsContent>
+
+          {/* ガント */}
+          <TabsContent value="gantt" className="mt-4">
+            <Card className="rounded-2xl">
+              <CardHeader><CardTitle>ガント（プロジェクト/タスク切替・日付軸・Todayライン）</CardTitle></CardHeader>
+              <div className="p-4">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <Filters {...{ projects, assignees, statuses, projectFilter, assigneeFilter, statusFilter, setProjectFilter, setAssigneeFilter, setStatusFilter, search, setSearch }} />
+                  <Select value={ganttMode} onValueChange={setGanttMode}><SelectTrigger className="w-[200px] rounded-2xl"><SelectValue placeholder="ガント表示"/></SelectTrigger><SelectContent><SelectItem value="tasks">タスクごと</SelectItem><SelectItem value="projects">プロジェクトごと</SelectItem></SelectContent></Select>
+                </div>
+                <div className="text-xs text-slate-600 mt-3">{gantt.minDate ? `${fmt(gantt.minDate)} → ${fmt(gantt.maxDate)}（${gantt.span}日）` : '期間付きデータがありません'}</div>
+                <div className="h-[560px] w-full mt-2">
+                  {gantt.data.length===0 ? (
+                    <div className="h-full grid place-items-center text-slate-500">期間付きデータがありません</div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RBarChart data={gantt.data} layout="vertical" margin={{ left: 160, right: 16, top: 8, bottom: 8 }}>
+                        <CartesianGrid horizontal={true} vertical={false} strokeDasharray="3 3" />
+                        <XAxis type="number" domain={[gantt.min, gantt.max]} ticks={gantt.ticks} tickFormatter={(v)=>{ const base=gantt.minDate?gantt.minDate.getTime():0; const dt=new Date(base + Number(v)*DAY); return fmt(dt); }} />
+                        <YAxis type="category" dataKey="name" width={150} tick={{fontSize:12}} />
+                        <Bar dataKey="offset" stackId="g" fill="rgba(0,0,0,0)" />
+                        <Bar dataKey="duration" stackId="g" radius={[0,6,6,0]} />
+                        { (typeof gantt.todayX === 'number') ? (<ReferenceLine x={gantt.todayX} stroke="#0f172a" strokeDasharray="4 3" />) : null }
+                        <Tooltip formatter={(val,name)=>{ if(name==='duration') return [val+'日','期間']; if(name==='offset') return [val+'日','開始まで']; return [val,name]; }} labelFormatter={()=>''} />
+                      </RBarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+            </Card>
+          </TabsContent>
+
+          {/* 人別負荷 */}
+          <TabsContent value="workload" className="mt-4">
+            <Card className="rounded-2xl">
+              <CardHeader><CardTitle>人別負荷（工数見積の合計）</CardTitle></CardHeader>
+              <div className="p-4">
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                  <div className="xl:col-span-2 h-[360px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RBarChart data={(function(){ const m={}; for(const t of tasks){ const a=String(t.assignee||t['担当者']||'未設定'); if(!m[a]) m[a]={assignee:a,est:0,count:0}; m[a].est+=toNum(t['工数見積(h)']); m[a].count+=1; } return Object.values(m).sort((a,b)=>b.est-a.est); })()} margin={{left:16,right:16,top:8,bottom:8}}>
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                        <XAxis dataKey="assignee" tick={{fontSize:12}} />
+                        <YAxis />
+                        <Tooltip formatter={(v)=>[v,'工数(h)']} />
+                        <Bar dataKey="est" radius={[6,6,0,0]} />
+                      </RBarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="xl:col-span-1">
+                    <div className="space-y-2">
+                      {(function(){ const m={}; for(const t of tasks){ const a=String(t.assignee||t['担当者']||'未設定'); if(!m[a]) m[a]={assignee:a,est:0,count:0}; m[a].est+=toNum(t['工数見積(h)']); m[a].count+=1; } return Object.values(m).sort((a,b)=>b.est-a.est).map(w => (
+                        <div key={w.assignee} className="flex items-center justify-between rounded-2xl border p-3 bg-white">
+                          <div><div className="font-medium text-slate-800">{w.assignee}</div><div className="text-xs text-slate-500">タスク {w.count} 件</div></div>
+                          <div className="text-right"><div className="text-lg font-semibold">{Math.round(w.est)}</div><div className="text-xs text-slate-500">h</div></div>
+                        </div>
+                      )); })()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {/* モバイル用 下部アクションバー */}
+      <div className="fixed bottom-0 inset-x-0 z-20 md:hidden bg-white/95 backdrop-blur border-t px-4 py-3 flex items-center justify-between">
+        <Button className="rounded-2xl" onClick={()=>setOpenTaskDlg(true)}><Plus className="h-5 w-5 mr-1"/>タスク追加</Button>
+        <Button variant="outline" className="rounded-2xl" onClick={()=>setOpenProjDlg(true)}><Plus className="h-5 w-5 mr-1"/>プロジェクト追加</Button>
+      </div>
+
+      {/* 追加ダイアログ：タスク */}
+      <Dialog open={openTaskDlg} onOpenChange={setOpenTaskDlg}>
+        <DialogContent className="rounded-2xl max-w-lg">
+          <DialogHeader><DialogTitle>タスク追加</DialogTitle></DialogHeader>
+          <TaskForm projects={projects} assignees={assignees} onSubmit={(payload)=>{ addTask(payload); setOpenTaskDlg(false); }} />
+          <DialogFooter><Button onClick={()=>setOpenTaskDlg(false)} variant="secondary">閉じる</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 追加ダイアログ：プロジェクト */}
+      <Dialog open={openProjDlg} onOpenChange={setOpenProjDlg}>
+        <DialogContent className="rounded-2xl max-w-lg">
+          <DialogHeader><DialogTitle>プロジェクト追加</DialogTitle></DialogHeader>
+          <ProjectForm onSubmit={(payload)=>{ addProject(payload); setOpenProjDlg(false); }} />
+          <DialogFooter><Button onClick={()=>setOpenProjDlg(false)} variant="secondary">閉じる</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function StatCard({ icon, label, value }){
+  return (
+    <div className="rounded-2xl border bg-white shadow-sm p-4 text-center md:text-left">
+      <div className="flex items-center gap-2 text-slate-500 mb-1 justify-center md:justify-start">{icon}<span className="text-xs">{label}</span></div>
+      <div className="text-xl md:text-2xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function Filters({ projects, assignees, statuses, projectFilter, assigneeFilter, statusFilter, setProjectFilter, setAssigneeFilter, setStatusFilter, search, setSearch }){
+  return (
+    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div className="flex gap-2 w-full md:w-auto">
+        <Select value={projectFilter} onValueChange={setProjectFilter}>
+          <SelectTrigger className="w-full md:w-[220px] rounded-2xl"><SelectValue placeholder="プロジェクト" /></SelectTrigger>
+          <SelectContent><SelectItem value="all">すべてのプロジェクト</SelectItem>{projects.map(p => (<SelectItem key={p.ProjectID} value={String(p.ProjectID)}>{p['物件名'] || p.ProjectID}</SelectItem>))}</SelectContent>
+        </Select>
+        <Select value={assigneeFilter} onValueChange={setAssigneeFilter}>
+          <SelectTrigger className="w-full md:w-[160px] rounded-2xl"><SelectValue placeholder="担当者" /></SelectTrigger>
+          <SelectContent><SelectItem value="all">全員</SelectItem>{assignees.map(a => (<SelectItem key={a} value={a}>{a}</SelectItem>))}</SelectContent>
+        </Select>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-full md:w-[160px] rounded-2xl"><SelectValue placeholder="ステータス" /></SelectTrigger>
+          <SelectContent><SelectItem value="all">全て</SelectItem>{statuses.map(s => (<SelectItem key={s} value={s}>{s}</SelectItem>))}</SelectContent>
+        </Select>
+      </div>
+      <div className="relative w-full md:w-auto"><Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" /><Input placeholder="検索（タスク名・担当者・プロジェクト）" value={search} onChange={(e)=>setSearch(e.target.value)} className="pl-8 rounded-2xl" /></div>
+    </div>
+  );
+}
+
+function TaskForm({ projects, assignees, onSubmit }){
+  const [form, setForm] = useState({ ProjectID: "", "タスク名": "", "担当者": "", "予定開始日": "", "期限": "", "優先度": "中", "ステータス": "未着手", "工数見積(h)": 4 });
+  function change(k, v){ setForm(s => ({ ...s, [k]: v })); }
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <div className="text-xs text-slate-500 mb-1">プロジェクト</div>
+          <Select value={form.ProjectID} onValueChange={(v)=>change('ProjectID', v)}>
+            <SelectTrigger className="rounded-2xl"><SelectValue placeholder="選択"/></SelectTrigger>
+            <SelectContent>
+              {projects.map(p => (<SelectItem key={p.ProjectID} value={String(p.ProjectID)}>{p['物件名'] || p.ProjectID}</SelectItem>))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <div className="text-xs text-slate-500 mb-1">担当者</div>
+          <Select value={form['担当者']} onValueChange={(v)=>change('担当者', v)}>
+            <SelectTrigger className="rounded-2xl"><SelectValue placeholder="選択"/></SelectTrigger>
+            <SelectContent>
+              {assignees.map(a => (<SelectItem key={a} value={a}>{a}</SelectItem>))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <Field label="タスク名"><Input value={form['タスク名']} onChange={(e)=>change('タスク名', e.target.value)} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="予定開始日"><Input type="date" value={form['予定開始日']} onChange={(e)=>change('予定開始日', e.target.value)} /></Field>
+        <Field label="期限"><Input type="date" value={form['期限']} onChange={(e)=>change('期限', e.target.value)} /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="優先度"><Select value={form['優先度']} onValueChange={(v)=>change('優先度', v)}><SelectTrigger className="rounded-2xl"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="高">高</SelectItem><SelectItem value="中">中</SelectItem><SelectItem value="低">低</SelectItem></SelectContent></Select></Field>
+        <Field label="ステータス"><Select value={form['ステータス']} onValueChange={(v)=>change('ステータス', v)}><SelectTrigger className="rounded-2xl"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="未着手">未着手</SelectItem><SelectItem value="進行中">進行中</SelectItem><SelectItem value="確認待ち">確認待ち</SelectItem><SelectItem value="保留">保留</SelectItem><SelectItem value="完了">完了</SelectItem></SelectContent></Select></Field>
+      </div>
+      <Field label="工数見積(h)"><Input type="number" inputMode="numeric" value={form['工数見積(h)']} onChange={(e)=>change('工数見積(h)', e.target.value)} /></Field>
+      <div className="flex justify-end gap-2 pt-2"><Button variant="secondary" onClick={()=>onSubmit(form)}>追加</Button></div>
+    </div>
+  );
+}
+
+function ProjectForm({ onSubmit }){
+  const [form, setForm] = useState({ "物件名": "", "ステータス": "計画中", "優先度": "中", "開始日": "", "予定完了日": "" });
+  function change(k, v){ setForm(s => ({ ...s, [k]: v })); }
+  return (
+    <div className="space-y-3">
+      <Field label="物件名"><Input value={form['物件名']} onChange={(e)=>change('物件名', e.target.value)} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="開始日"><Input type="date" value={form['開始日']} onChange={(e)=>change('開始日', e.target.value)} /></Field>
+        <Field label="予定完了日"><Input type="date" value={form['予定完了日']} onChange={(e)=>change('予定完了日', e.target.value)} /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="ステータス"><Select value={form['ステータス']} onValueChange={(v)=>change('ステータス', v)}><SelectTrigger className="rounded-2xl"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="計画中">計画中</SelectItem><SelectItem value="設計中">設計中</SelectItem><SelectItem value="見積">見積</SelectItem><SelectItem value="実施中">実施中</SelectItem><SelectItem value="完了">完了</SelectItem></SelectContent></Select></Field>
+        <Field label="優先度"><Select value={form['優先度']} onValueChange={(v)=>change('優先度', v)}><SelectTrigger className="rounded-2xl"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="高">高</SelectItem><SelectItem value="中">中</SelectItem><SelectItem value="低">低</SelectItem></SelectContent></Select></Field>
+      </div>
+      <div className="flex justify-end gap-2 pt-2"><Button variant="secondary" onClick={()=>onSubmit(form)}>追加</Button></div>
+    </div>
+  );
+}
+
+function Field({ label, children }){
+  return (
+    <div>
+      <div className="text-xs text-slate-500 mb-1">{label}</div>
+      {children}
+    </div>
+  );
+}
+
+// ====== Dev用テスト（ブラウザコンソールに出力） ======
+(function runDevTests(){
+  try {
+    console.assert(toNum('1,200') === 1200, 'toNum parse comma');
+    console.assert(toNum('') === 0, 'toNum empty');
+    console.assert(fmt('2025-01-02') === '2025-01-02', 'fmt basic');
+
+    const n = normalizeData({ projects: [], people: [], tasks: [ { "TaskID":"T1", "ProjectID":"P1", "タスク名":"X", "ステータス":"進行中", "工数見積(h)":10, "工数実績(h)":5, "予定開始日":"2025-01-01", "期限":"2025-01-03" } ] });
+    console.assert(n.tasks[0].progress === 0.5, 'progress 5/10');
+    console.assert(n.tasks[0].duration_days === 2, 'duration 2 days');
+
+    const n2 = normalizeData({ projects: [], people: [], tasks: [ { "TaskID":"T2", "ProjectID":"P1", "タスク名":"Y", "ステータス":"完了", "予定開始日":"2025-01-01", "期限":"2025-01-01" } ] });
+    console.assert(n2.tasks[0].progress === 1, 'status 完了 => 1');
+
+    // 追加テスト: ステータス参照の添字表記の健全性
+    console.assert(STATUS_PROGRESS[String('進行中')] === 0.5, 'status index access works');
+    const n3 = normalizeData({ projects: [], people: [], tasks: [ { "TaskID":"T3", "ProjectID":"P2", "タスク名":"Z", "ステータス":"未着手" } ] });
+    console.assert(n3.tasks[0].progress === 0, 'status 未着手 => 0');
+
+    console.info('%cAPDW tests passed','color:#16a34a');
+  } catch (e) {
+    console.error('APDW tests failed', e);
+  }
+})();

@@ -1,0 +1,518 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ReferenceArea, ResponsiveContainer } from 'recharts';
+import type { TooltipProps } from 'recharts';
+import { DAY_MS } from '../lib/date';
+
+export interface GanttDatum {
+  key: string;
+  name: string;
+  offset: number;
+  duration: number;
+  startLabel: string;
+  endLabel: string;
+  startDate: Date;
+  endDate: Date;
+  durationDays: number;
+  status?: string;
+  isOverdue?: boolean;
+  progressRatio?: number;
+}
+
+export interface GanttProps {
+  data: GanttDatum[];
+  ticks: number[];
+  min: number;
+  max: number;
+  minDate: Date | null;
+  maxDate: Date | null;
+  todayX: number | null;
+  interactive?: boolean;
+  onChange?: (entry: GanttDatum, change: { startDate: Date; endDate: Date; offset: number; duration: number }, kind: InteractionKind) => void;
+}
+
+const STATUS_COLOR_MAP: Record<string, string> = {
+  完了: '#0f766e',
+  進行中: '#2563eb',
+  確認待ち: '#d97706',
+  保留: '#f97316',
+  未着手: '#94a3b8',
+};
+
+const DEFAULT_STATUS_COLOR = '#0f172a';
+const OVERDUE_COLOR = '#dc2626';
+const DEFAULT_STATUS_LABEL = 'ステータス未設定';
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
+function getBarColor(entry: GanttDatum) {
+  if (entry.isOverdue && entry.status !== '完了') {
+    return OVERDUE_COLOR;
+  }
+  if (entry.status && STATUS_COLOR_MAP[entry.status]) {
+    return STATUS_COLOR_MAP[entry.status];
+  }
+  return DEFAULT_STATUS_COLOR;
+}
+
+function getLegendLabel(entry: GanttDatum) {
+  if (entry.isOverdue && entry.status !== '完了') {
+    return '期限超過';
+  }
+  return entry.status ?? DEFAULT_STATUS_LABEL;
+}
+
+function getBarOpacity(entry: GanttDatum) {
+  if (entry.status === '完了') return 0.55;
+  if (entry.status === '未着手') return 0.75;
+  return 0.95;
+}
+
+function formatAxisTickLabel(minDate: Date | null, value: number) {
+  if (!minDate) return `${value}`;
+  const dt = new Date(minDate.getTime() + Number(value) * DAY_MS);
+  const month = dt.getMonth() + 1;
+  const day = dt.getDate();
+  return `${month}/${day}`;
+}
+
+function formatTooltipDate(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const weekday = WEEKDAYS[date.getDay()];
+  return `${year}/${month}/${day} (${weekday})`;
+}
+
+function GanttTooltip({ active, payload }: TooltipProps<number, string>) {
+  if (!active || !payload?.length) return null;
+  const entry = payload[0].payload as GanttDatum;
+  const progress = typeof entry.progressRatio === 'number' ? Math.round(entry.progressRatio * 100) : null;
+  return (
+    <div className="min-w-[220px] rounded-2xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur">
+      <div className="text-sm font-semibold text-slate-800">{entry.name}</div>
+      <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+        <span>{formatTooltipDate(entry.startDate)}</span>
+        <span>→</span>
+        <span>{formatTooltipDate(entry.endDate)}</span>
+      </div>
+      <div className="mt-1 text-[11px] text-slate-500">期間: {entry.durationDays}日</div>
+      {entry.status ? (
+        <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
+          <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getBarColor(entry) }} />
+            {entry.status}
+          </span>
+          {entry.isOverdue ? (
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-600">期限超過</span>
+          ) : null}
+        </div>
+      ) : null}
+      {typeof progress === 'number' ? (
+        <div className="mt-2 flex items-center gap-2">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-1.5 bg-slate-800" style={{ width: `${progress}%` }} />
+          </div>
+          <span className="text-[11px] font-medium text-slate-700">{progress}%</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type InteractionKind = 'move' | 'resize-start' | 'resize-end';
+
+interface DragState {
+  entry: GanttDatum;
+  kind: InteractionKind;
+  startX: number;
+  initialOffset: number;
+  initialDuration: number;
+  currentOffset: number;
+  currentDuration: number;
+  pointerId: number;
+}
+
+export function GanttChartView({ data, ticks, min, max, minDate, todayX, interactive = false, onChange }: GanttProps) {
+  const [chartWidth, setChartWidth] = useState(0);
+  const [preview, setPreview] = useState<Record<string, { offset: number; duration: number }>>({});
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const configRef = useRef({ minDate, max, chartWidth });
+  const onChangeRef = useRef(typeof onChange === 'function' ? onChange : undefined);
+
+  const noData = data.length === 0;
+
+  useEffect(() => {
+    configRef.current = { minDate, max, chartWidth };
+  }, [minDate, max, chartWidth]);
+
+  useEffect(() => {
+    onChangeRef.current = typeof onChange === 'function' ? onChange : undefined;
+  }, [onChange]);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      setChartWidth(containerRef.current.clientWidth);
+    }
+  }, [data, ticks]);
+
+  useEffect(() => {
+    if (!data.length) {
+      setPreview({});
+      return;
+    }
+    setPreview((prev) => {
+      const keep = new Set(data.map((item) => item.key));
+      const next: Record<string, { offset: number; duration: number }> = {};
+      let changed = false;
+      Object.entries(prev).forEach(([key, value]) => {
+        if (keep.has(key)) {
+          next[key] = value;
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [data]);
+
+  const displayData = useMemo(() => {
+    if (!Object.keys(preview).length) return data;
+    return data.map((item) => {
+      const override = preview[item.key];
+      if (!override) return item;
+      return { ...item, offset: override.offset, duration: override.duration };
+    });
+  }, [data, preview]);
+
+  const legendItems = useMemo(() => {
+    const map = new Map<string, { key: string; label: string; color: string }>();
+    displayData.forEach((entry) => {
+      const label = getLegendLabel(entry);
+      const color = getBarColor(entry);
+      if (!map.has(label)) {
+        map.set(label, { key: label, label, color });
+      }
+    });
+    return Array.from(map.values());
+  }, [displayData]);
+
+  const handleWindowPointerMove = useCallback(
+    (event: PointerEvent) => {
+      const state = dragRef.current;
+      if (!state) return;
+
+      const { chartWidth: width, max: spanRaw } = configRef.current;
+      if (!width || width <= 0) return;
+      const span = Math.max(1, spanRaw || 1);
+      const pixelsPerDay = width / span;
+      if (!Number.isFinite(pixelsPerDay) || pixelsPerDay === 0) return;
+
+      const deltaDays = Math.round((event.clientX - state.startX) / pixelsPerDay);
+
+      let newOffset = state.initialOffset;
+      let newDuration = state.initialDuration;
+
+      if (state.kind === 'move') {
+        newOffset = state.initialOffset + deltaDays;
+        const maxOffset = Math.max(0, span - state.initialDuration);
+        if (newOffset < 0) newOffset = 0;
+        if (newOffset > maxOffset) newOffset = maxOffset;
+      } else if (state.kind === 'resize-start') {
+        newOffset = state.initialOffset + deltaDays;
+        const maxOffset = state.initialOffset + state.initialDuration - 1;
+        if (newOffset < 0) newOffset = 0;
+        if (newOffset > maxOffset) newOffset = maxOffset;
+        newDuration = state.initialDuration + (state.initialOffset - newOffset);
+        if (newDuration < 1) {
+          newDuration = 1;
+          newOffset = state.initialOffset + state.initialDuration - 1;
+        }
+        if (newOffset + newDuration > span) {
+          const overflow = newOffset + newDuration - span;
+          newOffset = Math.max(0, newOffset - overflow);
+          newDuration = span - newOffset;
+        }
+      } else {
+        // resize-end
+        newDuration = state.initialDuration + deltaDays;
+        if (newDuration < 1) newDuration = 1;
+        const maxDuration = Math.max(1, span - state.initialOffset);
+        if (newDuration > maxDuration) newDuration = maxDuration;
+        newOffset = state.initialOffset;
+      }
+
+      if (newOffset === state.currentOffset && newDuration === state.currentDuration) return;
+
+      state.currentOffset = newOffset;
+      state.currentDuration = newDuration;
+      setPreview((prev) => ({
+        ...prev,
+        [state.entry.key]: { offset: newOffset, duration: newDuration },
+      }));
+    },
+    []
+  );
+
+  const handleWindowPointerEnd = useCallback(
+    (event: PointerEvent) => {
+      const state = dragRef.current;
+      if (!state) return;
+
+      window.removeEventListener('pointermove', handleWindowPointerMove);
+      window.removeEventListener('pointerup', handleWindowPointerEnd);
+      window.removeEventListener('pointercancel', handleWindowPointerEnd);
+
+      dragRef.current = null;
+      setActiveId(null);
+      setPreview((prev) => {
+        const next = { ...prev };
+        delete next[state.entry.key];
+        return next;
+      });
+
+      const { minDate: baseline } = configRef.current;
+      if (!baseline) return;
+
+      const offset = state.currentOffset;
+      const duration = state.currentDuration;
+      if (offset === state.initialOffset && duration === state.initialDuration) return;
+
+      const startDate = new Date(baseline.getTime() + offset * DAY_MS);
+      const endDate = new Date(startDate.getTime() + (duration - 1) * DAY_MS);
+
+      onChangeRef.current?.(state.entry, { startDate, endDate, offset, duration }, state.kind);
+    },
+    [handleWindowPointerMove]
+  );
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener('pointermove', handleWindowPointerMove);
+      window.removeEventListener('pointerup', handleWindowPointerEnd);
+      window.removeEventListener('pointercancel', handleWindowPointerEnd);
+    };
+  }, [handleWindowPointerEnd, handleWindowPointerMove]);
+
+  const handlePointerDown = useCallback(
+    (entry: GanttDatum, kind: InteractionKind, event: React.PointerEvent<SVGRectElement>) => {
+      if (!interactive) return;
+      if (!configRef.current.minDate) return;
+      const span = Math.max(1, configRef.current.max || 1);
+      if (span <= 0) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      dragRef.current = {
+        entry,
+        kind,
+        startX: event.clientX,
+        initialOffset: entry.offset,
+        initialDuration: entry.duration,
+        currentOffset: entry.offset,
+        currentDuration: entry.duration,
+        pointerId: event.pointerId,
+      };
+
+      try {
+        (event.currentTarget as SVGRectElement).setPointerCapture?.(event.pointerId);
+      } catch (err) {
+        // ignore if pointer capture is not supported
+      }
+
+      setActiveId(entry.key);
+      setPreview((prev) => ({
+        ...prev,
+        [entry.key]: { offset: entry.offset, duration: entry.duration },
+      }));
+
+      window.addEventListener('pointermove', handleWindowPointerMove);
+      window.addEventListener('pointerup', handleWindowPointerEnd);
+      window.addEventListener('pointercancel', handleWindowPointerEnd);
+    },
+    [interactive, handleWindowPointerEnd, handleWindowPointerMove]
+  );
+
+  if (noData) {
+    return (
+      <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-sm text-slate-500">
+        表示できるスケジュールがありません
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-[320px] flex-col gap-3">
+      {legendItems.length ? (
+        <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+          {legendItems.map((item) => (
+            <span
+              key={item.key}
+              className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-2.5 py-1"
+            >
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+              {item.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className="relative flex-1" ref={containerRef}>
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          onResize={(width) => {
+            if (typeof width === 'number' && !Number.isNaN(width)) {
+              setChartWidth(width);
+            }
+          }}
+        >
+          <BarChart
+            data={displayData}
+            layout="vertical"
+            margin={{ left: 220, right: 24, top: 16, bottom: 16 }}
+            barCategoryGap={18}
+          >
+            <CartesianGrid horizontal vertical={false} stroke="#e2e8f0" strokeDasharray="2 4" />
+            <XAxis
+              type="number"
+              domain={[min, max]}
+              ticks={ticks}
+              tickLine={false}
+              axisLine={{ stroke: '#e2e8f0' }}
+              tick={{ fontSize: 11, fill: '#475569' }}
+              tickFormatter={(value) => formatAxisTickLabel(minDate, Number(value))}
+              tickMargin={8}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              width={220}
+              tickLine={false}
+              axisLine={false}
+              tick={{ fontSize: 12, fill: '#1e293b' }}
+            />
+            <Bar dataKey="offset" stackId="g" fill="transparent" isAnimationActive={false} />
+            <Bar
+              dataKey="duration"
+              stackId="g"
+              radius={[8, 8, 8, 8]}
+              minPointSize={2}
+              isAnimationActive={false}
+              shape={(shapeProps: any) => {
+                const entry = shapeProps.payload as GanttDatum;
+                const color = getBarColor(entry);
+                const opacity = getBarOpacity(entry);
+                return (
+                  <InteractiveBarShape
+                    {...shapeProps}
+                    color={color}
+                    fillOpacity={opacity}
+                    entry={entry}
+                    interactive={interactive && (!entry.status || entry.status !== '完了')}
+                    isActive={entry.key === activeId}
+                    onPointerDown={handlePointerDown}
+                  />
+                );
+              }}
+            />
+            {typeof todayX === 'number' ? (
+              <>
+                <ReferenceArea x1={todayX} x2={todayX + 1} fill="rgba(37, 99, 235, 0.08)" strokeOpacity={0} />
+                <ReferenceLine x={todayX} stroke="#2563eb" strokeDasharray="3 3" strokeWidth={1.2} />
+              </>
+            ) : null}
+            <Tooltip
+              content={<GanttTooltip />}
+              cursor={{ fill: 'rgba(148, 163, 184, 0.14)' }}
+              wrapperClassName="!outline-none"
+            />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+interface InteractiveBarShapeProps {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  radius?: number | [number, number, number, number];
+  color: string;
+  fillOpacity: number;
+  entry: GanttDatum;
+  interactive: boolean;
+  onPointerDown: (entry: GanttDatum, kind: InteractionKind, event: React.PointerEvent<SVGRectElement>) => void;
+  isActive: boolean;
+}
+
+function InteractiveBarShape(props: InteractiveBarShapeProps) {
+  const { x = 0, y = 0, width = 0, height = 0, color, fillOpacity, entry, interactive, onPointerDown, isActive } = props;
+  const handleWidth = Math.min(12, Math.max(6, width / 4));
+  const cornerRadius = 8;
+  const handle = (kind: InteractionKind, rectX: number) => (
+    <rect
+      x={rectX}
+      y={0}
+      width={handleWidth}
+      height={height}
+      fill="transparent"
+      style={{ cursor: interactive ? 'ew-resize' : 'default' }}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        if (!interactive) return;
+        onPointerDown(entry, kind, event);
+      }}
+    />
+  );
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <rect
+        x={0}
+        y={0}
+        width={Math.max(width, 2)}
+        height={height}
+        rx={cornerRadius}
+        ry={cornerRadius}
+        fill={color}
+        fillOpacity={fillOpacity}
+        stroke={isActive ? 'rgba(37, 99, 235, 0.6)' : 'transparent'}
+        strokeWidth={isActive ? 1.5 : 0}
+        style={{ cursor: interactive ? 'grab' : 'default' }}
+        onPointerDown={(event) => {
+          if (!interactive) return;
+          onPointerDown(entry, 'move', event);
+        }}
+      />
+      {interactive && width > handleWidth * 2 ? (
+        <>
+          {handle('resize-start', 0)}
+          {handle('resize-end', width - handleWidth)}
+          <rect
+            x={0}
+            y={0}
+            width={handleWidth}
+            height={height}
+            fill="rgba(15, 23, 42, 0.12)"
+            pointerEvents="none"
+            rx={cornerRadius}
+            ry={cornerRadius}
+          />
+          <rect
+            x={width - handleWidth}
+            y={0}
+            width={handleWidth}
+            height={height}
+            fill="rgba(15, 23, 42, 0.12)"
+            pointerEvents="none"
+            rx={cornerRadius}
+            ry={cornerRadius}
+          />
+        </>
+      ) : null}
+    </g>
+  );
+}

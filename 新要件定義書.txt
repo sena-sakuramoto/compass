@@ -1,0 +1,725 @@
+以下は、いただいた v1.0 の仕様に、**工程表（ガント＋ドラッグ＆ドロップ）**、**担当者スケジューラ**、**メールリマインド**、**Google カレンダー連携**を正式要件として統合した **「APDW Project Compass — Google Edition v1.1.0」** の**完全仕様書**です。
+そのままコード生成器（Codex CLI など）へ投入できる **YAML 実装仕様**を第1部に、詳細設計／運用仕様を第2部以降にまとめています。
+
+---
+
+# 第1部：Codex CLI 実装仕様（YAML / v1.1.0）
+
+```yaml
+meta:
+  name: "APDW Project Compass — Google Edition"
+  version: 1.1.0
+  owner: "Archi-Prisma Design works"
+  default_mode: firebase        # firebase | gas
+  language: ja-JP
+  timezone: Asia/Tokyo
+  repo_style: monorepo          # web + api(functions) 同一リポジトリ
+  region: asia-northeast1       # Firebase Functions/Firestore リージョン
+
+requirements:
+  goals:
+    - プロジェクト/タスク/人員管理、進捗、ガント、担当者別負荷を1つのWebアプリで可視化
+    - スマホ最適化（モバイルの下部固定アクション、カードUI）
+    - 追加/編集/完了の直感操作、検索・フィルタ（プロジェクト/担当/ステータス/フリーワード）
+    - Excel/CSV 取り込み・出力（Projects/Tasks/People 構造）
+    - 認証は Google ログインで、組織メール許可リスト制御
+    - 工程表（ガント）のドラッグ＆ドロップ／リサイズで直感的に日付・期間変更
+    - 担当者スイムレーン（資源行）で負荷の可視化
+    - タスク開始日・期限前日・期限当日・超過時の自動メール通知
+    - Google カレンダー連携（タスク⇄カレンダーの片方向/双方向同期を選択可能）
+    - PWA & オフラインキャッシュ（Firestore SDK）
+  non_goals:
+    - 外部SaaS(DB)は使わない（Google環境で完結）
+    - 複雑な承認ワークフローは初期スコープ外（将来拡張で検討）
+    - 正確なリソース最適化アルゴリズム（自動山崩し等）は範囲外（将来拡張）
+
+modes:
+  firebase:       # 推奨：リアルタイム・多人数編集・拡張性
+    hosting: Firebase Hosting
+    auth: Firebase Authentication (Google provider)
+    db: Firestore (native, serverTimestamp, withConverter)
+    functions: Cloud Functions for Firebase v2 (Node 20, TypeScript, region=${meta.region})
+    tasks: Cloud Tasks（通知/同期の時刻指定キュー）
+    storage: Firebase Storage（Excel入出力ファイルの一時保管）
+    scheduler: Cloud Scheduler（毎日9:00 JST のジョブ等）
+  gas:            # 代替：Google Apps Script + Sheets
+    spreadsheet_id: "${TODO_SPREADSHEET_ID}"  # Projects/Tasks/People を持つスプシ
+    auth: Google アカウント/ドメイン制限
+    webapp_access: "Anyone with Google login in allowlist"
+    triggers: Time-driven（毎日9:00 JST など）
+
+security:
+  allow_emails:   # 許可メール（ワイルドカード可、正規表現はFirebase Rules内でエスケープ）
+    - "*@archi-prisma.co.jp"
+    - "s.sakuramoto@archi-prisma.co.jp"
+  roles:
+    - id: admin
+      can: [projects:crud, tasks:crud, people:crud, export, import, settings, schedule:write, calendar:write]
+    - id: member
+      can: [projects:read, tasks:crud, people:read, export]
+    - id: viewer
+      can: [projects:read, tasks:read, people:read]
+  cors:
+    allowed_origins: ["https://*.web.app", "http://localhost:5173"]
+  scopes:
+    gmail: ["https://www.googleapis.com/auth/gmail.send"]               # Firebaseモード（ドメインワイド委任）
+    calendar: ["https://www.googleapis.com/auth/calendar"]              # 同上
+  secrets_env:
+    - GSA_CLIENT_EMAIL        # サービスアカウント
+    - GSA_PRIVATE_KEY         # ----BEGIN PRIVATE KEY-----（\n を実体化）
+    - ORG_ID                  # Firestore ルート orgId
+    - ALLOW_EMAILS            # カンマ区切りの許可パターン（冗長設定）
+
+# ============================
+# データモデル（共通）
+# ============================
+models:
+  Project:
+    id: string           # 例: P-0001（サーバーで採番）
+    物件名: string
+    クライアント: string
+    LS担当者: string
+    自社PM: string
+    ステータス: enum[計画中, 設計中, 見積, 実施中, 完了]
+    優先度: enum[高, 中, 低]
+    開始日: date | null
+    予定完了日: date | null
+    所在地/現地: string | null
+    フォルダURL: string | null
+    備考: string | null
+    createdAt: timestamp
+    updatedAt: timestamp
+
+  Task:
+    id: string           # 例: T000001（全体連番、サーバー採番）
+    projectId: string (ref->Project)
+    タスク名: string
+    タスク種別: string | null
+    担当者: string | null              # 表示名（People.氏名）
+    担当者メール: string | null         # メール宛先（通知/カレンダー）
+    優先度: enum[高, 中, 低] | null
+    ステータス: enum[未着手, 進行中, 確認待ち, 保留, 完了]
+    予定開始日: date | null
+    期限: date | null
+    実績開始日: date | null
+    実績完了日: date | null
+    工数見積(h): number | null
+    工数実績(h): number | null
+    依頼元: string | null
+    依存タスク: string[] | null        # 軽量な前後関係（UIで警告のみ）
+    progress: number (0..1)
+    カレンダーイベントID: string | null
+    通知設定:
+      開始日: boolean   # default: true
+      期限前日: boolean # default: true
+      期限当日: boolean # default: true
+      超過: boolean     # default: true
+    createdAt: timestamp
+    updatedAt: timestamp
+
+  Person:
+    氏名: string (primary key)
+    役割: string | null
+    メール: string | null
+    電話: string | null
+    稼働時間/日(h): number | null       # 例: 7.5（workload計算に使用、nullは既定）
+    createdAt: timestamp
+    updatedAt: timestamp
+
+derived:
+  # 進捗計算：まず工数比、無ければステータス推定、どちらも無ければ0
+  progress_rules:
+    未着手: 0
+    進行中: 0.5
+    確認待ち: 0.6
+    保留: 0.2
+    完了: 1
+  progress_calc:
+    formula: |
+      if (工数見積(h) > 0 && 工数実績(h) >= 0) progress = clamp(工数実績/工数見積, 0, 1)
+      else if (ステータス in progress_rules) progress = progress_rules[ステータス]
+      else progress = 0
+  duration_days:
+    definition: end_date - start_date (日単位, 終日/ガントはend exclusive)
+    example: {start: 2025-01-01, end: 2025-01-03} => 2
+
+settings:
+  uiux:
+    gantt:
+      show_today_indicator: true
+      snap_to: day
+      drag_modes: [move, resize-left, resize-right]
+      allow_cross_week_drag: true
+      disallow_past_edit: false
+      warn_on_dependencies_violation: true   # 依存タスクを過去にずらす場合は警告
+    workload:
+      aggregate_by: week
+      default_capacity_per_day(h): 7.5
+  notifications:
+    mail:
+      sender: "no-reply@archi-prisma.co.jp"
+      time_jst: "09:00"
+      throttle_per_recipient_per_day: 10
+  calendar:
+    mode: per_user           # per_user | team_calendar
+    team_calendar_id: null   # mode=team_calendar時のみ
+    create_all_day: true     # 予定開始/期限のみのときは終日イベント
+    use_extended_properties: true
+    extendedProperties.private:
+      app: "apdw"
+      orgId: "${ORG_ID}"
+
+# ============================
+# Firestore 設計（firebase mode）
+# ============================
+firestore:
+  collections:
+    - name: orgs
+      doc: {id: "${ORG_ID}"}
+      subcollections:
+        - name: projects
+          docId: projectId
+          indexes:
+            - [ステータス]
+            - [予定完了日]
+            - [優先度, 予定完了日]
+        - name: tasks
+          docId: taskId
+          indexes:
+            - [projectId, ステータス]
+            - [担当者]
+            - [期限]
+            - [予定開始日]
+            - [担当者メール, 期限]
+        - name: people
+          docId: 氏名
+        - name: jobs                     # 非同期ジョブ（通知/カレンダー同期/採番）
+          docId: jobId
+          indexes:
+            - [type, dueAt]
+            - [state, dueAt]
+  counters:
+    - name: taskCounter
+      path: /orgs/${ORG_ID}/counters/tasks
+      step: 1
+      format: "T%06d"
+    - name: projectCounter
+      path: /orgs/${ORG_ID}/counters/projects
+      step: 1
+      format: "P-%04d"
+  security_rules: |
+    rules_version = '2';
+    service cloud.firestore {
+      match /databases/{database}/documents {
+        function allowed() {
+          return request.auth != null && (
+            request.auth.token.email.matches(".*@archi-prisma\\.co\\.jp$") ||
+            request.auth.token.email == "s.sakuramoto@archi-prisma.co.jp"
+          );
+        }
+        match /orgs/{orgId}/{coll}/{docId} {
+          allow read: if allowed();
+          allow write: if allowed();
+        }
+      }
+    }
+
+# ============================
+# API（firebase functions / gas webapp）
+# ============================
+api:
+  base_path: /api
+  errors:
+    format: { code: string, message: string, details?: any }
+    common_codes:
+      - INVALID_ARGUMENT
+      - NOT_FOUND
+      - PERMISSION_DENIED
+      - FAILED_PRECONDITION
+      - ALREADY_EXISTS
+      - INTERNAL
+  endpoints:
+    - id: listProjects
+      method: GET
+      path: /projects
+      query: { status?: string, q?: string }
+      resp: { projects: Project[] }
+
+    - id: createProject
+      method: POST
+      path: /projects
+      body: Project (without id, createdAt/updatedAt)
+      resp: { id: string }
+
+    - id: listTasks
+      method: GET
+      path: /tasks
+      query: { projectId?: string, assignee?: string, assigneeEmail?: string, status?: string, q?: string, from?: date, to?: date }
+      resp: { tasks: Task[] }
+
+    - id: createTask
+      method: POST
+      path: /tasks
+      body: Task (without id/createdAt/updatedAt)
+      resp: { id: string }
+
+    - id: updateTask
+      method: PATCH
+      path: /tasks/{id}
+      body: Partial<Task>
+      resp: { ok: true }
+
+    - id: completeTask
+      method: POST
+      path: /tasks/{id}/complete
+      body: { done: boolean }
+      resp: { ok: true }
+
+    - id: moveTaskDates
+      method: POST
+      path: /tasks/{id}/move
+      body: { 予定開始日?: date, 期限?: date }  # ガントD&D/リサイズの結果
+      resp: { ok: true }
+
+    - id: listSchedule
+      method: GET
+      path: /schedule
+      query: { view: "people" | "projects", from: date, to: date }
+      resp: { items: Task[] }  # 工程表表示用
+
+    - id: importExcel
+      method: POST
+      path: /import
+      body: multipart/form-data (xlsx)
+      resp: { imported: { projects: number, tasks: number, people: number } }
+
+    - id: exportExcel
+      method: GET
+      path: /export
+      resp: file(xlsx)
+
+    - id: syncCalendar
+      method: POST
+      path: /calendar/sync
+      body: { taskId: string }
+      resp: { ok: true }
+
+    - id: seedReminders
+      method: POST
+      path: /tasks/{id}/seed-reminders
+      body: {}
+      resp: { ok: true }
+
+# ============================
+# GAS（代替モード）
+# ============================
+gas:
+  spreadsheet:
+    sheets:
+      - name: Projects
+        key: ProjectID
+      - name: Tasks
+        key: TaskID
+      - name: People
+        key: 氏名
+  webapp:
+    doGet: returns index.html
+    doPost: JSON API (path routing via q param)
+  mapping:
+    Projects: [ProjectID, 物件名, クライアント, LS担当者, 自社PM, ステータス, 優先度, 開始日, 予定完了日, 所在地/現地, フォルダURL, 備考]
+    Tasks: [TaskID, ProjectID, タスク名, タスク種別, 担当者, 担当者メール, 優先度, ステータス, 予定開始日, 期限, 実績開始日, 実績完了日, 工数見積(h), 工数実績(h), 依頼元, 依存タスク, カレンダーイベントID]
+    People: [氏名, 役割, メール, 電話, 稼働時間/日(h)]
+
+# ============================
+# フロントエンド（共通）
+# ============================
+frontend:
+  tech:
+    - React 18 + Vite
+    - TailwindCSS
+    - Recharts (負荷グラフ)
+    - ガントUI: FullCalendar Resource Timeline *or* vis-timeline（OSS）   # 実装選択
+  routes:
+    - "/" -> Dashboard(概要カード, フィルタ, プロジェクト進捗カード)
+    - "/tasks" -> タスク一覧(テーブル/モバイルカード, 完了チェック, 一括期日移動)
+    - "/gantt" -> ガント(担当者スイムレーン, Todayライン, D&D/リサイズ)
+    - "/workload" -> 人別負荷(週/月集計, capacity比)
+  mobile:
+    - 下部固定バー: [タスク追加, プロジェクト追加, 今日へ戻る]
+  components:
+    - Filters(Project/Assignee/Status + Search)
+    - TaskCard / TaskRow（アクセシビリティ対応）
+    - ProjectCard
+    - ScheduleBoard（ガント/担当者レーン）
+    - TodayIndicator
+    - WorkloadChart（棒）
+    - DragGhost
+  shortcuts:
+    - N: 今日へ
+    - ArrowLeft/Right: ±1日移動
+    - Shift+ArrowLeft/Right: ±1週移動
+  accessibility:
+    - 主要操作はキーボード操作で完結可能（フォーカスリング、ARIAラベル）
+
+# ============================
+# Excel I/O 仕様
+# ============================
+excel:
+  import:
+    header_required: true
+    sheet_names: [Projects, Tasks, People]
+    date_format: "yyyy-mm-dd"
+    upsert: true     # key列で更新/追加
+    max_rows: 20000
+    mapping: use gas.mapping for columns
+  export:
+    file_name: APDW_Export_${yyyy}-${mm}-${dd}.xlsx
+    include_sheets: [Projects, Tasks, People]
+
+# ============================
+# テスト（最小＋拡張）
+# ============================
+tests:
+  unit:
+    - name: progress_calc_ratio
+      input: { 工数見積(h): 10, 工数実績(h): 5, ステータス: 進行中 }
+      expect: { progress: 0.5 }
+    - name: progress_fallback_status
+      input: { 工数見積(h): null, 工数実績(h): null, ステータス: 完了 }
+      expect: { progress: 1 }
+    - name: duration_days
+      input: { start: 2025-01-01, end: 2025-01-03 }
+      expect: { days: 2 }
+  integration:
+    - name: move_task_dates_api
+      steps:
+        - create: Task(予定開始日=2025-01-10, 期限=2025-01-12)
+        - call: POST /api/tasks/{id}/move { 予定開始日: 2025-01-12, 期限: 2025-01-14 }
+        - assert: task.予定開始日==2025-01-12 && task.期限==2025-01-14
+    - name: calendar_sync
+      steps:
+        - create: Task(担当者メール=alice@example.com, 予定開始日=..., 期限=...)
+        - call: POST /api/calendar/sync { taskId }
+        - assert: カレンダーイベントID != null
+  e2e:
+    - name: add_task_mobile
+      steps:
+        - open: /tasks (mobile)
+        - tap: "タスク追加"
+        - fill: { タスク名: "確認図書作成", Project: "P-0002", 期限: "2025-01-20" }
+        - submit: true
+        - assert: row_exists(タスク名="確認図書作成")
+    - name: gantt_drag_and_resize
+      steps:
+        - open: /gantt
+        - drag: task("確認図書作成") +2days
+        - resize-right: task("確認図書作成") +1day
+        - assert: task("確認図書作成").予定開始日==old+2 && 期限==old+3
+
+# ============================
+# 生成対象のディレクトリ構成（firebase）
+# ============================
+file_tree:
+  firebase:
+    - web/
+      - index.html
+      - src/
+        - main.tsx
+        - App.tsx
+        - components/
+          - Filters.tsx
+          - GanttChart.tsx        # or ScheduleBoard.tsx
+          - ProjectCard.tsx
+          - TaskTable.tsx
+          - TaskCard.tsx
+          - WorkloadChart.tsx
+        - lib/
+          - api.ts                # fetch wrapper
+          - date.ts
+          - auth.ts               # client Firebase Auth helper
+          - calendar.ts           # client->server sync triggers
+      - vite.config.ts
+      - tailwind.config.ts
+    - functions/
+      - src/
+        - index.ts                # express app bootstrap
+        - api/
+          - projects.ts
+          - tasks.ts
+          - excel.ts
+          - calendar.ts
+          - reminders.ts
+        - lib/
+          - firestore.ts
+          - auth.ts               # Google ID token verify
+          - progress.ts
+          - gmail.ts              # Gmail API wrapper
+          - gcal.ts               # Calendar API wrapper
+          - counters.ts           # 採番ユーティリティ
+      - package.json
+      - tsconfig.json
+    - firestore.rules
+    - storage.rules
+    - firebase.json
+    - .firebaserc
+
+  gas:
+    - src/
+      - Code.gs       # doGet/doPost, routing
+      - Sheets.gs     # CRUD for Projects/Tasks/People
+      - Progress.gs   # progress/duration logic
+      - Calendar.gs   # CalendarApp/Advanced Service
+      - Reminders.gs  # Time-driven通知
+      - Html/
+        - index.html  # ビルド済みReactを埋め込み or バニラ
+        - app.js      # UIロジック（バニラ or ビルド出力）
+    - appsscript.json
+
+# ============================
+# コード生成ガイド（Codex CLI 向け）
+# ============================
+codegen:
+  mode: firebase  # または gas
+  prompts:
+    - id: scaffold_firebase
+      when: mode==firebase
+      text: |
+        Create a Firebase monorepo with the file_tree.firebase structure. Implement REST endpoints per api.endpoints using Express on Cloud Functions v2 (Node 20, TypeScript, region ${meta.region}). Use Firestore with the data models in models. Implement ID token verification middleware. Implement counters for IDs. Implement calendar sync (insert/update with extendedProperties.private.taskId) and Gmail sending (domain-wide delegation). Implement daily scheduler at 09:00 JST and Cloud Tasks for scheduled reminders. Implement Gantt drag/drop endpoints (/tasks/{id}/move). Frontend: React+Vite+Tailwind, ScheduleBoard (FullCalendar Resource Timeline or vis-timeline), WorkloadChart, mobile bottom bar. Respect progress_rules and tests. PWA enabled.
+    - id: scaffold_gas
+      when: mode==gas
+      text: |
+        Create a Google Apps Script project with files in file_tree.gas. Implement doGet to serve HtmlService (index.html). Implement doPost JSON router for api.endpoints. CRUD must read/write to the Spreadsheet sheets defined in gas.spreadsheet. Implement progress_rules and duration logic. Implement daily reminders with time-driven triggers at 09:00 JST. Calendar integration with CalendarApp or Advanced Calendar API; store eventId in タスク. Provide minimal UI with Gantt (FullCalendar or vis-timeline), mobile-friendly layout.
+
+# ============================
+# デプロイ手順（雛形）
+# ============================
+deploy:
+  firebase:
+    steps:
+      - run: npm i -g firebase-tools
+      - run: firebase login
+      - run: firebase init hosting firestore functions
+      - run: firebase deploy --only functions,hosting,firestore:rules,storage
+  gas:
+    steps:
+      - run: npm i -g @google/clasp
+      - run: clasp login
+      - run: clasp create --type webapp --title "APDW Project Compass"
+      - run: clasp push && clasp deploy --description "v1.1"
+
+notes:
+  - 期限未設定タスクはデフォルト非表示（オプションで単日バー表示を有効化可能）
+  - 完了時の工数自動補正は未実装（要件に応じて将来拡張）
+  - 監査ログ（変更履歴）は /orgs/{orgId}/audit または jobs コレクション拡張で対応
+  - PWA: offline cache + Firestore persistence を有効化
+```
+
+---
+
+# 第2部：詳細設計
+
+## 2.1 アーキテクチャ（Firebase モード）
+
+* **クライアント**：React + Firebase Auth（Google provider）。
+* **API**：Cloud Functions v2 + Express（`/api/*`）。
+* **DB**：Firestore（`/orgs/${ORG_ID}` 配下に `projects`/`tasks`/`people`/`jobs`）。
+* **非同期**：Cloud Scheduler（毎朝 09:00 JST）、Cloud Tasks（特定日時の通知）。
+* **メール**：Gmail API（ドメインワイド委任で `users.messages.send`）。
+* **カレンダー**：Google Calendar API（`extendedProperties.private.taskId` で突合）。
+* **ストレージ**：Excelファイルの一時保管（アップロード直後に処理・削除）。
+
+## 2.2 認証・認可
+
+* **認証**：Google ログイン。ID トークンを Functions で検証（`aud`/`iss`/`exp`）。
+* **許可リスト**：メールが `*@archi-prisma.co.jp` または個別許可に合致しない場合は 403。
+* **認可（RBAC）**：`roles` に基づきエンドポイントごとにミドルウェアで検査。
+* **CORS**：`allowed_origins` のみ許可。
+
+## 2.3 ID 採番
+
+* **Project.id**：`P-%04d`、**Task.id**：`T%06d`。
+* **カウンタ**：`/orgs/${ORG_ID}/counters/*` を `FieldValue.increment(1)` で原子的に増分→フォーマット。
+
+## 2.4 進捗・期間ロジック
+
+* **progress**：`工数見積>0` なら `min(1, max(0, 実績/見積))`。なければ `status→progress_rules`。
+* **期間（ガント）**：`end = 期限 + 1日`（終日扱い）、`duration = end - start`。
+* **依存タスク**：前工程より開始が早くなる場合は UI で警告（保存は許容）。
+
+## 2.5 工程表（ガント＋D&D）
+
+* **基本**：担当者＝リソース行、タスク＝イベント。`editable: true`。
+* **移動**：`eventDrop` → `/api/tasks/{id}/move`（予定開始日/期限を更新）。
+* **リサイズ**：`eventResize` → 同上。
+* **Now インジケータ**：常時表示。
+* **楽観的UI**：成功時確定、失敗時 `revert()`。
+* **ショートカット**：N / ←→ / Shift+←→（1週）。
+
+## 2.6 人別負荷（workload）
+
+* **集計**：`週` 単位に `工数見積(h)` を配分（期間全体で等分・日毎配賦 → 週合算）。
+* **容量**：`Person.稼働時間/日(h)` が null の場合は `settings.workload.default_capacity_per_day` を使用。
+* **可視化**：容量比（%）を棒グラフで表示、閾値（例: 120%）超過を警告色。
+
+---
+
+# 第3部：通知とカレンダー連携
+
+## 3.1 メール通知
+
+* **トリガ**：毎朝 09:00 JST の定時バッチ + 必要に応じ Cloud Tasks で時刻指定。
+* **条件**：
+
+  * **開始日**：当日が `予定開始日`。
+  * **期限前日**：当日が `期限 - 1日`。
+  * **期限当日**：当日が `期限`。
+  * **超過**：`期限 < 今日` かつ `ステータス != 完了`。
+* **オプトアウト**：`タスク.通知設定.*` が `false` の場合は送信しない。
+* **テンプレ（件名/本文）**：
+
+  * 件名：`[APDW] タスク通知: ${タスク名}`
+  * 本文：タスク名、プロジェクト名、担当者、開始/期限、リンク（`/tasks?id=...`）
+* **スパム防止**：受信者1人あたり 1日上限（`throttle_per_recipient_per_day`）。
+
+## 3.2 Google カレンダー
+
+* **生成**：タスク保存時/変更時に `insert/update`。
+* **予定時間**：日付のみ → 終日。時刻まである場合はその時刻帯。
+* **extendedProperties**：`{private: {app:"apdw", orgId, taskId}}` を必ず付与。
+* **イベントID**：`Task.カレンダーイベントID` に保存。
+* **双方向（任意）**：watch + incremental sync（有効期限前の再登録はSchedulerで）
+* **team_calendar モード**：共有カレンダーIDに作成。per_user の場合は各担当者の `primary`。
+
+---
+
+# 第4部：API 詳細（補足）
+
+## 4.1 バリデーション共通
+
+* `date` は ISO `YYYY-MM-DD`。
+* 文字列は最大長 256（備考等は 2000）。
+* `メール` は RFC5322 簡易検証。
+* `progress` は 0..1 に正規化。
+
+## 4.2 代表エンドポイント仕様（例）
+
+### `POST /api/tasks/{id}/move`
+
+* **body**：`{ 予定開始日?: string(yyyy-mm-dd), 期限?: string(yyyy-mm-dd) }`
+* **rules**：`予定開始日 <= 期限` を強制（片方更新時も最小制約を維持）。
+* **effects**：必要に応じ Calendar 更新、Cloud Tasks 再スケジュール、監査ログ追加。
+
+### `POST /api/calendar/sync`
+
+* **body**：`{ taskId: string }`
+* **effects**：イベントの insert/update、`カレンダーイベントID` を反映。
+
+---
+
+# 第5部：フロントエンド仕様（画面/操作）
+
+## 5.1 共通
+
+* **フィルタ**：プロジェクト / 担当 / ステータス / フリーワード。
+* **検索**：`タスク名/備考/依頼元` 部分一致。
+* **トースト**：保存成功/失敗、通知スケジュール設定結果。
+
+## 5.2 ダッシュボード（`/`）
+
+* 期日迫るタスク（今日/明日/今週）、遅延タスク、プロジェクト進捗カード。
+
+## 5.3 タスク一覧（`/tasks`）
+
+* テーブル & モバイルカード。チェックで完了。行右クリックで「+1/+3/+7日」クイック移動。
+
+## 5.4 工程表（`/gantt`）
+
+* 担当者レーン。D&D/リサイズ。Todayライン。FAB「今日へ戻る」。
+* 遅延は赤、期限近は橙、完了は淡色。
+
+## 5.5 人別負荷（`/workload`）
+
+* 週単位棒グラフ。容量比を%で表示。閾値超過は警告。
+
+---
+
+# 第6部：運用・監視・セキュリティ
+
+## 6.1 ログ／監査
+
+* **アプリログ**：Cloud Logging（構造化 JSON：`{event, user, entity, id}`）。
+* **監査**：`jobs`コレクションor`/audit`（`who/when/what/old/new`）。
+* **PII**：メール等の個人情報は最小限保存、アクセスはRBAC。
+
+## 6.2 バックアップ
+
+* **Firestore Export**：日次。
+* **GAS モード**：Spreadsheet バージョン管理 + Drive バックアップ。
+
+## 6.3 パフォーマンス/クォータ
+
+* **インデックス**：`firestore.indexes` に記載通り作成。
+* **クエリ**：期間/担当者でスコープを絞る（工程表表示範囲）。
+* **API レート**：IPあたり5rps（目安）→429でバックオフ。
+
+---
+
+# 第7部：デプロイ・環境
+
+## 7.1 Firebase
+
+* **環境変数**：`GSA_CLIENT_EMAIL, GSA_PRIVATE_KEY, ORG_ID, ALLOW_EMAILS`。
+* **リージョン**：`asia-northeast1`。
+* **権限**：サービスアカウントに Gmail/Calendar スコープ。Workspace 側でドメインワイド委任。
+* **コマンド**：YAMLの `deploy.firebase.steps` を参照。
+
+## 7.2 GAS
+
+* `clasp` プロジェクト、Advanced Services（Calendar）有効化。
+* Time-driven トリガ設定（毎日 09:00 JST）。
+
+---
+
+# 第8部：受け入れ基準（最終）
+
+1. Google ログイン後、ダッシュボード・タスク・ガント・人別負荷の各画面が閲覧できる。
+2. モバイルの下部固定バーから「タスク追加」「プロジェクト追加」「今日へ戻る」が動作。
+3. 工程表の **ドラッグ＆ドロップ/リサイズ** がサーバーに正しく反映され、失敗時は自動リバート。
+4. 進捗は **工数実績/工数見積** を優先、なければ **ステータス推定**。
+5. Excel Import/Export が **3シート（Projects/Tasks/People）** で往復可能。
+6. **開始/前日/当日/超過** のメールが **JST 9:00** 基準で送られる（オプトアウト尊重、上限内）。
+7. タスク更新が **Google カレンダー**に反映され、イベントには `extendedProperties.private.taskId` が入る。
+8. Firestore/Spreadsheet の変更が **即時UIに反映**（Firebase: onSnapshot / GAS: 再取得）される。
+9. 依存関係を崩すD&Dでは**保存前に警告**が出る（保存自体は可能）。
+10. アクセシビリティ（キーボード操作/ラベル/コントラスト）が満たされる。
+
+---
+
+# 付録A：API エラーフォーマット例
+
+```json
+{ "code": "INVALID_ARGUMENT", "message": "期限は予定開始日以降にしてください", "details": { "field": "期限" } }
+```
+
+# 付録B：メール本文（HTML の一例）
+
+```html
+<p>担当者さま</p>
+<p>以下のタスクについてお知らせします。</p>
+<ul>
+  <li>タスク: 確認図書作成</li>
+  <li>プロジェクト: P-0002</li>
+  <li>開始日: 2025-01-18 / 期限: 2025-01-20</li>
+</ul>
+<p><a href="https://app.example.com/tasks?id=T000123">アプリで開く</a></p>
+```
+
+# 付録C：Excel シートヘッダ（必須）
+
+* **Projects**：`ProjectID, 物件名, クライアント, LS担当者, 自社PM, ステータス, 優先度, 開始日, 予定完了日, 所在地/現地, フォルダURL, 備考`
+* **Tasks**：`TaskID, ProjectID, タスク名, タスク種別, 担当者, 担当者メール, 優先度, ステータス, 予定開始日, 期限, 実績開始日, 実績完了日, 工数見積(h), 工数実績(h), 依頼元, 依存タスク, カレンダーイベントID`
+* **People**：`氏名, 役割, メール, 電話, 稼働時間/日(h)`
+
+---
+
+必要に応じて、この仕様を **OpenAPI 3.1** 形式に展開したファイルや、Firebase/GAS それぞれの **環境変数テンプレート（.env.example）** も併せてお渡しできます。上記 YAML をそのまま Codex CLI に読み込ませれば、v1.1 の実装スキャフォールドが生成できる前提です。
