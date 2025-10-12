@@ -39,15 +39,15 @@ CORS_ORIGIN=https://compass-31e9e.web.app
 cp web/.env.example web/.env
 ```
 
-内容:
+内容（Firebase Console > プロジェクトの設定 > SDK 設定と構成 から取得）:
 ```
 VITE_API_BASE=/api
-VITE_FIREBASE_API_KEY=AIzaSyAGutWJF5bcTr_01Bjkizr7Sfo9HO__H78
-VITE_FIREBASE_AUTH_DOMAIN=compass-31e9e.firebaseapp.com
+VITE_FIREBASE_API_KEY=<Firebase Console から取得>
+VITE_FIREBASE_AUTH_DOMAIN=<Firebase Console から取得>
 VITE_FIREBASE_PROJECT_ID=compass-31e9e
-VITE_FIREBASE_STORAGE_BUCKET=compass-31e9e.firebasestorage.app
-VITE_FIREBASE_MESSAGING_SENDER_ID=70173334851
-VITE_FIREBASE_APP_ID=1:70173334851:web:fc6c922a399014a10923f6
+VITE_FIREBASE_STORAGE_BUCKET=<Firebase Console から取得>
+VITE_FIREBASE_MESSAGING_SENDER_ID=<Firebase Console から取得>
+VITE_FIREBASE_APP_ID=<Firebase Console から取得>
 ```
 
 ### 4. 依存関係のインストール
