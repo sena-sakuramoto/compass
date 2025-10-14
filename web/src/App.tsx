@@ -19,6 +19,8 @@ import {
   listPeople,
   createTask,
   createProject,
+  createPerson,
+  updateProject,
   completeTask,
   importExcel,
   exportExcel,
@@ -109,6 +111,7 @@ function AppLayout({
   children,
   onOpenTask,
   onOpenProject,
+  onOpenPerson,
   user,
   authSupported,
   authReady,
@@ -119,6 +122,7 @@ function AppLayout({
   children: React.ReactNode;
   onOpenTask(): void;
   onOpenProject(): void;
+  onOpenPerson(): void;
   user: User | null;
   authSupported: boolean;
   authReady: boolean;
@@ -135,7 +139,7 @@ function AppLayout({
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 pb-20 md:pb-0">
+    <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 pb-32 md:pb-0">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
           <div>
@@ -197,6 +201,7 @@ function AppLayout({
       <BottomBar
         onOpenTask={onOpenTask}
         onOpenProject={onOpenProject}
+        onOpenPerson={onOpenPerson}
         user={user}
         authSupported={authSupported}
         authReady={authReady}
@@ -373,6 +378,7 @@ function HeaderActions({
 function BottomBar({
   onOpenTask,
   onOpenProject,
+  onOpenPerson,
   user,
   authSupported,
   authReady,
@@ -382,6 +388,7 @@ function BottomBar({
 }: {
   onOpenTask(): void;
   onOpenProject(): void;
+  onOpenPerson(): void;
   user: User | null;
   authSupported: boolean;
   authReady: boolean;
@@ -390,42 +397,59 @@ function BottomBar({
   authError?: string | null;
 }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-4 py-3 shadow md:hidden">
-      <div className="mx-auto flex max-w-md items-center justify-between gap-3">
-        {authSupported ? (
-          user ? (
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
-              onClick={onSignOut}
-            >
-              ログアウト
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
-              onClick={onSignIn}
-              disabled={!authReady}
-            >
-              Googleでサインイン
-            </button>
-          )
-        ) : null}
-        <button
-          type="button"
-          className="flex flex-1 items-center justify-center gap-1 rounded-2xl bg-slate-900 px-3 py-2 text-sm font-medium text-white"
-          onClick={onOpenTask}
-        >
-          <Plus className="h-5 w-5" /> タスク追加
-        </button>
-        <button
-          type="button"
-          className="flex flex-1 items-center justify-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
-          onClick={onOpenProject}
-        >
-          <Plus className="h-5 w-5" /> プロジェクト追加
-        </button>
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-3 py-3 shadow md:hidden">
+      <div className="mx-auto max-w-md space-y-3">
+        {/* 認証ボタン */}
+        {authSupported && (
+          <div className="flex justify-center">
+            {user ? (
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-2xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+                onClick={onSignOut}
+              >
+                ログアウト
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-2xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                onClick={onSignIn}
+                disabled={!authReady}
+              >
+                Googleでサインイン
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* 追加ボタン */}
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-slate-900 px-3 py-3 text-white shadow-sm transition-colors hover:bg-slate-800"
+            onClick={onOpenTask}
+          >
+            <Plus className="h-5 w-5" />
+            <span className="text-xs font-medium">タスク</span>
+          </button>
+          <button
+            type="button"
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            onClick={onOpenProject}
+          >
+            <Plus className="h-5 w-5" />
+            <span className="text-xs font-medium">プロジェクト</span>
+          </button>
+          <button
+            type="button"
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            onClick={onOpenPerson}
+          >
+            <Plus className="h-5 w-5" />
+            <span className="text-xs font-medium">担当者</span>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -812,6 +836,116 @@ function ProjectModal({ open, onOpenChange, onSubmit }: ProjectModalProps) {
   );
 }
 
+interface PersonModalProps extends ModalProps {
+  onSubmit(payload: {
+    氏名: string;
+    役割?: string;
+    メール?: string;
+    電話?: string;
+    '稼働時間/日(h)'?: number;
+  }): Promise<void>;
+}
+
+function PersonModal({ open, onOpenChange, onSubmit }: PersonModalProps) {
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [workingHours, setWorkingHours] = useState<number | ''>('');
+
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setRole('');
+      setEmail('');
+      setPhone('');
+      setWorkingHours('');
+    }
+  }, [open]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        氏名: name,
+        役割: role || undefined,
+        メール: email || undefined,
+        電話: phone || undefined,
+        '稼働時間/日(h)': workingHours ? Number(workingHours) : undefined,
+      };
+      await onSubmit(payload);
+      onOpenChange(false);
+    } catch (err) {
+      console.error(err);
+      alert('担当者追加に失敗しました');
+    }
+  };
+
+  return (
+    <Modal open={open} onOpenChange={onOpenChange} title="担当者追加">
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <div>
+          <label className="mb-1 block text-xs text-slate-500">氏名</label>
+          <input
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="氏名"
+            required
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-500">役割</label>
+          <input
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            placeholder="役割"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-500">メール</label>
+          <input
+            type="email"
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="メールアドレス"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-500">電話</label>
+          <input
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="電話番号"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-500">稼働時間/日(h)</label>
+          <input
+            type="number"
+            step="0.5"
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+            value={workingHours}
+            onChange={(e) => setWorkingHours(e.target.value ? Number(e.target.value) : '')}
+            placeholder="8"
+          />
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="rounded-2xl border px-3 py-2" onClick={() => onOpenChange(false)}>
+            キャンセル
+          </button>
+          <button type="submit" className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+            追加
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 type ProjectSortKey = 'due' | 'progress' | 'tasks' | 'priority';
 
 type TimeScale = 'auto' | 'six_weeks' | 'quarter' | 'half_year' | 'full';
@@ -884,6 +1018,7 @@ function DashboardPage({
   filteredTasks,
   onOpenTask,
   onOpenProject,
+  onOpenPerson,
   sortKey,
   onSortChange,
 }: {
@@ -892,6 +1027,7 @@ function DashboardPage({
   filtersProps: FiltersProps;
   onOpenTask(): void;
   onOpenProject(): void;
+  onOpenPerson(): void;
   sortKey: ProjectSortKey;
   onSortChange(value: ProjectSortKey): void;
 }) {
@@ -1044,6 +1180,13 @@ function DashboardPage({
             >
               <Plus className="h-4 w-4" /> プロジェクト追加
             </button>
+            <button
+              type="button"
+              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 md:flex"
+              onClick={onOpenPerson}
+            >
+              <Plus className="h-4 w-4" /> 担当者追加
+            </button>
           </div>
         </div>
         {activeFilterChips.length ? (
@@ -1132,6 +1275,8 @@ function TasksPage({
   projectMap,
   onComplete,
   onOpenTask,
+  onOpenProject,
+  onOpenPerson,
   onSeedReminders,
   onCalendarSync,
 }: {
@@ -1140,6 +1285,8 @@ function TasksPage({
   projectMap: Record<string, Project>;
   onComplete(task: Task, done: boolean): void;
   onOpenTask(): void;
+  onOpenProject(): void;
+  onOpenPerson(): void;
   onSeedReminders?(taskId: string): Promise<void>;
   onCalendarSync?(taskId: string): Promise<void>;
 }) {
@@ -1205,13 +1352,29 @@ function TasksPage({
       <WorkerMonitor tasks={filteredTasks} />
       <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
         <Filters {...filtersProps} />
-        <button
-          type="button"
-          className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 md:flex"
-          onClick={onOpenTask}
-        >
-          <Plus className="h-4 w-4" /> タスク追加
-        </button>
+        <div className="hidden gap-2 md:flex">
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+            onClick={onOpenTask}
+          >
+            <Plus className="h-4 w-4" /> タスク追加
+          </button>
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+            onClick={onOpenProject}
+          >
+            <Plus className="h-4 w-4" /> プロジェクト追加
+          </button>
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+            onClick={onOpenPerson}
+          >
+            <Plus className="h-4 w-4" /> 担当者追加
+          </button>
+        </div>
       </div>
       <div className="grid gap-3 md:hidden">
         {filteredTasks.map((task) => (
@@ -1977,6 +2140,9 @@ function App() {
   const [state, setState] = useSnapshot();
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [personModalOpen, setPersonModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
   const loading = useRemoteData(setState, authSupported && Boolean(user));
 
@@ -2181,6 +2347,41 @@ function App() {
     }
   };
 
+  const handleCreatePerson = async (payload: {
+    氏名: string;
+    役割?: string;
+    メール?: string;
+    電話?: string;
+    '稼働時間/日(h)'?: number;
+  }) => {
+    if (!user) {
+      alert('Google アカウントでサインインしてください。');
+      return;
+    }
+    try {
+      await createPerson(payload as unknown as Partial<Person>);
+      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+    } catch (error) {
+      console.error(error);
+      alert('担当者追加に失敗しました。しばらくしてから再度お試しください。');
+    }
+  };
+
+  const handleUpdateProject = async (projectId: string, payload: Partial<Project>) => {
+    if (!user) {
+      alert('Google アカウントでサインインしてください。');
+      return;
+    }
+    try {
+      await updateProject(projectId, payload);
+      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      setEditingProject(null);
+    } catch (error) {
+      console.error(error);
+      alert('プロジェクト更新に失敗しました。しばらくしてから再度お試しください。');
+    }
+  };
+
   const handleTaskDateChange = useCallback(
     async (
       taskId: string,
@@ -2260,6 +2461,7 @@ function App() {
       <AppLayout
         onOpenTask={() => setTaskModalOpen(true)}
         onOpenProject={() => setProjectModalOpen(true)}
+        onOpenPerson={() => setPersonModalOpen(true)}
         user={user}
         authSupported={authSupported}
         authReady={authReady}
@@ -2290,6 +2492,7 @@ function App() {
                 filtersProps={filtersProps}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => setProjectModalOpen(true)}
+                onOpenPerson={() => setPersonModalOpen(true)}
                 sortKey={projectSort}
                 onSortChange={setProjectSort}
               />
@@ -2304,6 +2507,8 @@ function App() {
                 projectMap={projectMap}
                 onComplete={handleComplete}
                 onOpenTask={() => setTaskModalOpen(true)}
+                onOpenProject={() => setProjectModalOpen(true)}
+                onOpenPerson={() => setPersonModalOpen(true)}
                 onSeedReminders={handleSeedReminders}
                 onCalendarSync={handleCalendarSync}
               />
@@ -2332,6 +2537,7 @@ function App() {
         onSubmit={handleCreateTask}
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} />
+      <PersonModal open={personModalOpen} onOpenChange={setPersonModalOpen} onSubmit={handleCreatePerson} />
     </>
   );
 }

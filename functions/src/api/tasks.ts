@@ -25,10 +25,14 @@ const listQuerySchema = z.object({
   to: z.string().optional(),
 });
 
-router.get('/', async (req, res) => {
-  const params = listQuerySchema.parse(req.query);
-  const tasks = await listTasks(params);
-  res.json({ tasks });
+router.get('/', async (req, res, next) => {
+  try {
+    const params = listQuerySchema.parse(req.query);
+    const tasks = await listTasks(params);
+    res.json({ tasks });
+  } catch (error) {
+    next(error);
+  }
 });
 
 const notificationSchema = z
@@ -67,24 +71,36 @@ const taskSchema = z.object({
   '通知設定': notificationSchema,
 });
 
-router.post('/', async (req, res) => {
-  const payload = taskSchema.parse(req.body) as TaskInput;
-  const id = await createTask(payload);
-  res.status(201).json({ id });
+router.post('/', async (req, res, next) => {
+  try {
+    const payload = taskSchema.parse(req.body) as TaskInput;
+    const id = await createTask(payload);
+    res.status(201).json({ id });
+  } catch (error) {
+    next(error);
+  }
 });
 
-router.patch('/:id', async (req, res) => {
-  const payload = taskSchema.partial().parse(req.body) as Partial<TaskInput>;
-  await updateTask(req.params.id, payload);
-  res.json({ ok: true });
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const payload = taskSchema.partial().parse(req.body) as Partial<TaskInput>;
+    await updateTask(req.params.id, payload);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
 const completeSchema = z.object({ done: z.boolean() });
 
-router.post('/:id/complete', async (req, res) => {
-  const { done } = completeSchema.parse(req.body);
-  await completeTaskRepo(req.params.id, done);
-  res.json({ ok: true });
+router.post('/:id/complete', async (req, res, next) => {
+  try {
+    const { done } = completeSchema.parse(req.body);
+    await completeTaskRepo(req.params.id, done);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
 const moveSchema = z
@@ -96,15 +112,23 @@ const moveSchema = z
     message: '少なくとも1つのフィールドが必要です',
   });
 
-router.post('/:id/move', async (req, res) => {
-  const payload = moveSchema.parse(req.body);
-  await moveTaskDates(req.params.id, payload);
-  res.json({ ok: true });
+router.post('/:id/move', async (req, res, next) => {
+  try {
+    const payload = moveSchema.parse(req.body);
+    await moveTaskDates(req.params.id, payload);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
-router.post('/:id/seed-reminders', async (req, res) => {
-  await enqueueNotificationSeed({ taskId: req.params.id, reason: 'manual' });
-  res.json({ ok: true });
+router.post('/:id/seed-reminders', async (req, res, next) => {
+  try {
+    await enqueueNotificationSeed({ taskId: req.params.id, reason: 'manual' });
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
 });
 
 export default router;

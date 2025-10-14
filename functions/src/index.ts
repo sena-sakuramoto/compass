@@ -33,6 +33,27 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+// Error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('[API Error]', {
+    path: req.path,
+    method: req.method,
+    error: err.message,
+    stack: err.stack,
+  });
+
+  if (err.name === 'ZodError') {
+    return res.status(400).json({
+      error: 'Validation Error',
+      details: err.errors
+    });
+  }
+
+  res.status(500).json({
+    error: err.message || 'Internal Server Error'
+  });
+});
+
 const REGION = process.env.COMPASS_FUNCTION_REGION ?? 'asia-northeast1';
 
 export const api = functions.region(REGION).https.onRequest(app);

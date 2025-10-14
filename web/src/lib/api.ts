@@ -85,6 +85,20 @@ export async function createProject(payload: Partial<Project>) {
   });
 }
 
+export async function updateProject(projectId: string, payload: Partial<Project>) {
+  return request<{ ok: true }>(`/projects/${projectId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createPerson(payload: Partial<Person>) {
+  return request<{ id: string }>('/people', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function completeTask(taskId: string, done: boolean) {
   return request<{ ok: true }>(`/tasks/${taskId}/complete`, {
     method: 'POST',
