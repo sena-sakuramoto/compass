@@ -37,6 +37,7 @@ import { TaskCard, computeProgress } from './components/TaskCard';
 import { TaskTable, TaskTableRow } from './components/TaskTable';
 import { GanttChartView, GanttDatum } from './components/GanttChart';
 import { WorkerMonitor } from './components/WorkerMonitor';
+import { Sidebar } from './components/Sidebar';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -140,40 +141,29 @@ function AppLayout({
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 pb-32 md:pb-0">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <div>
-            <h1 className="text-lg font-bold md:text-2xl">APDW Project Compass</h1>
-            <p className="text-xs text-slate-600 md:text-sm">
-              全プロジェクト・タスク反映／ガント（プロジェクト・タスク切替）／モバイル最適化
-            </p>
+    <div className="min-h-screen bg-gradient-to-b from-white to-slate-50">
+      {/* サイドバー */}
+      <Sidebar />
+
+      {/* メインコンテンツ */}
+      <div className="lg:pl-64">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 lg:px-8">
+            <div className="lg:ml-0 ml-14">
+              <h1 className="text-lg font-bold md:text-2xl">APDW Project Compass</h1>
+              <p className="text-xs text-slate-600 md:text-sm">
+                全プロジェクト・タスク反映／ガント（プロジェクト・タスク切替）／モバイル最適化
+              </p>
+            </div>
+            <HeaderActions
+              user={user}
+              authSupported={authSupported}
+              authReady={authReady}
+              onSignIn={onSignIn}
+              onSignOut={onSignOut}
+              authError={authError}
+            />
           </div>
-          <HeaderActions
-            user={user}
-            authSupported={authSupported}
-            authReady={authReady}
-            onSignIn={onSignIn}
-            onSignOut={onSignOut}
-            authError={authError}
-          />
-        </div>
-        <nav className="mx-auto flex max-w-6xl gap-2 px-4 pb-3">
-          {tabs.map((tab) => (
-            <NavLink
-              key={tab.path}
-              to={tab.path}
-              className={({ isActive }) =>
-                `flex-1 rounded-2xl px-3 py-2 text-center text-sm transition md:flex-none md:w-auto md:px-4 ${
-                  isActive ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`
-              }
-              end={tab.path === '/'}
-            >
-              {tab.label}
-            </NavLink>
-          ))}
-        </nav>
         {!authSupported ? (
           <div className="bg-amber-50 text-amber-700">
             <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2 text-xs">
@@ -197,19 +187,20 @@ function AppLayout({
             ) : null}
           </div>
         ) : null}
-      </header>
-      <main className="mx-auto max-w-6xl px-4 pb-8 pt-6 md:pt-8">{children}</main>
-      <BottomBar
-        onOpenTask={onOpenTask}
-        onOpenProject={onOpenProject}
-        onOpenPerson={onOpenPerson}
-        user={user}
-        authSupported={authSupported}
-        authReady={authReady}
-        onSignIn={onSignIn}
-        onSignOut={onSignOut}
-        authError={authError}
-      />
+        </header>
+        <main className="mx-auto max-w-7xl px-4 pb-8 pt-6 md:pt-8 lg:px-8">{children}</main>
+        <BottomBar
+          onOpenTask={onOpenTask}
+          onOpenProject={onOpenProject}
+          onOpenPerson={onOpenPerson}
+          user={user}
+          authSupported={authSupported}
+          authReady={authReady}
+          onSignIn={onSignIn}
+          onSignOut={onSignOut}
+          authError={authError}
+        />
+      </div>
     </div>
   );
 }

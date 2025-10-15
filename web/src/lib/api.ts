@@ -186,3 +186,52 @@ export async function importSnapshot(payload: { projects: Project[]; tasks: Task
     body: JSON.stringify(payload),
   });
 }
+
+// Settings API
+export interface ProjectSettings {
+  viewMode?: 'board' | 'gantt' | 'backlog' | 'reports';
+  filters?: {
+    status?: string;
+    assignee?: string;
+    priority?: string;
+    sprint?: string;
+  };
+  groupBy?: '' | 'project' | 'assignee' | 'status' | 'priority' | 'sprint';
+  boardColumns?: Array<{
+    id: string;
+    label: string;
+    color: string;
+    visible?: boolean;
+  }>;
+}
+
+export async function getProjectSettings(projectId: string) {
+  return request<{ settings: ProjectSettings }>(`/settings/projects/${projectId}`);
+}
+
+export async function saveProjectSettings(projectId: string, settings: ProjectSettings) {
+  return request<{ ok: true }>(`/settings/projects/${projectId}`, {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+}
+
+export interface NavigationItem {
+  id: string;
+  label: string;
+  path: string;
+  icon: string;
+  visible: boolean;
+  order: number;
+}
+
+export async function getNavigationConfig() {
+  return request<{ navigationItems: NavigationItem[] }>('/settings/navigation');
+}
+
+export async function saveNavigationConfig(navigationItems: NavigationItem[]) {
+  return request<{ ok: true }>('/settings/navigation', {
+    method: 'PUT',
+    body: JSON.stringify({ navigationItems }),
+  });
+}

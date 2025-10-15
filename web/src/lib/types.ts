@@ -46,6 +46,8 @@ export interface Task {
   '依存タスク'?: string[];
   'カレンダーイベントID'?: string | null;
   '通知設定'?: TaskNotificationSettings;
+  スプリント?: string;
+  フェーズ?: string;
   start?: string;
   end?: string;
   duration_days?: number;
