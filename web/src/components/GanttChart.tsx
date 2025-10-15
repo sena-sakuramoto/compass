@@ -28,6 +28,8 @@ export interface GanttProps {
   todayX: number | null;
   interactive?: boolean;
   onChange?: (entry: GanttDatum, change: { startDate: Date; endDate: Date; offset: number; duration: number }, kind: InteractionKind) => void;
+  onAssigneeChange?: (taskKey: string, assignee: string) => void;
+  draggedAssignee?: string | null;
 }
 
 const STATUS_COLOR_MAP: Record<string, string> = {
@@ -131,10 +133,22 @@ interface DragState {
   pointerId: number;
 }
 
-export function GanttChartView({ data, ticks, min, max, minDate, todayX, interactive = false, onChange }: GanttProps) {
+export function GanttChartView({
+  data,
+  ticks,
+  min,
+  max,
+  minDate,
+  todayX,
+  interactive = false,
+  onChange,
+  onAssigneeChange,
+  draggedAssignee,
+}: GanttProps) {
   const [chartWidth, setChartWidth] = useState(0);
   const [preview, setPreview] = useState<Record<string, { offset: number; duration: number }>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
   const configRef = useRef({ minDate, max, chartWidth });
@@ -411,7 +425,26 @@ export function GanttChartView({ data, ticks, min, max, minDate, todayX, interac
                     entry={entry}
                     interactive={interactive && (!entry.status || entry.status !== '完了')}
                     isActive={entry.key === activeId}
+                    isDropTarget={entry.key === dropTargetId}
                     onPointerDown={handlePointerDown}
+                    onDragOver={(e) => {
+                      if (draggedAssignee) {
+                        e.preventDefault();
+                        setDropTargetId(entry.key);
+                      }
+                    }}
+                    onDragLeave={() => {
+                      if (draggedAssignee) {
+                        setDropTargetId(null);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (draggedAssignee && onAssigneeChange) {
+                        onAssigneeChange(entry.key, draggedAssignee);
+                      }
+                      setDropTargetId(null);
+                    }}
                   />
                 );
               }}
@@ -446,10 +479,29 @@ interface InteractiveBarShapeProps {
   interactive: boolean;
   onPointerDown: (entry: GanttDatum, kind: InteractionKind, event: React.PointerEvent<SVGRectElement>) => void;
   isActive: boolean;
+  isDropTarget?: boolean;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragLeave?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
 }
 
 function InteractiveBarShape(props: InteractiveBarShapeProps) {
-  const { x = 0, y = 0, width = 0, height = 0, color, fillOpacity, entry, interactive, onPointerDown, isActive } = props;
+  const {
+    x = 0,
+    y = 0,
+    width = 0,
+    height = 0,
+    color,
+    fillOpacity,
+    entry,
+    interactive,
+    onPointerDown,
+    isActive,
+    isDropTarget,
+    onDragOver,
+    onDragLeave,
+    onDrop,
+  } = props;
   const handleWidth = Math.min(12, Math.max(6, width / 4));
   const cornerRadius = 8;
   const handle = (kind: InteractionKind, rectX: number) => (
@@ -479,13 +531,16 @@ function InteractiveBarShape(props: InteractiveBarShapeProps) {
         ry={cornerRadius}
         fill={color}
         fillOpacity={fillOpacity}
-        stroke={isActive ? 'rgba(37, 99, 235, 0.6)' : 'transparent'}
-        strokeWidth={isActive ? 1.5 : 0}
+        stroke={isActive ? 'rgba(37, 99, 235, 0.6)' : isDropTarget ? 'rgba(16, 185, 129, 0.8)' : 'transparent'}
+        strokeWidth={isActive || isDropTarget ? 2 : 0}
         style={{ cursor: interactive ? 'grab' : 'default' }}
         onPointerDown={(event) => {
           if (!interactive) return;
           onPointerDown(entry, 'move', event);
         }}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
       />
       {interactive && width > handleWidth * 2 ? (
         <>

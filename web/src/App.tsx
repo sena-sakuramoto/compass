@@ -1417,16 +1417,27 @@ function SchedulePage({
   filteredTasks,
   projectMap,
   people,
+  projects,
   onTaskDateChange,
+  onTaskCreate,
+  onProjectCreate,
+  onTaskAssigneeChange,
 }: {
   filtersProps: FiltersProps;
   filteredTasks: Task[];
   projectMap: Record<string, Project>;
   people: Person[];
+  projects: Project[];
   onTaskDateChange?: (taskId: string, payload: { start: string; end: string; kind: 'move' | 'resize-start' | 'resize-end' }) => void;
+  onTaskCreate?: (payload: any) => void;
+  onProjectCreate?: (payload: any) => void;
+  onTaskAssigneeChange?: (taskId: string, assignee: string) => void;
 }) {
   const [mode, setMode] = useState<'tasks' | 'projects' | 'people'>('projects');
   const [timeScale, setTimeScale] = useState<TimeScale>('six_weeks');
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
+  const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
   const todayLabel = formatDate(today);
 
@@ -1742,63 +1753,102 @@ function SchedulePage({
   );
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,320px)_1fr] xl:grid-cols-[360px_1fr]">
-        <div className="space-y-4">
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-baseline justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-800">今日の状況</h2>
-                <p className="text-xs text-slate-500">進行中や空きリソースをひと目で把握</p>
-              </div>
-              <span className="text-xs text-slate-400">{todayLabel}</span>
-            </div>
-            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {scheduleStats.map((stat) => {
-                const toneClass =
-                  stat.tone === 'primary'
-                    ? 'border-transparent bg-slate-900 text-white'
-                    : stat.tone === 'alert'
-                    ? 'border-rose-100 bg-rose-50 text-rose-700'
-                    : 'border-slate-200 bg-slate-50 text-slate-900';
-                const noteColor = stat.tone === 'primary' ? 'text-slate-200/80' : 'text-slate-500';
-                return (
-                  <div key={stat.id} className={`rounded-2xl border px-4 py-3 shadow-sm ${toneClass}`}>
-                    <div className="text-xs font-semibold">{stat.label}</div>
-                    <div className="mt-1 text-xl font-bold">{stat.value}</div>
-                    <div className={`mt-1 text-[11px] ${noteColor}`}>{stat.note}</div>
-                  </div>
-                );
-              })}
-            </div>
-            {freeMembers.length ? (
-              <div className="mt-4">
-                <div className="text-xs font-semibold text-slate-500">空きメンバー</div>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
-                  {freeMembers.slice(0, 8).map((name) => (
-                    <span key={name} className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">
-                      {name}
-                    </span>
-                  ))}
-                  {freeMembers.length > 8 ? (
-                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700">他 {freeMembers.length - 8} 名</span>
-                  ) : null}
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-500">本日は全メンバーが稼働中です</div>
-            )}
-          </section>
+    <div className="space-y-4">
+      {/* メインガントチャートエリア */}
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800">スケジュール管理</h2>
+            <p className="text-xs text-slate-500">
+              {mode === 'projects'
+                ? 'プロジェクト単位での期間を俯瞰します'
+                : mode === 'people'
+                ? '担当者ごとの稼働バランスを俯瞰します'
+                : '担当付きタスクを横断して把握します'}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setShowTaskModal(true)}
+              className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition"
+            >
+              + タスク追加
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowProjectModal(true)}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
+            >
+              + プロジェクト追加
+            </button>
+          </div>
+        </div>
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-800">絞り込み</h2>
-                <p className="text-xs text-slate-500">プロジェクト・担当者・ステータスを指定</p>
-              </div>
+        {/* コントロールバー */}
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500">グルーピング</span>
+            {(
+              [
+                { value: 'tasks' as const, label: 'タスクごと' },
+                { value: 'projects' as const, label: 'プロジェクトごと' },
+                { value: 'people' as const, label: '担当者ごと' },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={viewToggleClass(mode === option.value)}
+                onClick={() => setMode(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500">期間スケール</span>
+            {timeScaleOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={scaleToggleClass(timeScale === option.value)}
+                onClick={() => setTimeScale(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ステータスと統計情報 */}
+        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-2xl bg-slate-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-semibold text-slate-700">{todayLabel}</span>
+            <span className="text-slate-400">|</span>
+            <span className="text-slate-600">進行中: {tasksActiveToday.length}件</span>
+            <span className="text-slate-400">|</span>
+            <span className="text-slate-600">今日開始: {tasksStartingToday}件</span>
+            <span className="text-slate-400">|</span>
+            <span className={tasksDueToday > 0 ? 'font-semibold text-rose-600' : 'text-slate-600'}>
+              今日締切: {tasksDueToday}件
+            </span>
+            <span className="text-slate-400">|</span>
+            <span className="text-slate-600">空きメンバー: {freeMembers.length}人</span>
+          </div>
+          <div className="ml-auto text-xs text-slate-500">
+            表示: {ganttData.data.length}件 / 全{filteredTasks.length}件 · {rangeLabel}
+          </div>
+        </div>
+
+        {/* フィルターと担当者パネル */}
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_280px]">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">絞り込み</h3>
               <span className="text-xs text-slate-500">対象: {filteredTasks.length} 件</span>
             </div>
-            <div className="mt-4 space-y-3">
+            <div className="space-y-3">
               <Filters {...filtersProps} resultCount={undefined} />
               {activeFilterChips.length ? (
                 <div className="flex flex-wrap gap-2 text-xs text-slate-600">
@@ -1808,121 +1858,119 @@ function SchedulePage({
                     </span>
                   ))}
                 </div>
-              ) : (
-                <div className="text-xs text-slate-400">フィルタは適用されていません</div>
-              )}
+              ) : null}
             </div>
-          </section>
+          </div>
 
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-800">近日の期限</h2>
-                <p className="text-xs text-slate-500">直近3週間の期限付きタスク</p>
+          {/* 担当者パネル */}
+          {mode === 'tasks' && people.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="mb-3">
+                <h3 className="text-sm font-semibold text-slate-700">担当者</h3>
+                <p className="text-xs text-slate-500 mt-1">タスクにドラッグ&ドロップ</p>
               </div>
-            </div>
-            {upcomingTasks.length ? (
-              <ul className="mt-4 space-y-3">
-                {upcomingTasks.map((task) => (
-                  <li
-                    key={task.id}
-                    className="flex items-start justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3"
+              <div className="space-y-2 max-h-[120px] overflow-y-auto">
+                {people.map((person) => (
+                  <div
+                    key={person.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setDraggedAssignee(person.氏名 || '');
+                      e.dataTransfer.effectAllowed = 'copy';
+                    }}
+                    onDragEnd={() => setDraggedAssignee(null)}
+                    className="cursor-move rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition"
                   >
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">{task.title}</div>
-                      <div className="mt-1 text-[11px] text-slate-500">
-                        {task.projectLabel} · {task.assignee} · {task.status}
-                      </div>
-                    </div>
-                    <div className="text-right text-xs">
-                      <div
-                        className={`font-semibold ${
-                          task.accent === 'danger'
-                            ? 'text-rose-600'
-                            : task.accent === 'warning'
-                            ? 'text-amber-600'
-                            : 'text-slate-600'
-                        }`}
-                      >
-                        {task.dueLabel}
-                      </div>
-                      <div className="text-[11px] text-slate-500">{formatDate(task.dueDate)}</div>
-                    </div>
-                  </li>
+                    <div className="font-medium">{person.氏名}</div>
+                    {person.部署 && <div className="text-xs text-slate-500">{person.部署}</div>}
+                  </div>
                 ))}
-              </ul>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-xs text-slate-500">
-                直近3週間以内に期限が設定されたタスクはありません。
               </div>
-            )}
-          </section>
+            </div>
+          )}
         </div>
 
-        <div className="space-y-4">
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-800">ガントビュー</h2>
-                <p className="text-xs text-slate-500">
-                  {mode === 'projects'
-                    ? 'プロジェクト単位での期間を俯瞰します'
-                    : mode === 'people'
-                    ? '担当者ごとの稼働バランスを俯瞰します'
-                    : '担当付きタスクを横断して把握します'}
-                </p>
-              </div>
-              <div className="text-xs text-slate-500">{rangeLabel}</div>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500">グルーピング</span>
-              {(
-                [
-                  { value: 'tasks' as const, label: 'タスクごと' },
-                  { value: 'projects' as const, label: 'プロジェクトごと' },
-                  { value: 'people' as const, label: '担当者ごと' },
-                ] as const
-              ).map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={viewToggleClass(mode === option.value)}
-                  onClick={() => setMode(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold text-slate-500">期間スケール</span>
-              {timeScaleOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={scaleToggleClass(timeScale === option.value)}
-                  onClick={() => setTimeScale(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <div className="mt-3 text-xs text-slate-500">表示件数: {ganttData.data.length} 件</div>
-            <div className="mt-4 h-[560px] rounded-2xl border border-slate-100 bg-slate-50 p-4">
-              <GanttChartView
-                data={ganttData.data}
-                ticks={ganttData.ticks}
-                min={ganttData.min}
-                max={ganttData.max}
-                minDate={ganttData.minDate}
-                maxDate={ganttData.maxDate}
-                todayX={ganttData.todayX}
-                interactive={mode === 'tasks'}
-                onChange={handleGanttInteraction}
-              />
-            </div>
-          </section>
+        {/* ガントチャート */}
+        <div className="mt-4 h-[calc(100vh-420px)] min-h-[600px] rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <GanttChartView
+            data={ganttData.data}
+            ticks={ganttData.ticks}
+            min={ganttData.min}
+            max={ganttData.max}
+            minDate={ganttData.minDate}
+            maxDate={ganttData.maxDate}
+            todayX={ganttData.todayX}
+            interactive={mode === 'tasks'}
+            onChange={handleGanttInteraction}
+            onAssigneeChange={(taskKey, assignee) => {
+              if (mode === 'tasks' && onTaskAssigneeChange) {
+                onTaskAssigneeChange(taskKey, assignee);
+              }
+            }}
+            draggedAssignee={draggedAssignee}
+          />
         </div>
-      </div>
+      </section>
+
+      {/* 近日の期限（コンパクト表示） */}
+      {upcomingTasks.length > 0 && (
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-800">近日の期限</h2>
+              <p className="text-xs text-slate-500">直近3週間の期限付きタスク</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {upcomingTasks.map((task) => (
+              <div
+                key={task.id}
+                className="flex flex-col gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3"
+              >
+                <div className="text-sm font-medium text-slate-800 line-clamp-1">{task.title}</div>
+                <div className="text-[11px] text-slate-500 line-clamp-1">
+                  {task.projectLabel} · {task.assignee}
+                </div>
+                <div
+                  className={`text-xs font-semibold ${
+                    task.accent === 'danger'
+                      ? 'text-rose-600'
+                      : task.accent === 'warning'
+                      ? 'text-amber-600'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  {task.dueLabel}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* モーダル */}
+      {onTaskCreate && (
+        <TaskModal
+          open={showTaskModal}
+          onOpenChange={setShowTaskModal}
+          projects={projects}
+          people={people}
+          onSubmit={async (payload) => {
+            await onTaskCreate(payload);
+            setShowTaskModal(false);
+          }}
+        />
+      )}
+      {onProjectCreate && (
+        <ProjectModal
+          open={showProjectModal}
+          onOpenChange={setShowProjectModal}
+          onSubmit={async (payload) => {
+            await onProjectCreate(payload);
+            setShowProjectModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2382,6 +2430,36 @@ function App() {
     }
   };
 
+  const handleTaskAssigneeChange = useCallback(
+    async (taskId: string, assignee: string) => {
+      const previous = state.tasks.find((task) => task.id === taskId);
+      if (!previous) return;
+      const previousSnapshot = { ...previous };
+      const updates = {
+        assignee,
+        担当者: assignee,
+      } as Partial<Task>;
+
+      setState((current) => ({
+        ...current,
+        tasks: current.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
+      }));
+
+      try {
+        await updateTask(taskId, { 担当者: assignee });
+        window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      } catch (error) {
+        console.error(error);
+        setState((current) => ({
+          ...current,
+          tasks: current.tasks.map((task) => (task.id === taskId ? previousSnapshot : task)),
+        }));
+        alert('担当者の変更に失敗しました。しばらくしてから再度お試しください。');
+      }
+    },
+    [state.tasks]
+  );
+
   const handleTaskDateChange = useCallback(
     async (
       taskId: string,
@@ -2479,7 +2557,11 @@ function App() {
                 filteredTasks={filteredTasks}
                 projectMap={projectMap}
                 people={state.people}
+                projects={state.projects}
                 onTaskDateChange={handleTaskDateChange}
+                onTaskCreate={handleCreateTask}
+                onProjectCreate={handleCreateProject}
+                onTaskAssigneeChange={handleTaskAssigneeChange}
               />
             }
           />
@@ -2522,7 +2604,11 @@ function App() {
                 filteredTasks={filteredTasks}
                 projectMap={projectMap}
                 people={state.people}
+                projects={state.projects}
                 onTaskDateChange={handleTaskDateChange}
+                onTaskCreate={handleCreateTask}
+                onProjectCreate={handleCreateProject}
+                onTaskAssigneeChange={handleTaskAssigneeChange}
               />
             }
           />
