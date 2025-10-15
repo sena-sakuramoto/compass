@@ -16,6 +16,8 @@ export interface GanttDatum {
   status?: string;
   isOverdue?: boolean;
   progressRatio?: number;
+  projectLabel?: string;
+  assigneeLabel?: string;
 }
 
 export interface GanttProps {
@@ -68,20 +70,55 @@ function getBarOpacity(entry: GanttDatum) {
   return 1;
 }
 
-function formatAxisTickLabel(minDate: Date | null, value: number) {
-  if (!minDate) return `${value}`;
-  const dt = new Date(minDate.getTime() + Number(value) * DAY_MS);
-  const month = dt.getMonth() + 1;
-  const day = dt.getDate();
-  return `${month}/${day}`;
-}
-
 function formatTooltipDate(date: Date) {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
   const day = `${date.getDate()}`.padStart(2, '0');
   const weekday = WEEKDAYS[date.getDay()];
   return `${year}/${month}/${day} (${weekday})`;
+}
+
+function GanttXAxisTick({ x, y, payload, minDate }: { x: number; y: number; payload: any; minDate: Date | null }) {
+  if (!minDate) return null;
+  const value = Number(payload?.value ?? 0);
+  const date = new Date(minDate.getTime() + value * DAY_MS);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const weekdayIndex = date.getDay();
+  const weekday = WEEKDAYS[weekdayIndex];
+  const isWeekend = weekdayIndex === 0 || weekdayIndex === 6;
+  const primaryColor = isWeekend ? '#f43f5e' : '#475569';
+  const secondaryColor = isWeekend ? '#fb7185' : '#94a3b8';
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={-4} textAnchor="middle" fontSize={11} fontWeight={600} fill={primaryColor}>
+        {`${month}/${day}`}
+      </text>
+      <text x={0} y={10} textAnchor="middle" fontSize={10} fill={secondaryColor}>
+        {weekday}
+      </text>
+    </g>
+  );
+}
+
+function GanttYAxisTick({ x, y, payload }: { x: number; y: number; payload: any }) {
+  const datum = (payload?.payload ?? {}) as GanttDatum;
+  const project = datum.projectLabel ?? datum.name;
+  const taskName = datum.projectLabel ? datum.name : undefined;
+  const assignee = datum.assigneeLabel;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={-10} y={-2} textAnchor="end" fontSize={13} fontWeight={600} fill="#0f172a">
+        {project}
+      </text>
+      {taskName ? (
+        <text x={-10} y={12} textAnchor="end" fontSize={11} fill="#64748b">
+          {taskName}
+          {assignee ? ` ｜ ${assignee}` : ''}
+        </text>
+      ) : null}
+    </g>
+  );
 }
 
 function GanttTooltip({ active, payload }: TooltipProps<number, string>) {
@@ -389,9 +426,9 @@ export function GanttChartView({
           <BarChart
             data={displayData}
             layout="vertical"
-            margin={{ left: 240, right: 32, top: 20, bottom: 20 }}
-            barCategoryGap={12}
-            barSize={32}
+            margin={{ left: 300, right: 32, top: 20, bottom: 20 }}
+            barCategoryGap={10}
+            barSize={28}
           >
             <CartesianGrid horizontal vertical={false} stroke="#e2e8f0" strokeDasharray="2 4" />
             <XAxis
@@ -400,17 +437,19 @@ export function GanttChartView({
               ticks={ticks}
               tickLine={false}
               axisLine={{ stroke: '#e2e8f0' }}
-              tick={{ fontSize: 11, fill: '#475569' }}
-              tickFormatter={(value) => formatAxisTickLabel(minDate, Number(value))}
-              tickMargin={8}
+              tick={(props) => <GanttXAxisTick {...props} minDate={minDate} />}
+              tickMargin={12}
+              interval={0}
+              height={48}
+              orientation="top"
             />
             <YAxis
               type="category"
               dataKey="name"
-              width={240}
+              width={300}
               tickLine={false}
               axisLine={false}
-              tick={{ fontSize: 13, fill: '#0f172a', fontWeight: 500 }}
+              tick={(props) => <GanttYAxisTick {...props} />}
             />
             <Bar dataKey="offset" stackId="g" fill="transparent" isAnimationActive={false} />
             <Bar

@@ -5,11 +5,12 @@ import type { Task } from '../lib/types';
 
 interface WorkerMonitorProps {
   tasks: Task[];
+  canSync?: boolean;
 }
 
 type WorkerState = 'idle' | 'running' | 'success' | 'error';
 
-export function WorkerMonitor({ tasks }: WorkerMonitorProps) {
+export function WorkerMonitor({ tasks, canSync = true }: WorkerMonitorProps) {
   const [state, setState] = useState<WorkerState>('idle');
   const [message, setMessage] = useState<string>('ジョブ待機中');
   const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
@@ -38,7 +39,9 @@ export function WorkerMonitor({ tasks }: WorkerMonitorProps) {
   }, [state]);
 
   const runSeed = async () => {
-    if (!tasks.length) return;
+    if (!tasks.length || !canSync) {
+      return;
+    }
     setState('running');
     setMessage('通知ジョブを登録中...');
     setErrorDetails(null);
@@ -56,7 +59,9 @@ export function WorkerMonitor({ tasks }: WorkerMonitorProps) {
   };
 
   const runCalendar = async () => {
-    if (!tasks.length) return;
+    if (!tasks.length || !canSync) {
+      return;
+    }
     setState('running');
     setMessage('カレンダー同期を実行中...');
     setErrorDetails(null);
@@ -86,7 +91,7 @@ export function WorkerMonitor({ tasks }: WorkerMonitorProps) {
       </div>
       <p className="mt-2 text-xs text-slate-500">システムジョブのステータスを確認し、必要に応じて手動で実行できます。</p>
       <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-        {message}
+        {message}{!canSync ? '（サインインすると実行できます）' : ''}
         {errorDetails ? <div className="mt-1 text-rose-500">{errorDetails}</div> : null}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
@@ -94,7 +99,7 @@ export function WorkerMonitor({ tasks }: WorkerMonitorProps) {
           type="button"
           className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
           onClick={runSeed}
-          disabled={!tasks.length || state === 'running'}
+          disabled={!tasks.length || state === 'running' || !canSync}
         >
           <BellRing className="h-4 w-4" /> 通知ジョブを登録
         </button>
@@ -102,7 +107,7 @@ export function WorkerMonitor({ tasks }: WorkerMonitorProps) {
           type="button"
           className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
           onClick={runCalendar}
-          disabled={!tasks.length || state === 'running'}
+          disabled={!tasks.length || state === 'running' || !canSync}
         >
           <CalendarDays className="h-4 w-4" /> カレンダー同期をリクエスト
         </button>

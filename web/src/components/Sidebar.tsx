@@ -1,16 +1,15 @@
-import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
+  CalendarDays,
   Home,
-  FolderKanban,
   ListChecks,
   BarChart3,
-  KanbanSquare,
-  FileText,
+  Users,
   Menu,
   X,
   ChevronRight,
-  Settings
+  Settings,
 } from 'lucide-react';
 
 export interface NavigationItem {
@@ -28,37 +27,88 @@ interface SidebarProps {
 }
 
 const iconMap = {
+  CalendarDays,
   Home,
-  FolderKanban,
   ListChecks,
   BarChart3,
-  KanbanSquare,
-  FileText,
+  Users,
   Settings,
 };
 
 export function Sidebar({ navigationItems, onNavigationChange }: SidebarProps) {
-  const [isOpen, setIsOpen] = useState(true);
+  const location = useLocation();
   const [isConfigMode, setIsConfigMode] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
 
-  const defaultNavItems: NavigationItem[] = navigationItems || [
-    { id: 'home', label: 'ホーム', path: '/', icon: 'Home', visible: true, order: 0 },
-    { id: 'summary', label: 'ダッシュボード', path: '/summary', icon: 'BarChart3', visible: true, order: 1 },
-    { id: 'projects', label: 'プロジェクト', path: '/projects', icon: 'FolderKanban', visible: true, order: 2 },
-    { id: 'tasks', label: 'タスク', path: '/tasks', icon: 'ListChecks', visible: true, order: 3 },
-    { id: 'gantt', label: 'ガント', path: '/gantt', icon: 'BarChart3', visible: true, order: 4 },
-    { id: 'board', label: 'ボード', path: '/board', icon: 'KanbanSquare', visible: true, order: 5 },
-    { id: 'workload', label: '稼働状況', path: '/workload', icon: 'FileText', visible: true, order: 6 },
-  ];
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = window.localStorage.getItem('compass_sidebar_open');
+    if (stored !== null) return stored === '1';
+    return window.matchMedia('(min-width: 1024px)').matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('compass_sidebar_open', isOpen ? '1' : '0');
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const query = window.matchMedia('(min-width: 1024px)');
+    const handler = (event: MediaQueryListEvent) => {
+      setIsDesktop(event.matches);
+    };
+    setIsDesktop(query.matches);
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', handler);
+      return () => query.removeEventListener('change', handler);
+    }
+    query.addListener(handler);
+    return () => query.removeListener(handler);
+  }, []);
+
+  useEffect(() => {
+    if (isDesktop) {
+      setIsOpen(true);
+    } else {
+      setIsOpen(false);
+    }
+  }, [isDesktop]);
+
+  useEffect(() => {
+    if (!isDesktop) {
+      setIsOpen(false);
+    }
+  }, [isDesktop, location.pathname]);
+
+  const defaultNavItems: NavigationItem[] = useMemo(
+    () =>
+      navigationItems || [
+        { id: 'schedule', label: '工程表', path: '/', icon: 'CalendarDays', visible: true, order: 0 },
+        { id: 'summary', label: 'サマリー', path: '/summary', icon: 'BarChart3', visible: true, order: 1 },
+        { id: 'tasks', label: 'タスク', path: '/tasks', icon: 'ListChecks', visible: true, order: 2 },
+        { id: 'workload', label: '稼働状況', path: '/workload', icon: 'Users', visible: true, order: 3 },
+      ],
+    [navigationItems]
+  );
 
   const [navItems, setNavItems] = useState(defaultNavItems);
 
+  useEffect(() => {
+    if (navigationItems) {
+      setNavItems(navigationItems);
+    }
+  }, [navigationItems]);
+
   const visibleItems = navItems
-    .filter(item => item.visible)
+    .filter((item) => item.visible)
     .sort((a, b) => a.order - b.order);
 
   const toggleVisibility = (id: string) => {
-    const updated = navItems.map(item =>
+    const updated = navItems.map((item) =>
       item.id === id ? { ...item, visible: !item.visible } : item
     );
     setNavItems(updated);
@@ -67,39 +117,35 @@ export function Sidebar({ navigationItems, onNavigationChange }: SidebarProps) {
 
   return (
     <>
-      {/* ハンバーガーメニューボタン */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="fixed top-4 left-4 z-50 rounded-lg bg-white p-2 shadow-lg hover:bg-slate-50 transition lg:hidden"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="fixed top-4 left-4 z-50 rounded-lg bg-white p-2 shadow-lg transition hover:bg-slate-50 lg:hidden"
         aria-label="メニュー"
       >
         {isOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
-      {/* サイドバー */}
       <aside
-        className={`fixed left-0 top-0 z-40 h-screen bg-white border-r border-slate-200 transition-transform duration-300 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${isOpen ? 'w-64' : 'w-0'}`}
+        className={`fixed left-0 top-0 z-40 h-screen w-64 border-r border-slate-200 bg-white transition-transform duration-300 ${
+          isDesktop || isOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
       >
         <div className="flex h-full flex-col">
-          {/* ヘッダー */}
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
             <h1 className="text-xl font-bold text-slate-900">Compass</h1>
             <button
-              onClick={() => setIsConfigMode(!isConfigMode)}
-              className="rounded-lg p-2 hover:bg-slate-100 transition"
+              onClick={() => setIsConfigMode((prev) => !prev)}
+              className="rounded-lg p-2 transition hover:bg-slate-100"
               aria-label="設定"
             >
               <Settings size={18} className="text-slate-600" />
             </button>
           </div>
 
-          {/* ナビゲーション */}
           <nav className="flex-1 overflow-y-auto px-3 py-4">
             {isConfigMode ? (
               <div className="space-y-2">
-                <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase">
+                <div className="px-3 py-2 text-xs font-semibold uppercase text-slate-500">
                   メニュー項目の表示設定
                 </div>
                 {navItems.map((item) => {
@@ -107,15 +153,13 @@ export function Sidebar({ navigationItems, onNavigationChange }: SidebarProps) {
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-slate-100 transition"
+                      className="flex items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-slate-100"
                     >
                       <Icon size={18} className="text-slate-600" />
-                      <span className="flex-1 text-sm font-medium text-slate-700">
-                        {item.label}
-                      </span>
+                      <span className="flex-1 text-sm font-medium text-slate-700">{item.label}</span>
                       <button
                         onClick={() => toggleVisibility(item.id)}
-                        className={`text-xs px-2 py-1 rounded ${
+                        className={`rounded px-2 py-1 text-xs ${
                           item.visible
                             ? 'bg-emerald-100 text-emerald-700'
                             : 'bg-slate-100 text-slate-500'
@@ -136,16 +180,16 @@ export function Sidebar({ navigationItems, onNavigationChange }: SidebarProps) {
                       key={item.id}
                       to={item.path}
                       className={({ isActive }) =>
-                        `flex items-center gap-3 rounded-lg px-3 py-2 transition ${
+                        `group flex items-center gap-3 rounded-lg px-3 py-2 transition ${
                           isActive
-                            ? 'bg-slate-900 text-white'
+                            ? 'bg-slate-900 text-white shadow-sm'
                             : 'text-slate-700 hover:bg-slate-100'
                         }`
                       }
                     >
                       <Icon size={18} />
                       <span className="text-sm font-medium">{item.label}</span>
-                      <ChevronRight size={16} className="ml-auto opacity-0 group-hover:opacity-100" />
+                      <ChevronRight size={16} className="ml-auto text-current/40 opacity-0 transition group-hover:opacity-100" />
                     </NavLink>
                   );
                 })}
@@ -153,19 +197,15 @@ export function Sidebar({ navigationItems, onNavigationChange }: SidebarProps) {
             )}
           </nav>
 
-          {/* フッター */}
           <div className="border-t border-slate-200 px-6 py-4">
-            <div className="text-xs text-slate-500">
-              Project Compass v1.0
-            </div>
+            <div className="text-xs text-slate-500">Project Compass v1.0</div>
           </div>
         </div>
       </aside>
 
-      {/* オーバーレイ（モバイル用） */}
-      {isOpen && (
+      {!isDesktop && isOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}

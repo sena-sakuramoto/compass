@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Routes, Route, NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   BarChart3,
@@ -38,6 +38,7 @@ import { TaskTable, TaskTableRow } from './components/TaskTable';
 import { GanttChartView, GanttDatum } from './components/GanttChart';
 import { WorkerMonitor } from './components/WorkerMonitor';
 import { Sidebar } from './components/Sidebar';
+import { ToastStack, ToastMessage } from './components/ToastStack';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -60,6 +61,13 @@ interface CompassState {
   tasks: Task[];
   people: Person[];
 }
+
+type ToastInput = {
+  tone: ToastMessage['tone'];
+  title: string;
+  description?: string;
+  duration?: number;
+};
 
 function useSnapshot() {
   const [state, setState] = useState<CompassState>(() => {
@@ -120,6 +128,13 @@ function AppLayout({
   onSignIn,
   onSignOut,
   authError,
+  canEdit,
+  canSync,
+  onExportSnapshot,
+  onExportExcel,
+  onImportSnapshot,
+  onImportExcel,
+  onNotify,
 }: {
   children: React.ReactNode;
   onOpenTask(): void;
@@ -131,64 +146,95 @@ function AppLayout({
   onSignIn(): void;
   onSignOut(): void;
   authError?: string | null;
+  canEdit: boolean;
+  canSync: boolean;
+  onExportSnapshot(): Promise<SnapshotPayload>;
+  onExportExcel(): Promise<Blob>;
+  onImportSnapshot(payload: SnapshotPayload): Promise<void>;
+  onImportExcel(file: File): Promise<void>;
+  onNotify(message: ToastInput): void;
 }) {
-  const location = useLocation();
-  const tabs = [
-    { path: '/', label: 'スケジュール' },
+  const navLinks = [
+    { path: '/', label: '工程表' },
     { path: '/summary', label: 'サマリー' },
     { path: '/tasks', label: 'タスク' },
-    { path: '/workload', label: '人別負荷' },
+    { path: '/workload', label: '稼働状況' },
   ];
+  const offline = !authSupported || !user;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-slate-50">
-      {/* サイドバー */}
+    <div className="min-h-screen bg-slate-50">
       <Sidebar />
-
-      {/* メインコンテンツ */}
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 lg:px-8">
-            <div className="lg:ml-0 ml-14">
-              <h1 className="text-lg font-bold md:text-2xl">APDW Project Compass</h1>
-              <p className="text-xs text-slate-600 md:text-sm">
-                全プロジェクト・タスク反映／ガント（プロジェクト・タスク切替）／モバイル最適化
-              </p>
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 lg:px-8">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="lg:ml-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">APDW Project Compass</p>
+                <h1 className="text-2xl font-bold text-slate-900 md:text-[28px]">工程管理ダッシュボード</h1>
+                <p className="mt-1 text-xs text-slate-500 md:text-sm">全プロジェクト・タスクを横断し、進捗と負荷をひと目で把握できます。</p>
+              </div>
+              <HeaderActions
+                user={user}
+                authSupported={authSupported}
+                authReady={authReady}
+                onSignIn={onSignIn}
+                onSignOut={onSignOut}
+                authError={authError}
+                canSync={canSync}
+                onExportSnapshot={onExportSnapshot}
+                onExportExcel={onExportExcel}
+                onImportSnapshot={onImportSnapshot}
+                onImportExcel={onImportExcel}
+                onNotify={onNotify}
+              />
             </div>
-            <HeaderActions
-              user={user}
-              authSupported={authSupported}
-              authReady={authReady}
-              onSignIn={onSignIn}
-              onSignOut={onSignOut}
-              authError={authError}
-            />
+            <nav className="flex flex-wrap gap-2">
+              {navLinks.map((link) => (
+                <NavLink
+                  key={link.path}
+                  to={link.path}
+                  className={({ isActive }) =>
+                    `rounded-full px-4 py-2 text-sm font-medium transition ${
+                      isActive
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'bg-white text-slate-600 hover:bg-slate-100'
+                    }`
+                  }
+                >
+                  {link.label}
+                </NavLink>
+              ))}
+            </nav>
           </div>
-        {!authSupported ? (
-          <div className="bg-amber-50 text-amber-700">
-            <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-2 text-xs">
-              Firebase Auth の環境変数が設定されていません。`.env` に Firebase の SDK 設定を追加するとクラウド同期が有効になります。
+          {!authSupported ? (
+            <div className="bg-amber-50 text-amber-700">
+              <div className="mx-auto max-w-6xl px-4 py-2 text-xs">Firebase Auth が未設定です。ローカルデータとして表示しています。</div>
             </div>
-          </div>
-        ) : authReady && !user ? (
-          <div className="bg-slate-900 text-slate-100">
-            <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2 text-xs">
-              <span>Google でサインインすると、Firestore にリアルタイム保存されます。</span>
-              <button
-                type="button"
-                onClick={onSignIn}
-                className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-900 hover:bg-slate-100"
-              >
-                サインイン
-              </button>
+          ) : authReady && !user ? (
+            <div className="bg-slate-900 text-slate-100">
+              <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2 text-xs">
+                <span>Google でサインインすると、Firestore にリアルタイム同期されます。</span>
+                <button
+                  type="button"
+                  onClick={onSignIn}
+                  className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-900 hover:bg-slate-100"
+                >
+                  サインイン
+                </button>
+              </div>
+              {authError ? (
+                <div className="mx-auto max-w-6xl px-4 pb-2 text-xs text-rose-200">{authError}</div>
+              ) : null}
             </div>
-            {authError ? (
-              <div className="mx-auto max-w-6xl px-4 pb-2 text-xs text-rose-200">{authError}</div>
-            ) : null}
+          ) : null}
+        </header>
+        {offline ? (
+          <div className="border-b border-slate-200 bg-slate-100/80">
+            <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
           </div>
         ) : null}
-        </header>
-        <main className="mx-auto max-w-7xl px-4 pb-8 pt-6 md:pt-8 lg:px-8">{children}</main>
+        <main className="mx-auto max-w-7xl px-4 pb-10 pt-6 md:pt-8 lg:px-8">{children}</main>
         <BottomBar
           onOpenTask={onOpenTask}
           onOpenProject={onOpenProject}
@@ -199,11 +245,13 @@ function AppLayout({
           onSignIn={onSignIn}
           onSignOut={onSignOut}
           authError={authError}
+          canEdit={canEdit}
         />
       </div>
     </div>
   );
 }
+
 
 function HeaderActions({
   user,
@@ -212,6 +260,12 @@ function HeaderActions({
   onSignIn,
   onSignOut,
   authError,
+  canSync,
+  onExportSnapshot,
+  onExportExcel,
+  onImportSnapshot,
+  onImportExcel,
+  onNotify,
 }: {
   user: User | null;
   authSupported: boolean;
@@ -219,76 +273,102 @@ function HeaderActions({
   onSignIn(): void;
   onSignOut(): void;
   authError?: string | null;
+  canSync: boolean;
+  onExportSnapshot(): Promise<SnapshotPayload>;
+  onExportExcel(): Promise<Blob>;
+  onImportSnapshot(payload: SnapshotPayload): Promise<void>;
+  onImportExcel(file: File): Promise<void>;
+  onNotify(message: ToastInput): void;
 }) {
-  const [downloading, setDownloading] = useState(false);
-  const download = async (blob: Blob, filename: string) => {
+  const [busy, setBusy] = useState(false);
+  const jsonInputRef = React.useRef<HTMLInputElement | null>(null);
+  const excelInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const downloadBlob = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.click();
     URL.revokeObjectURL(url);
-  };
+  }, []);
 
   const handleExportJson = async () => {
     try {
-      setDownloading(true);
-      const snapshot = await exportSnapshot();
-      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
-      await download(blob, `apdw_compass_${todayString()}.json`);
-    } catch (err) {
-      console.error(err);
-      alert('JSONエクスポートに失敗しました');
+      setBusy(true);
+      const snapshot = await onExportSnapshot();
+      const payload: SnapshotPayload = {
+        generated_at: snapshot.generated_at ?? todayString(),
+        projects: snapshot.projects,
+        tasks: snapshot.tasks,
+        people: snapshot.people,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      downloadBlob(blob, `compass_snapshot_${todayString()}.json`);
+      onNotify({ tone: 'success', title: 'JSONをダウンロードしました' });
+    } catch (error) {
+      console.error(error);
+      onNotify({ tone: 'error', title: 'JSONエクスポートに失敗しました' });
     } finally {
-      setDownloading(false);
+      setBusy(false);
     }
   };
 
   const handleExportExcel = async () => {
+    if (!canSync) {
+      onNotify({ tone: 'info', title: 'サインインするとExcel出力を利用できます' });
+      return;
+    }
     try {
-      setDownloading(true);
-      const blob = await exportExcel();
-      await download(blob, `APDW_Export_${todayString()}.xlsx`);
-    } catch (err) {
-      console.error(err);
-      alert('Excelエクスポートに失敗しました');
+      setBusy(true);
+      const blob = await onExportExcel();
+      downloadBlob(blob, `compass_export_${todayString()}.xlsx`);
+      onNotify({ tone: 'success', title: 'Excelをダウンロードしました' });
+    } catch (error) {
+      console.error(error);
+      onNotify({ tone: 'error', title: 'Excelエクスポートに失敗しました' });
     } finally {
-      setDownloading(false);
+      setBusy(false);
     }
   };
-
-  const jsonInputRef = React.useRef<HTMLInputElement | null>(null);
-  const excelInputRef = React.useRef<HTMLInputElement | null>(null);
-
-  const triggerJson = () => jsonInputRef.current?.click();
-  const triggerExcel = () => excelInputRef.current?.click();
 
   const handleJsonSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
-      const content = JSON.parse(await file.text()) as SnapshotPayload;
-      await importSnapshot(content);
+      setBusy(true);
+      const parsed = JSON.parse(await file.text()) as SnapshotPayload;
+      await onImportSnapshot(parsed);
+      onNotify({ tone: 'success', title: 'JSONを読み込みました' });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
-    } catch (err) {
-      console.error(err);
-      alert('JSON読み込みに失敗しました');
+    } catch (error) {
+      console.error(error);
+      onNotify({ tone: 'error', title: 'JSON読み込みに失敗しました' });
     } finally {
       event.target.value = '';
+      setBusy(false);
     }
   };
 
   const handleExcelSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!canSync) {
+      onNotify({ tone: 'info', title: 'サインインするとExcel読み込みを利用できます' });
+      event.target.value = '';
+      return;
+    }
     try {
-      await importExcel(file);
+      setBusy(true);
+      await onImportExcel(file);
+      onNotify({ tone: 'success', title: 'Excelを読み込みました' });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
-    } catch (err) {
-      console.error(err);
-      alert('Excel読み込みに失敗しました');
+    } catch (error) {
+      console.error(error);
+      onNotify({ tone: 'error', title: 'Excel読み込みに失敗しました' });
     } finally {
       event.target.value = '';
+      setBusy(false);
     }
   };
 
@@ -298,15 +378,16 @@ function HeaderActions({
         type="button"
         onClick={handleExportJson}
         className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
-        disabled={downloading}
+        disabled={busy}
       >
         <Download className="h-4 w-4" /> JSON
       </button>
       <button
         type="button"
         onClick={handleExportExcel}
-        className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
-        disabled={downloading}
+        className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={busy || !canSync}
+        title={!canSync ? 'サインインすると利用できます' : undefined}
       >
         <Download className="h-4 w-4" /> Excel
       </button>
@@ -314,15 +395,18 @@ function HeaderActions({
       <input ref={excelInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelSelected} />
       <button
         type="button"
-        onClick={triggerJson}
-        className="flex items-center gap-1 rounded-2xl bg-slate-900 px-3 py-2 text-sm text-white transition hover:bg-slate-800"
+        onClick={() => jsonInputRef.current?.click()}
+        className="flex items-center gap-1 rounded-2xl bg-slate-900 px-3 py-2 text-sm text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={busy}
       >
         <FileJson className="h-4 w-4" /> JSON読み込み
       </button>
       <button
         type="button"
-        onClick={triggerExcel}
-        className="flex items-center gap-1 rounded-2xl bg-slate-900 px-3 py-2 text-sm text-white transition hover:bg-slate-800"
+        onClick={() => excelInputRef.current?.click()}
+        className="flex items-center gap-1 rounded-2xl bg-slate-900 px-3 py-2 text-sm text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={busy || !canSync}
+        title={!canSync ? 'サインインすると利用できます' : undefined}
       >
         <FileSpreadsheet className="h-4 w-4" /> Excel読み込み
       </button>
@@ -360,12 +444,16 @@ function HeaderActions({
       ) : (
         <span className="text-xs text-slate-400">Firebase Auth 未設定</span>
       )}
+      {!canSync ? (
+        <span className="text-[11px] font-semibold text-slate-400">ローカルモード</span>
+      ) : null}
       {authError && user ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] text-rose-700">{authError}</div>
       ) : null}
     </div>
   );
 }
+
 
 function BottomBar({
   onOpenTask,
@@ -377,6 +465,7 @@ function BottomBar({
   onSignIn,
   onSignOut,
   authError,
+  canEdit,
 }: {
   onOpenTask(): void;
   onOpenProject(): void;
@@ -387,11 +476,11 @@ function BottomBar({
   onSignIn(): void;
   onSignOut(): void;
   authError?: string | null;
+  canEdit: boolean;
 }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-3 py-3 shadow md:hidden">
       <div className="mx-auto max-w-md space-y-3">
-        {/* 認証ボタン */}
         {authSupported && (
           <div className="flex justify-center">
             {user ? (
@@ -415,37 +504,46 @@ function BottomBar({
           </div>
         )}
 
-        {/* 追加ボタン */}
         <div className="grid grid-cols-3 gap-2">
           <button
             type="button"
-            className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-slate-900 px-3 py-3 text-white shadow-sm transition-colors hover:bg-slate-800"
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-slate-900 px-3 py-3 text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onOpenTask}
+            disabled={!canEdit}
           >
             <Plus className="h-5 w-5" />
             <span className="text-xs font-medium">タスク</span>
           </button>
           <button
             type="button"
-            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onOpenProject}
+            disabled={!canEdit}
           >
             <Plus className="h-5 w-5" />
             <span className="text-xs font-medium">プロジェクト</span>
           </button>
           <button
             type="button"
-            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
+            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onOpenPerson}
+            disabled={!canEdit}
           >
             <Plus className="h-5 w-5" />
             <span className="text-xs font-medium">担当者</span>
           </button>
         </div>
+        {!canEdit ? (
+          <p className="text-center text-[11px] text-slate-500">編集はローカル表示のみです。サインインすると同期されます。</p>
+        ) : null}
+        {authError && user ? (
+          <p className="text-center text-[11px] text-rose-600">{authError}</p>
+        ) : null}
       </div>
     </div>
   );
 }
+
 
 interface ModalProps {
   open: boolean;
@@ -484,9 +582,10 @@ interface TaskModalProps extends ModalProps {
     担当者メール?: string;
     '通知設定'?: TaskNotificationSettings;
   }): Promise<void>;
+  onNotify?(message: ToastInput): void;
 }
 
-function TaskModal({ open, onOpenChange, projects, people, onSubmit }: TaskModalProps) {
+function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }: TaskModalProps) {
   const [project, setProject] = useState('');
   const [assignee, setAssignee] = useState('');
   const [assigneeEmail, setAssigneeEmail] = useState('');
@@ -562,7 +661,7 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit }: TaskModal
       onOpenChange(false);
     } catch (err) {
       console.error(err);
-      alert('タスク追加に失敗しました');
+      onNotify?.({ tone: 'error', title: 'タスクの追加に失敗しました' });
     }
   };
 
@@ -723,9 +822,10 @@ interface ProjectModalProps extends ModalProps {
     ステータス: string;
     優先度: string;
   }): Promise<void>;
+  onNotify?(message: ToastInput): void;
 }
 
-function ProjectModal({ open, onOpenChange, onSubmit }: ProjectModalProps) {
+function ProjectModal({ open, onOpenChange, onSubmit, onNotify }: ProjectModalProps) {
   const [name, setName] = useState('');
   const [start, setStart] = useState('');
   const [due, setDue] = useState('');
@@ -763,7 +863,7 @@ function ProjectModal({ open, onOpenChange, onSubmit }: ProjectModalProps) {
       onOpenChange(false);
     } catch (err) {
       console.error(err);
-      alert('プロジェクト追加に失敗しました');
+      onNotify?.({ tone: 'error', title: 'プロジェクトの追加に失敗しました' });
     }
   };
 
@@ -881,9 +981,10 @@ interface PersonModalProps extends ModalProps {
     電話?: string;
     '稼働時間/日(h)'?: number;
   }): Promise<void>;
+  onNotify?(message: ToastInput): void;
 }
 
-function PersonModal({ open, onOpenChange, onSubmit }: PersonModalProps) {
+function PersonModal({ open, onOpenChange, onSubmit, onNotify }: PersonModalProps) {
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [email, setEmail] = useState('');
@@ -914,7 +1015,7 @@ function PersonModal({ open, onOpenChange, onSubmit }: PersonModalProps) {
       onOpenChange(false);
     } catch (err) {
       console.error(err);
-      alert('担当者追加に失敗しました');
+      onNotify?.({ tone: 'error', title: '担当者の追加に失敗しました' });
     }
   };
 
@@ -1058,6 +1159,7 @@ function DashboardPage({
   onOpenPerson,
   sortKey,
   onSortChange,
+  canEdit,
 }: {
   projects: ProjectWithDerived[];
   filteredTasks: Task[];
@@ -1067,6 +1169,7 @@ function DashboardPage({
   onOpenPerson(): void;
   sortKey: ProjectSortKey;
   onSortChange(value: ProjectSortKey): void;
+  canEdit: boolean;
 }) {
   const today = new Date();
   const openTaskCount = useMemo(
@@ -1205,22 +1308,28 @@ function DashboardPage({
           <div className="flex gap-2">
             <button
               type="button"
-              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 md:flex"
+              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 md:flex"
               onClick={onOpenTask}
+              disabled={!canEdit}
+              title={!canEdit ? '現在は変更できません' : undefined}
             >
               <Plus className="h-4 w-4" /> タスク追加
             </button>
             <button
               type="button"
-              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 md:flex"
+              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 md:flex"
               onClick={onOpenProject}
+              disabled={!canEdit}
+              title={!canEdit ? '現在は変更できません' : undefined}
             >
               <Plus className="h-4 w-4" /> プロジェクト追加
             </button>
             <button
               type="button"
-              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 md:flex"
+              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 md:flex"
               onClick={onOpenPerson}
+              disabled={!canEdit}
+              title={!canEdit ? '現在は変更できません' : undefined}
             >
               <Plus className="h-4 w-4" /> 担当者追加
             </button>
@@ -1316,6 +1425,8 @@ function TasksPage({
   onOpenPerson,
   onSeedReminders,
   onCalendarSync,
+  canEdit,
+  canSync,
 }: {
   filtersProps: FiltersProps;
   filteredTasks: Task[];
@@ -1326,6 +1437,8 @@ function TasksPage({
   onOpenPerson(): void;
   onSeedReminders?(taskId: string): Promise<void>;
   onCalendarSync?(taskId: string): Promise<void>;
+  canEdit: boolean;
+  canSync: boolean;
 }) {
   const [seedBusyIds, setSeedBusyIds] = useState<Set<string>>(new Set());
   const [calendarBusyIds, setCalendarBusyIds] = useState<Set<string>>(new Set());
@@ -1386,28 +1499,36 @@ function TasksPage({
 
   return (
     <div className="space-y-4">
-      <WorkerMonitor tasks={filteredTasks} />
+      <WorkerMonitor tasks={filteredTasks} canSync={canSync} />
+      {!canSync ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-500">
+          通知・カレンダー連携はサインイン後にご利用いただけます。
+        </div>
+      ) : null}
       <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
         <Filters {...filtersProps} />
         <div className="hidden gap-2 md:flex">
           <button
             type="button"
-            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onOpenTask}
+            disabled={!canEdit}
           >
             <Plus className="h-4 w-4" /> タスク追加
           </button>
           <button
             type="button"
-            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onOpenProject}
+            disabled={!canEdit}
           >
             <Plus className="h-4 w-4" /> プロジェクト追加
           </button>
           <button
             type="button"
-            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100"
+            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onOpenPerson}
+            disabled={!canEdit}
           >
             <Plus className="h-4 w-4" /> 担当者追加
           </button>
@@ -1456,9 +1577,11 @@ function SchedulePage({
   people,
   projects,
   onTaskDateChange,
-  onTaskCreate,
-  onProjectCreate,
   onTaskAssigneeChange,
+  onOpenTask,
+  onOpenProject,
+  onOpenPerson,
+  canEdit,
 }: {
   filtersProps: FiltersProps;
   filteredTasks: Task[];
@@ -1466,14 +1589,14 @@ function SchedulePage({
   people: Person[];
   projects: Project[];
   onTaskDateChange?: (taskId: string, payload: { start: string; end: string; kind: 'move' | 'resize-start' | 'resize-end' }) => void;
-  onTaskCreate?: (payload: any) => void;
-  onProjectCreate?: (payload: any) => void;
   onTaskAssigneeChange?: (taskId: string, assignee: string) => void;
+  onOpenTask(): void;
+  onOpenProject(): void;
+  onOpenPerson(): void;
+  canEdit: boolean;
 }) {
-  const [mode, setMode] = useState<'tasks' | 'projects' | 'people'>('projects');
+  const [mode, setMode] = useState<'tasks' | 'projects' | 'people'>('tasks');
   const [timeScale, setTimeScale] = useState<TimeScale>('six_weeks');
-  const [showTaskModal, setShowTaskModal] = useState(false);
-  const [showProjectModal, setShowProjectModal] = useState(false);
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
   const todayLabel = formatDate(today);
@@ -1683,14 +1806,17 @@ function SchedulePage({
         const start = parseDate(task.start ?? task.予定開始日);
         const end = parseDate(task.end ?? task.期限 ?? task.実績完了日) ?? start;
         if (!start) return null;
+        const projectName = projectMap[task.projectId]?.物件名 || '(プロジェクト未設定)';
         const assignee = task.assignee ?? task.担当者 ?? '未設定';
         return {
           key: task.id,
-          name: `${task.タスク名 || '(無題)'} / ${assignee}`,
+          name: task.タスク名 || '(無題)',
           start,
           end: end ?? start,
           status: task.ステータス,
           progress: computeProgress(task.progress, task.ステータス),
+          projectLabel: projectName,
+          assigneeLabel: assignee && assignee !== '未設定' ? assignee : undefined,
         };
       })
       .filter((item): item is GanttItemInput => Boolean(item));
@@ -1807,15 +1933,19 @@ function SchedulePage({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setShowTaskModal(true)}
-              className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 transition"
+              onClick={onOpenTask}
+              disabled={!canEdit}
+              className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
             >
               + タスク追加
             </button>
             <button
               type="button"
-              onClick={() => setShowProjectModal(true)}
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
+              onClick={onOpenProject}
+              disabled={!canEdit}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
             >
               + プロジェクト追加
             </button>
@@ -1928,7 +2058,10 @@ function SchedulePage({
         </div>
 
         {/* ガントチャート */}
-        <div className="mt-4 h-[calc(100vh-420px)] min-h-[600px] rounded-2xl border border-slate-100 bg-slate-50 p-4">
+        <div
+          className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4"
+          style={{ minHeight: 460, height: '60vh' }}
+        >
           <GanttChartView
             data={ganttData.data}
             ticks={ganttData.ticks}
@@ -1985,29 +2118,6 @@ function SchedulePage({
         </section>
       )}
 
-      {/* モーダル */}
-      {onTaskCreate && (
-        <TaskModal
-          open={showTaskModal}
-          onOpenChange={setShowTaskModal}
-          projects={projects}
-          people={people}
-          onSubmit={async (payload) => {
-            await onTaskCreate(payload);
-            setShowTaskModal(false);
-          }}
-        />
-      )}
-      {onProjectCreate && (
-        <ProjectModal
-          open={showProjectModal}
-          onOpenChange={setShowProjectModal}
-          onSubmit={async (payload) => {
-            await onProjectCreate(payload);
-            setShowProjectModal(false);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -2019,6 +2129,8 @@ interface GanttItemInput {
   end: Date;
   status?: string;
   progress?: number;
+  projectLabel?: string;
+  assigneeLabel?: string;
 }
 
 interface BuildGanttOptions {
@@ -2118,6 +2230,8 @@ function buildGantt(items: GanttItemInput[], options: BuildGanttOptions = {}) {
       status: item.status,
       progressRatio: safeProgress,
       isOverdue: originalEnd.getTime() < today.getTime() && item.status !== '完了',
+      projectLabel: item.projectLabel,
+      assigneeLabel: item.assigneeLabel,
     };
   });
 
@@ -2229,7 +2343,50 @@ function App() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
+  const toastTimers = useRef<Map<string, number>>(new Map());
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    const timers = toastTimers.current;
+    const timer = timers.get(id);
+    if (timer) {
+      window.clearTimeout(timer);
+      timers.delete(id);
+    }
+  }, []);
+
+  const pushToast = useCallback((toast: ToastInput) => {
+    const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `toast-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setToasts((prev) => [
+      ...prev,
+      { id, tone: toast.tone, title: toast.title, description: toast.description },
+    ]);
+    const duration = toast.duration ?? 5000;
+    if (duration > 0) {
+      const timer = window.setTimeout(() => {
+        dismissToast(id);
+      }, duration);
+      toastTimers.current.set(id, timer);
+    }
+  }, [dismissToast]);
+
+  useEffect(() => {
+    return () => {
+      toastTimers.current.forEach((timer: number) => window.clearTimeout(timer));
+      toastTimers.current.clear();
+    };
+  }, []);
+
   const loading = useRemoteData(setState, authSupported && Boolean(user));
+
+  const canSync = authSupported && Boolean(user);
+  const canEdit = true;
+  const generateLocalId = useCallback((prefix: string) => {
+    return `local-${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  }, []);
 
   const [projectFilter, setProjectFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('all');
@@ -2378,12 +2535,36 @@ function App() {
   }, [projectsWithDerived, projectSort]);
 
   const handleComplete = async (task: Task, done: boolean) => {
+    if (!canSync) {
+      setState((current) => ({
+        ...current,
+        tasks: current.tasks.map((item) =>
+          item.id === task.id
+            ? {
+                ...item,
+                ステータス: done ? '完了' : item.ステータス === '完了' ? '進行中' : item.ステータス,
+                progress: done ? 1 : item.progress ?? 0,
+                updatedAt: todayString(),
+              }
+            : item
+        ),
+      }));
+      pushToast({
+        tone: 'success',
+        title: done ? 'タスクを完了にしました（ローカル保存）' : 'タスクを再オープンしました（ローカル保存）',
+      });
+      return;
+    }
     try {
       await completeTask(task.id, done);
+      pushToast({
+        tone: 'success',
+        title: done ? 'タスクを完了にしました' : 'タスクを再オープンしました',
+      });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (err) {
       console.error(err);
-      alert('完了処理に失敗しました');
+      pushToast({ tone: 'error', title: '完了処理に失敗しました' });
     }
   };
 
@@ -2399,16 +2580,46 @@ function App() {
     担当者メール?: string;
     '通知設定'?: TaskNotificationSettings;
   }) => {
-    if (!user) {
-      alert('Google アカウントでサインインしてください。');
+    if (!payload.projectId) {
+      pushToast({ tone: 'error', title: 'プロジェクトを選択してください' });
+      return;
+    }
+    if (!canSync) {
+      const id = generateLocalId('task');
+      const now = todayString();
+      const newTask: Task = {
+        id,
+        projectId: payload.projectId,
+        タスク名: payload.タスク名,
+        担当者: payload.担当者,
+        assignee: payload.担当者,
+        担当者メール: payload.担当者メール,
+        ステータス: payload.ステータス,
+        優先度: payload.優先度,
+        予定開始日: payload.予定開始日,
+        期限: payload.期限,
+        start: payload.予定開始日,
+        end: payload.期限,
+        ['工数見積(h)']: payload['工数見積(h)'],
+        '通知設定': payload['通知設定'],
+        progress: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setState((prev) => ({
+        ...prev,
+        tasks: [...prev.tasks, newTask],
+      }));
+      pushToast({ tone: 'success', title: 'タスクを追加しました（ローカル保存）' });
       return;
     }
     try {
       await createTask(payload as unknown as Partial<Task>);
+      pushToast({ tone: 'success', title: 'タスクを追加しました' });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error(error);
-      alert('タスク追加に失敗しました。しばらくしてから再度お試しください。');
+      pushToast({ tone: 'error', title: 'タスクの追加に失敗しました' });
     }
   };
 
@@ -2419,16 +2630,37 @@ function App() {
     ステータス: string;
     優先度: string;
   }) => {
-    if (!user) {
-      alert('Google アカウントでサインインしてください。');
+    if (!payload.物件名.trim()) {
+      pushToast({ tone: 'error', title: '物件名を入力してください' });
+      return;
+    }
+    if (!canSync) {
+      const id = generateLocalId('project');
+      const now = todayString();
+      const newProject: Project = {
+        id,
+        物件名: payload.物件名,
+        ステータス: payload.ステータス,
+        優先度: payload.優先度,
+        開始日: payload.開始日,
+        予定完了日: payload.予定完了日,
+        createdAt: now,
+        updatedAt: now,
+      };
+      setState((prev) => ({
+        ...prev,
+        projects: [...prev.projects, newProject],
+      }));
+      pushToast({ tone: 'success', title: 'プロジェクトを追加しました（ローカル保存）' });
       return;
     }
     try {
       await createProject(payload as unknown as Partial<Project>);
+      pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error(error);
-      alert('プロジェクト追加に失敗しました。しばらくしてから再度お試しください。');
+      pushToast({ tone: 'error', title: 'プロジェクトの追加に失敗しました' });
     }
   };
 
@@ -2439,31 +2671,62 @@ function App() {
     電話?: string;
     '稼働時間/日(h)'?: number;
   }) => {
-    if (!user) {
-      alert('Google アカウントでサインインしてください。');
+    if (!payload.氏名.trim()) {
+      pushToast({ tone: 'error', title: '氏名を入力してください' });
+      return;
+    }
+    if (!canSync) {
+      const id = generateLocalId('person');
+      const now = todayString();
+      const newPerson: Person = {
+        id,
+        氏名: payload.氏名,
+        役割: payload.役割,
+        メール: payload.メール,
+        電話: payload.電話,
+        '稼働時間/日(h)': payload['稼働時間/日(h)'],
+        createdAt: now,
+        updatedAt: now,
+      };
+      setState((prev) => ({
+        ...prev,
+        people: [...prev.people, newPerson],
+      }));
+      pushToast({ tone: 'success', title: '担当者を追加しました（ローカル保存）' });
       return;
     }
     try {
       await createPerson(payload as unknown as Partial<Person>);
+      pushToast({ tone: 'success', title: '担当者を追加しました' });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error(error);
-      alert('担当者追加に失敗しました。しばらくしてから再度お試しください。');
+      pushToast({ tone: 'error', title: '担当者の追加に失敗しました' });
     }
   };
 
   const handleUpdateProject = async (projectId: string, payload: Partial<Project>) => {
-    if (!user) {
-      alert('Google アカウントでサインインしてください。');
+    if (!canSync) {
+      setState((prev) => ({
+        ...prev,
+        projects: prev.projects.map((project) =>
+          project.id === projectId
+            ? { ...project, ...payload, updatedAt: todayString() }
+            : project
+        ),
+      }));
+      setEditingProject(null);
+      pushToast({ tone: 'success', title: 'プロジェクトを更新しました（ローカル保存）' });
       return;
     }
     try {
       await updateProject(projectId, payload);
+      pushToast({ tone: 'success', title: 'プロジェクトを更新しました' });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
       setEditingProject(null);
     } catch (error) {
       console.error(error);
-      alert('プロジェクト更新に失敗しました。しばらくしてから再度お試しください。');
+      pushToast({ tone: 'error', title: 'プロジェクトの更新に失敗しました' });
     }
   };
 
@@ -2483,7 +2746,12 @@ function App() {
       }));
 
       try {
+        if (!canSync) {
+          pushToast({ tone: 'success', title: '担当者を更新しました（ローカル保存）' });
+          return;
+        }
         await updateTask(taskId, { 担当者: assignee });
+        pushToast({ tone: 'success', title: '担当者を更新しました' });
         window.dispatchEvent(new CustomEvent('snapshot:reload'));
       } catch (error) {
         console.error(error);
@@ -2491,10 +2759,10 @@ function App() {
           ...current,
           tasks: current.tasks.map((task) => (task.id === taskId ? previousSnapshot : task)),
         }));
-        alert('担当者の変更に失敗しました。しばらくしてから再度お試しください。');
+        pushToast({ tone: 'error', title: '担当者の更新に失敗しました' });
       }
     },
-    [state.tasks]
+    [canSync, state.tasks]
   );
 
   const handleTaskDateChange = useCallback(
@@ -2519,7 +2787,12 @@ function App() {
       }));
 
       try {
+        if (!canSync) {
+          pushToast({ tone: 'success', title: 'スケジュールを更新しました（ローカル保存）' });
+          return;
+        }
         await moveTaskDates(taskId, { 予定開始日: payload.start, 期限: payload.end });
+        pushToast({ tone: 'success', title: 'スケジュールを更新しました' });
         window.dispatchEvent(new CustomEvent('snapshot:reload'));
       } catch (error) {
         console.error(error);
@@ -2527,52 +2800,99 @@ function App() {
           ...current,
           tasks: current.tasks.map((task) => (task.id === taskId ? previousSnapshot : task)),
         }));
-        alert('日付の更新に失敗しました。もう一度お試しください。');
+        pushToast({ tone: 'error', title: 'スケジュールの更新に失敗しました' });
       }
     },
-    [setState, state.tasks]
+    [canSync, setState, state.tasks]
   );
 
   const handleSeedReminders = useCallback(
     async (taskId: string) => {
+      if (!canSync) {
+        pushToast({ tone: 'info', title: 'サインインすると通知ジョブを登録できます' });
+        return;
+      }
       try {
         await seedTaskReminders(taskId);
-        alert('通知ジョブを登録しました');
+        pushToast({ tone: 'success', title: '通知ジョブを登録しました' });
       } catch (error) {
         console.error(error);
-        alert('通知ジョブの登録に失敗しました。もう一度お試しください。');
+        pushToast({ tone: 'error', title: '通知ジョブの登録に失敗しました' });
       }
     },
-    []
+    [canSync]
   );
 
   const handleCalendarSync = useCallback(
     async (taskId: string) => {
+      if (!canSync) {
+        pushToast({ tone: 'info', title: 'サインインするとカレンダー同期を利用できます' });
+        return;
+      }
       try {
         await syncTaskCalendar(taskId);
-        alert('Google カレンダーへの同期をリクエストしました');
+        pushToast({ tone: 'success', title: 'カレンダー同期をリクエストしました' });
       } catch (error) {
         console.error(error);
-        alert('カレンダー同期のリクエストに失敗しました。もう一度お試しください。');
+        pushToast({ tone: 'error', title: 'カレンダー同期のリクエストに失敗しました' });
       }
     },
-    []
+    [canSync]
   );
 
-  if (!authSupported) {
-    return <AuthConfigMissingScreen />;
-  }
+  const handleExportSnapshot = useCallback(async (): Promise<SnapshotPayload> => {
+    if (canSync) {
+      return exportSnapshot();
+    }
+    return {
+      generated_at: todayString(),
+      projects: state.projects,
+      tasks: state.tasks,
+      people: state.people,
+    };
+  }, [canSync, state.projects, state.tasks, state.people]);
+
+  const handleExportExcelSafe = useCallback(async () => {
+    if (!canSync) {
+      throw new Error('Excel export is available after signing in.');
+    }
+    return exportExcel();
+  }, [canSync]);
+
+  const handleImportSnapshot = useCallback(async (payload: SnapshotPayload) => {
+    if (canSync) {
+      await importSnapshot(payload);
+      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      return;
+    }
+    const normalized = normalizeSnapshot(payload);
+    setState({
+      projects: normalized.projects,
+      tasks: normalized.tasks,
+      people: normalized.people,
+    });
+  }, [canSync, setState]);
+
+  const handleImportExcelSafe = useCallback(async (file: File) => {
+    if (!canSync) {
+      throw new Error('Excel import is available after signing in.');
+    }
+    await importExcel(file);
+    window.dispatchEvent(new CustomEvent('snapshot:reload'));
+  }, [canSync]);
 
   if (!authReady) {
-    return <FullScreenLoader message="サインイン状態を確認しています..." />;
-  }
-
-  if (!user) {
-    return <SignInScreen onSignIn={signIn} error={authError} />;
+    return (
+      <>
+        <FullScreenLoader message="サインイン状態を確認しています..." />
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </>
+    );
   }
 
   return (
     <>
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <AppLayout
         onOpenTask={() => setTaskModalOpen(true)}
         onOpenProject={() => setProjectModalOpen(true)}
@@ -2583,6 +2903,13 @@ function App() {
         onSignIn={signIn}
         onSignOut={signOut}
         authError={authError}
+        canEdit={canEdit}
+        canSync={canSync}
+        onExportSnapshot={handleExportSnapshot}
+        onExportExcel={handleExportExcelSafe}
+        onImportSnapshot={handleImportSnapshot}
+        onImportExcel={handleImportExcelSafe}
+        onNotify={pushToast}
       >
         {loading ? <div className="pb-6 text-sm text-slate-500">同期中...</div> : null}
         <Routes>
@@ -2596,9 +2923,11 @@ function App() {
                 people={state.people}
                 projects={state.projects}
                 onTaskDateChange={handleTaskDateChange}
-                onTaskCreate={handleCreateTask}
-                onProjectCreate={handleCreateProject}
                 onTaskAssigneeChange={handleTaskAssigneeChange}
+                onOpenTask={() => setTaskModalOpen(true)}
+                onOpenProject={() => setProjectModalOpen(true)}
+                onOpenPerson={() => setPersonModalOpen(true)}
+                canEdit={canEdit}
               />
             }
           />
@@ -2614,6 +2943,7 @@ function App() {
                 onOpenPerson={() => setPersonModalOpen(true)}
                 sortKey={projectSort}
                 onSortChange={setProjectSort}
+                canEdit={canEdit}
               />
             }
           />
@@ -2628,8 +2958,10 @@ function App() {
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
-                onSeedReminders={handleSeedReminders}
-                onCalendarSync={handleCalendarSync}
+                onSeedReminders={canSync ? handleSeedReminders : undefined}
+                onCalendarSync={canSync ? handleCalendarSync : undefined}
+                canEdit={canEdit}
+                canSync={canSync}
               />
             }
           />
@@ -2643,9 +2975,11 @@ function App() {
                 people={state.people}
                 projects={state.projects}
                 onTaskDateChange={handleTaskDateChange}
-                onTaskCreate={handleCreateTask}
-                onProjectCreate={handleCreateProject}
                 onTaskAssigneeChange={handleTaskAssigneeChange}
+                onOpenTask={() => setTaskModalOpen(true)}
+                onOpenProject={() => setProjectModalOpen(true)}
+                onOpenPerson={() => setPersonModalOpen(true)}
+                canEdit={canEdit}
               />
             }
           />
@@ -2658,9 +2992,10 @@ function App() {
         projects={state.projects}
         people={state.people}
         onSubmit={handleCreateTask}
+        onNotify={pushToast}
       />
-      <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} />
-      <PersonModal open={personModalOpen} onOpenChange={setPersonModalOpen} onSubmit={handleCreatePerson} />
+      <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
+      <PersonModal open={personModalOpen} onOpenChange={setPersonModalOpen} onSubmit={handleCreatePerson} onNotify={pushToast} />
     </>
   );
 }

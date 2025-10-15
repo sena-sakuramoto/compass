@@ -10,6 +10,7 @@ interface IssueDetailDrawerProps {
   onClose: () => void;
   onSave: (taskId: string, updates: Partial<Task>) => Promise<void>;
   onDelete?: (taskId: string) => Promise<void>;
+  onNotify?: (message: { tone: 'success' | 'error' | 'info'; title: string; description?: string }) => void;
 }
 
 export function IssueDetailDrawer({
@@ -20,6 +21,7 @@ export function IssueDetailDrawer({
   onClose,
   onSave,
   onDelete,
+  onNotify,
 }: IssueDetailDrawerProps) {
   const [formData, setFormData] = useState<Partial<Task>>({});
   const [saving, setSaving] = useState(false);
@@ -40,7 +42,7 @@ export function IssueDetailDrawer({
       onClose();
     } catch (error) {
       console.error('Failed to save task:', error);
-      alert('タスクの保存に失敗しました');
+      onNotify?.({ tone: 'error', title: 'タスクの保存に失敗しました' });
     } finally {
       setSaving(false);
     }
@@ -53,7 +55,7 @@ export function IssueDetailDrawer({
       onClose();
     } catch (error) {
       console.error('Failed to delete task:', error);
-      alert('タスクの削除に失敗しました');
+      onNotify?.({ tone: 'error', title: 'タスクの削除に失敗しました' });
     }
   };
 
@@ -304,7 +306,7 @@ export function IssueDetailDrawer({
             <button
               onClick={() => {
                 // TODO: コメント送信機能を実装
-                alert('コメント機能は今後実装予定です');
+                onNotify?.({ tone: 'info', title: 'コメント機能は今後実装予定です' });
                 setComment('');
               }}
               className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 transition"
