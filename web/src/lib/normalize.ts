@@ -111,13 +111,19 @@ function normalizeProject(raw: any): Project {
   };
 }
 
-function normalizePeople(raw: any): Person {
+function normalizePeople(raw: any, index: number): Person {
   const rawDailyHours = raw['稼働時間/日(h)'];
   const dailyHours = rawDailyHours == null || rawDailyHours === '' ? undefined : toNumber(rawDailyHours);
 
+  const idFromPayload = raw.id;
+  const fallbackId = `PERSON${String(index + 1).padStart(3, '0')}`;
+  const finalId = String(idFromPayload || fallbackId);
+
   return {
+    id: finalId,
     氏名: raw['氏名'],
     役割: raw['役割'] ?? '',
+    部署: raw['部署'] ?? '',
     メール: raw['メール'] ?? '',
     電話: raw['電話'] ?? '',
     '稼働時間/日(h)': dailyHours,
@@ -170,7 +176,7 @@ export function computeProjectAggregates(projects: Project[], tasks: Task[]): Pr
 export function normalizeSnapshot(payload: SnapshotPayload): SnapshotPayload {
   const projects = (payload.projects ?? []).map(normalizeProject);
   const tasks = (payload.tasks ?? []).map(normalizeTask);
-  const people = (payload.people ?? []).map(normalizePeople);
+  const people = (payload.people ?? []).map((raw, index) => normalizePeople(raw, index));
   const enrichedProjects = computeProjectAggregates(projects, tasks);
   return {
     generated_at: payload.generated_at,
@@ -237,7 +243,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     },
   ],
   people: [
-    { 氏名: '櫻本', 役割: 'PM/設計統括', メール: 's.sakuramoto@archi-prisma.co.jp' },
-    { 氏名: '中村', 役割: '管理建築士/設計', メール: 's.nakamura@archi-prisma.co.jp' },
+    { id: 'PERSON001', 氏名: '櫻本', 役割: 'PM/設計統括', メール: 's.sakuramoto@archi-prisma.co.jp' },
+    { id: 'PERSON002', 氏名: '中村', 役割: '管理建築士/設計', メール: 's.nakamura@archi-prisma.co.jp' },
   ],
 };

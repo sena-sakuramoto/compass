@@ -55,8 +55,10 @@ export interface Task {
 }
 
 export interface Person {
+  id: string;
   氏名: string;
   役割?: string;
+  部署?: string;
   メール?: string;
   電話?: string;
   '稼働時間/日(h)'?: number;

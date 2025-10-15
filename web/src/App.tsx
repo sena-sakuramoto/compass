@@ -21,6 +21,7 @@ import {
   createProject,
   createPerson,
   updateProject,
+  updateTask,
   completeTask,
   importExcel,
   exportExcel,
