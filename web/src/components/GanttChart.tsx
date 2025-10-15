@@ -33,14 +33,14 @@ export interface GanttProps {
 }
 
 const STATUS_COLOR_MAP: Record<string, string> = {
-  完了: '#0f766e',
-  進行中: '#2563eb',
-  確認待ち: '#d97706',
-  保留: '#f97316',
-  未着手: '#94a3b8',
+  完了: '#10b981',      // Emerald - より明るく
+  進行中: '#3b82f6',    // Blue - より鮮やか
+  確認待ち: '#f59e0b',  // Amber - より目立つ
+  保留: '#ef4444',      // Red - より明確
+  未着手: '#94a3b8',    // Slate - 控えめ
 };
 
-const DEFAULT_STATUS_COLOR = '#0f172a';
+const DEFAULT_STATUS_COLOR = '#6366f1';  // Indigo
 const OVERDUE_COLOR = '#dc2626';
 const DEFAULT_STATUS_LABEL = 'ステータス未設定';
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -63,9 +63,9 @@ function getLegendLabel(entry: GanttDatum) {
 }
 
 function getBarOpacity(entry: GanttDatum) {
-  if (entry.status === '完了') return 0.55;
-  if (entry.status === '未着手') return 0.75;
-  return 0.95;
+  if (entry.status === '完了') return 0.6;
+  if (entry.status === '未着手') return 0.7;
+  return 1;
 }
 
 function formatAxisTickLabel(minDate: Date | null, value: number) {
@@ -222,7 +222,12 @@ export function GanttChartView({
       const pixelsPerDay = width / span;
       if (!Number.isFinite(pixelsPerDay) || pixelsPerDay === 0) return;
 
-      const deltaDays = Math.round((event.clientX - state.startX) / pixelsPerDay);
+      // 滑らかな移動のため、より細かい精度で計算
+      const deltaPixels = event.clientX - state.startX;
+      const exactDeltaDays = deltaPixels / pixelsPerDay;
+
+      // ピクセル単位で15px以上動いたらスナップ
+      const deltaDays = pixelsPerDay > 15 ? Math.round(exactDeltaDays) : Math.floor(exactDeltaDays);
 
       let newOffset = state.initialOffset;
       let newDuration = state.initialDuration;
@@ -384,8 +389,9 @@ export function GanttChartView({
           <BarChart
             data={displayData}
             layout="vertical"
-            margin={{ left: 220, right: 24, top: 16, bottom: 16 }}
-            barCategoryGap={18}
+            margin={{ left: 240, right: 32, top: 20, bottom: 20 }}
+            barCategoryGap={12}
+            barSize={32}
           >
             <CartesianGrid horizontal vertical={false} stroke="#e2e8f0" strokeDasharray="2 4" />
             <XAxis
@@ -401,10 +407,10 @@ export function GanttChartView({
             <YAxis
               type="category"
               dataKey="name"
-              width={220}
+              width={240}
               tickLine={false}
               axisLine={false}
-              tick={{ fontSize: 12, fill: '#1e293b' }}
+              tick={{ fontSize: 13, fill: '#0f172a', fontWeight: 500 }}
             />
             <Bar dataKey="offset" stackId="g" fill="transparent" isAnimationActive={false} />
             <Bar
@@ -502,8 +508,9 @@ function InteractiveBarShape(props: InteractiveBarShapeProps) {
     onDragLeave,
     onDrop,
   } = props;
-  const handleWidth = Math.min(12, Math.max(6, width / 4));
-  const cornerRadius = 8;
+  const [isHovered, setIsHovered] = React.useState(false);
+  const handleWidth = Math.min(14, Math.max(8, width / 4));
+  const cornerRadius = 10;
   const handle = (kind: InteractionKind, rectX: number) => (
     <rect
       x={rectX}
@@ -522,6 +529,22 @@ function InteractiveBarShape(props: InteractiveBarShapeProps) {
 
   return (
     <g transform={`translate(${x},${y})`}>
+      {/* シャドウ効果 */}
+      {(isHovered || isActive) && (
+        <rect
+          x={0}
+          y={2}
+          width={Math.max(width, 2)}
+          height={height}
+          rx={cornerRadius}
+          ry={cornerRadius}
+          fill="rgba(0, 0, 0, 0.15)"
+          filter="blur(4px)"
+          pointerEvents="none"
+        />
+      )}
+
+      {/* メインバー */}
       <rect
         x={0}
         y={0}
@@ -530,41 +553,62 @@ function InteractiveBarShape(props: InteractiveBarShapeProps) {
         rx={cornerRadius}
         ry={cornerRadius}
         fill={color}
-        fillOpacity={fillOpacity}
-        stroke={isActive ? 'rgba(37, 99, 235, 0.6)' : isDropTarget ? 'rgba(16, 185, 129, 0.8)' : 'transparent'}
-        strokeWidth={isActive || isDropTarget ? 2 : 0}
-        style={{ cursor: interactive ? 'grab' : 'default' }}
+        fillOpacity={isHovered && !isActive ? Math.min(1, fillOpacity + 0.15) : fillOpacity}
+        stroke={isActive ? 'rgba(37, 99, 235, 0.8)' : isDropTarget ? 'rgba(16, 185, 129, 0.9)' : 'transparent'}
+        strokeWidth={isActive || isDropTarget ? 3 : 0}
+        style={{
+          cursor: interactive ? (isActive ? 'grabbing' : 'grab') : 'default',
+          transition: 'all 0.15s ease-out'
+        }}
         onPointerDown={(event) => {
           if (!interactive) return;
           onPointerDown(entry, 'move', event);
         }}
+        onPointerEnter={() => setIsHovered(true)}
+        onPointerLeave={() => setIsHovered(false)}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       />
+
+      {/* 進捗バー */}
+      {typeof entry.progressRatio === 'number' && entry.progressRatio > 0 && entry.progressRatio < 1 && (
+        <rect
+          x={2}
+          y={2}
+          width={Math.max(0, (Math.max(width, 2) - 4) * entry.progressRatio)}
+          height={height - 4}
+          rx={cornerRadius - 2}
+          ry={cornerRadius - 2}
+          fill="rgba(255, 255, 255, 0.3)"
+          pointerEvents="none"
+        />
+      )}
       {interactive && width > handleWidth * 2 ? (
         <>
           {handle('resize-start', 0)}
           {handle('resize-end', width - handleWidth)}
+          {/* 左ハンドル */}
           <rect
-            x={0}
-            y={0}
-            width={handleWidth}
-            height={height}
-            fill="rgba(15, 23, 42, 0.12)"
+            x={2}
+            y={height / 2 - 8}
+            width={handleWidth - 4}
+            height={16}
+            fill="rgba(255, 255, 255, 0.25)"
             pointerEvents="none"
-            rx={cornerRadius}
-            ry={cornerRadius}
+            rx={4}
+            ry={4}
           />
+          {/* 右ハンドル */}
           <rect
-            x={width - handleWidth}
-            y={0}
-            width={handleWidth}
-            height={height}
-            fill="rgba(15, 23, 42, 0.12)"
+            x={width - handleWidth + 2}
+            y={height / 2 - 8}
+            width={handleWidth - 4}
+            height={16}
+            fill="rgba(255, 255, 255, 0.25)"
             pointerEvents="none"
-            rx={cornerRadius}
-            ry={cornerRadius}
+            rx={4}
+            ry={4}
           />
         </>
       ) : null}
