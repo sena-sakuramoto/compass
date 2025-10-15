@@ -717,6 +717,9 @@ interface ProjectModalProps extends ModalProps {
     物件名: string;
     開始日?: string;
     予定完了日?: string;
+    現地調査日?: string;
+    着工日?: string;
+    竣工予定日?: string;
     ステータス: string;
     優先度: string;
   }): Promise<void>;
@@ -726,6 +729,9 @@ function ProjectModal({ open, onOpenChange, onSubmit }: ProjectModalProps) {
   const [name, setName] = useState('');
   const [start, setStart] = useState('');
   const [due, setDue] = useState('');
+  const [surveyDate, setSurveyDate] = useState('');
+  const [constructionStart, setConstructionStart] = useState('');
+  const [completionDate, setCompletionDate] = useState('');
   const [status, setStatus] = useState('計画中');
   const [priority, setPriority] = useState('中');
 
@@ -734,6 +740,9 @@ function ProjectModal({ open, onOpenChange, onSubmit }: ProjectModalProps) {
     setName('');
     setStart('');
     setDue('');
+    setSurveyDate('');
+    setConstructionStart('');
+    setCompletionDate('');
     setStatus('計画中');
     setPriority('中');
   }, [open]);
@@ -745,6 +754,9 @@ function ProjectModal({ open, onOpenChange, onSubmit }: ProjectModalProps) {
         物件名: name,
         開始日: start,
         予定完了日: due,
+        現地調査日: surveyDate,
+        着工日: constructionStart,
+        竣工予定日: completionDate,
         ステータス: status,
         優先度: priority,
       });
@@ -767,24 +779,57 @@ function ProjectModal({ open, onOpenChange, onSubmit }: ProjectModalProps) {
             required
           />
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">開始日</label>
-            <input
-              type="date"
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-            />
+        <div className="space-y-3">
+          <div className="text-sm font-semibold text-slate-700">スケジュール</div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">開始日</label>
+              <input
+                type="date"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">予定完了日</label>
+              <input
+                type="date"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={due}
+                onChange={(e) => setDue(e.target.value)}
+              />
+            </div>
           </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">予定完了日</label>
-            <input
-              type="date"
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={due}
-              onChange={(e) => setDue(e.target.value)}
-            />
+          <div className="text-sm font-semibold text-slate-700 pt-2">マイルストーン</div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">現地調査日</label>
+              <input
+                type="date"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={surveyDate}
+                onChange={(e) => setSurveyDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">着工日</label>
+              <input
+                type="date"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={constructionStart}
+                onChange={(e) => setConstructionStart(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">竣工予定日</label>
+              <input
+                type="date"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={completionDate}
+                onChange={(e) => setCompletionDate(e.target.value)}
+              />
+            </div>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

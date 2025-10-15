@@ -8,6 +8,9 @@ export interface Project {
   優先度: string;
   開始日?: string;
   予定完了日?: string;
+  現地調査日?: string;
+  着工日?: string;
+  竣工予定日?: string;
   '所在地/現地'?: string;
   'フォルダURL'?: string;
   '備考'?: string;
