@@ -5,3 +5,8 @@ firebase-debug.log
 *.log
 dist
 .firebase
+
+# Documentation and requirement files
+apdw_project_compass_google環境_要件定義_codex_cli向けspec_v_*.md
+元データ.txt
+新要件定義書.txt

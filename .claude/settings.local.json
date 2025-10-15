@@ -9,7 +9,17 @@
       "Bash(firebase open:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git remote add:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(npm outdated)",
+      "Bash(npm install:*)",
+      "Bash(npm run lint)",
+      "Bash(npm run dev)",
+      "Bash(firebase login:*)"
     ],
     "deny": [],
     "ask": []

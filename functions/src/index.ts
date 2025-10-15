@@ -1,4 +1,4 @@
-import * as functions from 'firebase-functions';
+import { onRequest } from 'firebase-functions/v2/https';
 import express from 'express';
 import cors from 'cors';
 import projectsRouter from './api/projects';
@@ -34,7 +34,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[API Error]', {
     path: req.path,
     method: req.method,
@@ -45,7 +45,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   if (err.name === 'ZodError') {
     return res.status(400).json({
       error: 'Validation Error',
-      details: err.errors
+      details: (err as { errors?: unknown[] }).errors
     });
   }
 
@@ -56,17 +56,21 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 const REGION = process.env.COMPASS_FUNCTION_REGION ?? 'asia-northeast1';
 
-export const api = functions.region(REGION).https.onRequest(app);
+export const api = onRequest({
+  region: REGION,
+  maxInstances: 10,
+}, app);
 
-export const jobRunner = functions
-  .region(REGION)
-  .runWith({ timeoutSeconds: 180, memory: '256MB' })
-  .https.onRequest(async (_req, res) => {
-    try {
-      const result = await processPendingJobs();
-      res.json({ ok: true, ...result });
-    } catch (error) {
-      console.error('[jobRunner] failed', error);
-      res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
-    }
-  });
+export const jobRunner = onRequest({
+  region: REGION,
+  timeoutSeconds: 180,
+  memory: '256MiB',
+}, async (_req, res) => {
+  try {
+    const result = await processPendingJobs();
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    console.error('[jobRunner] failed', error);
+    res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
+  }
+});

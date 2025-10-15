@@ -9,7 +9,7 @@
 ### 1. リポジトリのクローン（またはファイル転送）
 ```bash
 git clone <リポジトリURL>
-cd projectask
+cd compass
 ```
 
 ### 2. Firebaseにログイン
@@ -114,7 +114,7 @@ firebase functions:config:set org.id="apdw"
 
 ## プロジェクト構造
 ```
-projectask/
+compass/
 ├── functions/          # Firebase Functions (API)
 │   ├── src/
 │   │   ├── api/       # APIエンドポイント
