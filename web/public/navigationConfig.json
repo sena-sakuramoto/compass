@@ -2,59 +2,27 @@
   "navigationItems": [
     {
       "id": "home",
-      "label": "ホーム",
+      "label": "工程表",
       "path": "/",
-      "icon": "Home",
+      "icon": "BarChart3",
       "visible": true,
       "order": 0
     },
     {
-      "id": "summary",
-      "label": "ダッシュボード",
+      "id": "projects",
+      "label": "プロジェクト一覧",
       "path": "/summary",
-      "icon": "BarChart3",
+      "icon": "FolderKanban",
       "visible": true,
       "order": 1
     },
     {
-      "id": "projects",
-      "label": "プロジェクト",
-      "path": "/projects",
-      "icon": "FolderKanban",
-      "visible": true,
-      "order": 2
-    },
-    {
       "id": "tasks",
-      "label": "タスク",
+      "label": "タスク一覧",
       "path": "/tasks",
       "icon": "ListChecks",
       "visible": true,
-      "order": 3
-    },
-    {
-      "id": "gantt",
-      "label": "ガント",
-      "path": "/gantt",
-      "icon": "BarChart3",
-      "visible": true,
-      "order": 4
-    },
-    {
-      "id": "board",
-      "label": "ボード",
-      "path": "/board",
-      "icon": "KanbanSquare",
-      "visible": true,
-      "order": 5
-    },
-    {
-      "id": "workload",
-      "label": "稼働状況",
-      "path": "/workload",
-      "icon": "FileText",
-      "visible": true,
-      "order": 6
+      "order": 2
     }
   ]
 }
