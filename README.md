@@ -1,135 +1,209 @@
-# Project Compass セットアップ手順
+# APDW Compass
 
-## 前提条件
+建築業界向けプロジェクト・タスク・担当者管理システム
+
+## 概要
+
+APDW Compassは、日本の建築業界に特化したプロジェクト管理サービスです。プロジェクト、タスク、担当者を直感的なUIで管理し、Excel入出力、通知機能、カレンダー連携などの機能を提供します。
+
+## 主な機能
+
+### ✅ プロジェクト管理
+- プロジェクトの作成・編集・削除
+- ステータス管理（未着手/進行中/完了）
+- 優先度設定
+- クライアント・担当者情報の管理
+
+### 📋 タスク管理
+- タスクの作成・編集・完了
+- ステータス管理（未着手/進行中/確認待ち/保留/完了）
+- 担当者アサイン
+- 工数見積・実績管理
+- 進捗率の自動計算
+- 依存タスクの設定
+
+### 📊 可視化
+- プロジェクトダッシュボード
+- ガントチャート
+- カンバンボード
+- 担当者別ワークロード
+- 進捗レポート
+
+### 📧 通知機能
+- タスク開始日通知
+- 期限前日通知
+- 期限当日通知
+- 期限超過通知
+- Gmail API連携
+
+### 📅 カレンダー連携
+- Google Calendar同期
+- タスクの自動イベント作成
+- 担当者カレンダーへの反映
+
+### 📑 Excel入出力
+- プロジェクト・タスク・担当者のExcelインポート
+- データのExcelエクスポート
+- 既存データの一括更新
+
+### 👥 担当者管理
+- 担当者情報の管理
+- 稼働時間設定
+- タスク割り当て状況の確認
+
+## 技術スタック
+
+### バックエンド
+- Firebase Functions (Node.js 20)
+- Express.js
+- TypeScript
+- Firebase Admin SDK
+- Google APIs (Gmail, Calendar)
+
+### フロントエンド
+- React 18
+- TypeScript
+- Vite
+- TailwindCSS
+- Recharts
+
+### データベース
+- Cloud Firestore
+
+## クイックスタート
+
+### 前提条件
 - Node.js 20以上
-- Firebase CLI (`npm install -g firebase-tools`)
+- Firebase CLI
+- Firebaseプロジェクト
 
-## 初回セットアップ
+### インストール
 
-### 1. リポジトリのクローン（またはファイル転送）
 ```bash
-git clone <リポジトリURL>
+# リポジトリのクローン
+git clone https://github.com/sena-sakuramoto/compass.git
 cd compass
-```
 
-### 2. Firebaseにログイン
-```bash
-firebase login
-```
-
-### 3. 環境変数の設定
-
-#### functions/.env
-`functions/.env.example`をコピーして`functions/.env`を作成:
-```bash
-cp functions/.env.example functions/.env
-```
-
-内容:
-```
-ORG_ID=archi-prisma
-ALLOW_EMAILS=*@archi-prisma.co.jp,s.sakuramoto@archi-prisma.co.jp
-COMPASS_FUNCTION_REGION=asia-northeast1
-CORS_ORIGIN=https://compass-31e9e.web.app
-```
-
-#### web/.env
-`web/.env.example`をコピーして`web/.env`を作成:
-```bash
-cp web/.env.example web/.env
-```
-
-内容（Firebase Console > プロジェクトの設定 > SDK 設定と構成 から取得）:
-```
-VITE_API_BASE=/api
-VITE_FIREBASE_API_KEY=<Firebase Console から取得>
-VITE_FIREBASE_AUTH_DOMAIN=<Firebase Console から取得>
-VITE_FIREBASE_PROJECT_ID=compass-31e9e
-VITE_FIREBASE_STORAGE_BUCKET=<Firebase Console から取得>
-VITE_FIREBASE_MESSAGING_SENDER_ID=<Firebase Console から取得>
-VITE_FIREBASE_APP_ID=<Firebase Console から取得>
-```
-
-### 4. 依存関係のインストール
-
-#### Functions
-```bash
+# バックエンドのセットアップ
 cd functions
 npm install
-cd ..
-```
 
-#### Web
-```bash
-cd web
+# フロントエンドのセットアップ
+cd ../web
 npm install
-cd ..
 ```
 
-### 5. ローカル開発
+### 開発サーバーの起動
 
-#### Webアプリの起動
 ```bash
+# バックエンド（Firebase Emulator）
+cd functions
+npm run serve
+
+# フロントエンド
 cd web
 npm run dev
 ```
 
-#### Functions（エミュレーター）
-```bash
-firebase emulators:start
-```
+ブラウザで http://localhost:5173 にアクセス。
 
-### 6. 本番デプロイ
+## デプロイ
 
-#### Functions
+詳細は [DEPLOYMENT.md](./DEPLOYMENT.md) を参照してください。
+
 ```bash
+# バックエンド
 cd functions
 npm run deploy
-```
 
-#### Hosting（Web）
-```bash
-cd web
-npm run build
-cd ..
+# フロントエンド
 firebase deploy --only hosting
 ```
 
-## トラブルシューティング
+## ドキュメント
 
-### 401 Unauthorized エラー
-1. Google Cloud Console (https://console.cloud.google.com/iam-admin/iam?project=compass-31e9e) にアクセス
-2. `compass-31e9e@appspot.gserviceaccount.com` に **Service Usage Consumer** ロールを追加
+- [開発ガイド](./DEVELOPMENT.md) - 開発環境のセットアップと開発方法
+- [デプロイ手順](./DEPLOYMENT.md) - 本番環境へのデプロイ手順
+- [要件定義書](./新要件定義書.txt) - システムの要件定義
 
-### Firebase config が読み込めない
-```bash
-cd functions
-firebase functions:config:get
-```
-で設定を確認。必要なら:
-```bash
-firebase functions:config:set auth.allow_emails="*@archi-prisma.co.jp,s.sakuramoto@archi-prisma.co.jp"
-firebase functions:config:set org.id="apdw"
-```
+## プロジェクト構成
 
-## プロジェクト構造
 ```
 compass/
-├── functions/          # Firebase Functions (API)
+├── functions/          # Firebase Functions (バックエンド)
 │   ├── src/
 │   │   ├── api/       # APIエンドポイント
 │   │   ├── lib/       # 共通ライブラリ
 │   │   └── index.ts   # エントリーポイント
-│   └── .env           # 環境変数（gitignore）
-├── web/               # フロントエンド (React + Vite)
+│   ├── package.json
+│   └── tsconfig.json
+├── web/               # React フロントエンド
 │   ├── src/
-│   │   ├── components/
-│   │   └── lib/
-│   └── .env           # 環境変数（gitignore）
-├── firebase.json      # Firebase設定
-└── firestore.rules    # Firestoreセキュリティルール
+│   │   ├── components/  # UIコンポーネント
+│   │   ├── lib/         # ユーティリティ
+│   │   └── App.tsx      # メインアプリ
+│   ├── package.json
+│   └── vite.config.ts
+├── .env.example       # 環境変数サンプル
+├── README.md          # このファイル
+├── DEVELOPMENT.md     # 開発ガイド
+└── DEPLOYMENT.md      # デプロイ手順
 ```
 
-## 本番URL
+## API エンドポイント
+
+### プロジェクト
+- `GET /api/projects` - 一覧取得
+- `POST /api/projects` - 作成
+- `PUT /api/projects/:id` - 更新
+- `DELETE /api/projects/:id` - 削除
+
+### タスク
+- `GET /api/tasks` - 一覧取得
+- `POST /api/tasks` - 作成
+- `PUT /api/tasks/:id` - 更新
+- `POST /api/tasks/:id/complete` - 完了
+- `POST /api/tasks/:id/move` - 日付移動
+- `DELETE /api/tasks/:id` - 削除
+
+### 担当者
+- `GET /api/people` - 一覧取得
+- `POST /api/people` - 作成
+- `PUT /api/people/:name` - 更新
+- `DELETE /api/people/:name` - 削除
+
+### Excel
+- `POST /api/excel/import` - インポート
+- `GET /api/excel/export` - エクスポート
+
+### カレンダー
+- `POST /api/calendar/sync` - 同期
+
+### ジョブ
+- `POST /api/jobs/process` - ジョブ処理実行
+
+## セキュリティ
+
+- Firebase Authentication による認証
+- メールアドレスベースのアクセス制御
+- Firestoreセキュリティルール
+- HTTPS通信
+- サービスアカウントによるAPI認証
+
+## 本番環境
+
 - Web: https://compass-31e9e.web.app
 - API: https://asia-northeast1-compass-31e9e.cloudfunctions.net/api
+
+## ライセンス
+
+Private
+
+## 作成者
+
+Archi Prisma
+
+## サポート
+
+問題が発生した場合は、GitHubのIssuesで報告してください。
+

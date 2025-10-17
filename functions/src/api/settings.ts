@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
-import { db } from '../lib/firebase';
+import { getFirestore } from 'firebase-admin/firestore';
+
+const db = getFirestore();
 
 const router = Router();
 
