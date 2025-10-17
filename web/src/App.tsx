@@ -1832,6 +1832,22 @@ function SchedulePage({
     return buildGantt(items, { timeScale });
   }, [filteredTasks, mode, projectMap, timeScale]);
 
+  // ガントチャートの動的な高さ計算
+  const ganttChartHeight = useMemo(() => {
+    const taskCount = ganttData.data.length;
+    if (taskCount === 0) return 460; // データがない場合の最小高さ
+    
+    const rowHeight = 40; // 1タスクあたりの高さ
+    const headerHeight = 150; // ヘッダーとマージン
+    const calculatedHeight = taskCount * rowHeight + headerHeight;
+    
+    // 画面の高さの80%を最大値とする
+    const maxHeight = typeof window !== 'undefined' ? window.innerHeight * 0.8 : 800;
+    const minHeight = 460;
+    
+    return Math.max(minHeight, Math.min(calculatedHeight, maxHeight));
+  }, [ganttData.data.length]);
+
   const upcomingTasks = useMemo(() => {
     const anchor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const items: {
@@ -2044,7 +2060,7 @@ function SchedulePage({
                 <h3 className="text-sm font-semibold text-slate-700">担当者</h3>
                 <p className="text-xs text-slate-500 mt-1">タスクにドラッグ&ドロップ</p>
               </div>
-              <div className="space-y-2 max-h-[120px] overflow-y-auto">
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
                 {people.map((person) => (
                   <div
                     key={person.id}
@@ -2066,10 +2082,28 @@ function SchedulePage({
           )}
         </div>
 
+        {/* 予定開始日がないタスクの警告 */}
+        {mode === 'tasks' && filteredTasks.some(task => !task.start && !task.予定開始日) && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-start gap-2">
+              <svg className="h-5 w-5 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div className="text-sm text-amber-800">
+                <p className="font-medium">予定開始日が設定されていないタスクがあります</p>
+                <p className="mt-1 text-xs">
+                  {filteredTasks.filter(task => !task.start && !task.予定開始日).length}件のタスクがガントチャートに表示されません。
+                  タスクを編集して予定開始日を設定してください。
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ガントチャート */}
         <div
           className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4"
-          style={{ minHeight: 460, height: '60vh' }}
+          style={{ height: ganttChartHeight, minHeight: 460 }}
         >
           <GanttChartView
             data={ganttData.data}
