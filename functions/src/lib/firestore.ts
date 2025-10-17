@@ -193,12 +193,24 @@ async function generateTaskId() {
   return `T${String(next).padStart(3, '0')}`;
 }
 
+// Sanitize field names: remove special characters that Firestore doesn't allow
+function sanitizeFieldNames(payload: Record<string, any>): Record<string, any> {
+  const sanitized: Record<string, any> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    // Replace '/' with '_' in field names
+    const sanitizedKey = key.replace(/\//g, '_');
+    sanitized[sanitizedKey] = value;
+  }
+  return sanitized;
+}
+
 export async function createProject(payload: ProjectInput) {
   const now = admin.firestore.FieldValue.serverTimestamp();
   const projectId = payload.id ?? payload.ProjectID ?? (await generateProjectId());
   const docRef = orgCollection('projects').doc(projectId);
+  const sanitizedPayload = sanitizeFieldNames(payload);
   await docRef.set({
-    ...payload,
+    ...sanitizedPayload,
     id: projectId,
     ProjectID: projectId,
     createdAt: now,
@@ -212,13 +224,7 @@ export async function updateProject(projectId: string, payload: Partial<ProjectI
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('Project not found');
   
-  // Sanitize field names: remove special characters that Firestore doesn't allow
-  const sanitizedPayload: Record<string, any> = {};
-  for (const [key, value] of Object.entries(payload)) {
-    // Replace '/' with '_' in field names
-    const sanitizedKey = key.replace(/\//g, '_');
-    sanitizedPayload[sanitizedKey] = value;
-  }
+  const sanitizedPayload = sanitizeFieldNames(payload);
   
   await ref.update({
     ...sanitizedPayload,
@@ -443,7 +449,8 @@ export interface ProjectInput {
   優先度: string;
   開始日?: string | null;
   予定完了日?: string | null;
-  '所在地/現地'?: string | null;
+  '所在地/現地'?: string | null;  // Will be sanitized to 所在地_現地
+  所在地_現地?: string | null;  // Sanitized field name
   'フォルダURL'?: string | null;
   '備考'?: string | null;
 }

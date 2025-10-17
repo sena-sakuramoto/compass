@@ -4,10 +4,15 @@ import { X } from 'lucide-react';
 interface Project {
   id: string;
   物件名: string;
+  クライアント?: string;
+  LS担当者?: string;
+  自社PM?: string;
   ステータス: string;
   優先度?: string;
   開始日?: string;
   予定完了日?: string;
+  '所在地/現地'?: string;
+  'フォルダURL'?: string;
   備考?: string;
 }
 
@@ -24,10 +29,15 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
   const [formData, setFormData] = useState<Project>({
     id: '',
     物件名: '',
+    クライアント: '',
+    LS担当者: '',
+    自社PM: '',
     ステータス: '未着手',
     優先度: '中',
     開始日: '',
     予定完了日: '',
+    '所在地/現地': '',
+    'フォルダURL': '',
     備考: '',
   });
   const [saving, setSaving] = useState(false);
@@ -133,6 +143,61 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
                   value={formData.予定完了日 || ''}
                   onChange={(e) => setFormData({ ...formData, 予定完了日: e.target.value })}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700">クライアント</label>
+                <input
+                  type="text"
+                  value={formData.クライアント || ''}
+                  onChange={(e) => setFormData({ ...formData, クライアント: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700">LS担当者</label>
+                <input
+                  type="text"
+                  value={formData.LS担当者 || ''}
+                  onChange={(e) => setFormData({ ...formData, LS担当者: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700">自社PM</label>
+                <input
+                  type="text"
+                  value={formData.自社PM || ''}
+                  onChange={(e) => setFormData({ ...formData, 自社PM: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700">所在地/現地</label>
+                <input
+                  type="text"
+                  value={formData['所在地/現地'] || ''}
+                  onChange={(e) => setFormData({ ...formData, '所在地/現地': e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700">フォルダURL</label>
+                <input
+                  type="url"
+                  value={formData['フォルダURL'] || ''}
+                  onChange={(e) => setFormData({ ...formData, 'フォルダURL': e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder="https://..."
                 />
               </div>
             </div>
