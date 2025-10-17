@@ -2485,11 +2485,15 @@ function App() {
         .map((task) => parseDate(task.end ?? task.期限 ?? task.実績完了日))
         .filter((date): date is Date => Boolean(date))
         .sort((a, b) => a.getTime() - b.getTime())[0];
+      const progressAggregate = relatedTasks.length
+        ? relatedTasks.reduce((sum, task) => sum + computeProgress(task.progress, task.ステータス), 0) / relatedTasks.length
+        : 0;
       return {
         ...project,
         taskCount: relatedTasks.length,
         openTaskCount,
         nearestDue: nearestDue ? formatDate(nearestDue) : undefined,
+        progressAggregate,
       };
     });
   }, [state.projects, state.tasks]);

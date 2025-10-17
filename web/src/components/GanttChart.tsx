@@ -183,6 +183,7 @@ export function GanttChartView({
   draggedAssignee,
 }: GanttProps) {
   const [chartWidth, setChartWidth] = useState(0);
+  const [yAxisWidth, setYAxisWidth] = useState(300);
   const [preview, setPreview] = useState<Record<string, { offset: number; duration: number }>>({});
   const [activeId, setActiveId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
@@ -202,9 +203,26 @@ export function GanttChartView({
   }, [onChange]);
 
   useEffect(() => {
-    if (containerRef.current) {
-      setChartWidth(containerRef.current.clientWidth);
-    }
+    const updateDimensions = () => {
+      if (containerRef.current) {
+        setChartWidth(containerRef.current.clientWidth);
+        // 画面幅に応じてY軸の幅を調整
+        const viewportWidth = window.innerWidth;
+        if (viewportWidth < 768) {
+          setYAxisWidth(150); // モバイル
+        } else if (viewportWidth < 1024) {
+          setYAxisWidth(200); // タブレット
+        } else if (viewportWidth < 1440) {
+          setYAxisWidth(250); // 小型デスクトップ
+        } else {
+          setYAxisWidth(300); // 大型デスクトップ
+        }
+      }
+    };
+
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
   }, [data, ticks]);
 
   useEffect(() => {
@@ -426,7 +444,7 @@ export function GanttChartView({
           <BarChart
             data={displayData}
             layout="vertical"
-            margin={{ left: 300, right: 32, top: 20, bottom: 20 }}
+            margin={{ left: yAxisWidth, right: 32, top: 20, bottom: 20 }}
             barCategoryGap={10}
             barSize={28}
           >
@@ -446,7 +464,7 @@ export function GanttChartView({
             <YAxis
               type="category"
               dataKey="name"
-              width={300}
+              width={yAxisWidth}
               tickLine={false}
               axisLine={false}
               tick={(props) => <GanttYAxisTick {...props} />}
