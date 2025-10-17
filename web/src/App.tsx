@@ -1596,7 +1596,7 @@ function SchedulePage({
   canEdit: boolean;
 }) {
   const [mode, setMode] = useState<'tasks' | 'projects' | 'people'>('tasks');
-  const [timeScale, setTimeScale] = useState<TimeScale>('six_weeks');
+  const [timeScale, setTimeScale] = useState<TimeScale>('auto');
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
   const todayLabel = formatDate(today);
