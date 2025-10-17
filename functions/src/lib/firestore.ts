@@ -211,8 +211,17 @@ export async function updateProject(projectId: string, payload: Partial<ProjectI
   const ref = orgCollection('projects').doc(projectId);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('Project not found');
+  
+  // Sanitize field names: remove special characters that Firestore doesn't allow
+  const sanitizedPayload: Record<string, any> = {};
+  for (const [key, value] of Object.entries(payload)) {
+    // Replace '/' with '_' in field names
+    const sanitizedKey = key.replace(/\//g, '_');
+    sanitizedPayload[sanitizedKey] = value;
+  }
+  
   await ref.update({
-    ...payload,
+    ...sanitizedPayload,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 }

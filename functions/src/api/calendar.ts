@@ -13,7 +13,7 @@ const syncSchema = z.object({
 
 router.post('/sync', async (req, res) => {
   const { taskId } = syncSchema.parse(req.body ?? {});
-  await enqueueCalendarSync({ taskId });
+  await enqueueCalendarSync({ taskId, mode: 'sync' });
   res.json({ ok: true });
 });
 
