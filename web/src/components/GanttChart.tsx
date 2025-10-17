@@ -101,18 +101,19 @@ function GanttXAxisTick({ x, y, payload, minDate }: { x: number; y: number; payl
   );
 }
 
-function GanttYAxisTick({ x, y, payload }: { x: number; y: number; payload: any }) {
+function GanttYAxisTick({ x, y, payload, width }: { x: number; y: number; payload: any; width?: number }) {
   const datum = (payload?.payload ?? {}) as GanttDatum;
   const project = datum.projectLabel ?? datum.name;
   const taskName = datum.projectLabel ? datum.name : undefined;
   const assignee = datum.assigneeLabel;
+  const maxWidth = (width ?? 300) - 20; // 左右のマージンを考慮
   return (
     <g transform={`translate(${x},${y})`}>
-      <text x={-10} y={-2} textAnchor="end" fontSize={13} fontWeight={600} fill="#0f172a">
+      <text x={-8} y={-2} textAnchor="end" fontSize={13} fontWeight={600} fill="#0f172a" style={{ maxWidth: `${maxWidth}px` }}>
         {project}
       </text>
       {taskName ? (
-        <text x={-10} y={12} textAnchor="end" fontSize={11} fill="#64748b">
+        <text x={-8} y={12} textAnchor="end" fontSize={11} fill="#64748b" style={{ maxWidth: `${maxWidth}px` }}>
           {taskName}
           {assignee ? ` ｜ ${assignee}` : ''}
         </text>
@@ -467,7 +468,7 @@ export function GanttChartView({
               width={yAxisWidth}
               tickLine={false}
               axisLine={false}
-              tick={(props) => <GanttYAxisTick {...props} />}
+              tick={(props) => <GanttYAxisTick {...props} width={yAxisWidth} />}
             />
             <Bar dataKey="offset" stackId="g" fill="transparent" isAnimationActive={false} />
             <Bar
