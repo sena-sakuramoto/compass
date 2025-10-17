@@ -12,6 +12,7 @@ interface ProjectCardProps {
   dueLabel?: string;
   overdue?: boolean;
   openTasks?: number;
+  onClick?: () => void;
 }
 
 const statusTone: Record<string, string> = {
@@ -50,13 +51,17 @@ export function ProjectCard({
   dueLabel,
   overdue,
   openTasks,
+  onClick,
 }: ProjectCardProps) {
   const pct = Math.round(progress * 100);
   const statusClass = statusTone[status] ?? 'bg-slate-100 text-slate-600';
   const priorityClass = priority ? priorityTone[priority] ?? 'bg-slate-100 text-slate-600' : '';
 
   return (
-    <div className="flex h-full flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
+    <div 
+      className="flex h-full flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md cursor-pointer"
+      onClick={onClick}
+    >
       <div className="flex items-start justify-between gap-2">
         <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${statusClass}`}>{status || 'ステータス未設定'}</span>
         {priority ? (

@@ -99,6 +99,13 @@ export async function createPerson(payload: Partial<Person>) {
   });
 }
 
+export async function updatePerson(personId: string, payload: Partial<Person>) {
+  return request<{ ok: true }>(`/people/${personId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function completeTask(taskId: string, done: boolean) {
   return request<{ ok: true }>(`/tasks/${taskId}/complete`, {
     method: 'POST',

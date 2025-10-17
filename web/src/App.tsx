@@ -21,6 +21,7 @@ import {
   createProject,
   createPerson,
   updateProject,
+  updatePerson,
   updateTask,
   completeTask,
   importExcel,
@@ -39,6 +40,8 @@ import { GanttChartView, GanttDatum } from './components/GanttChart';
 import { WorkerMonitor } from './components/WorkerMonitor';
 import { Sidebar } from './components/Sidebar';
 import { ToastStack, ToastMessage } from './components/ToastStack';
+import { ProjectEditDialog } from './components/ProjectEditDialog';
+import { PersonEditDialog } from './components/PersonEditDialog';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -1157,6 +1160,7 @@ function DashboardPage({
   onOpenTask,
   onOpenProject,
   onOpenPerson,
+  onEditProject,
   sortKey,
   onSortChange,
   canEdit,
@@ -1167,6 +1171,7 @@ function DashboardPage({
   onOpenTask(): void;
   onOpenProject(): void;
   onOpenPerson(): void;
+  onEditProject(project: ProjectWithDerived): void;
   sortKey: ProjectSortKey;
   onSortChange(value: ProjectSortKey): void;
   canEdit: boolean;
@@ -1381,6 +1386,7 @@ function DashboardPage({
                     openTasks={project.openTaskCount}
                     dueLabel={dueLabel}
                     overdue={overdue}
+                    onClick={() => onEditProject(project)}
                   />
                 </motion.div>
               );
@@ -1581,6 +1587,7 @@ function SchedulePage({
   onOpenTask,
   onOpenProject,
   onOpenPerson,
+  onEditPerson,
   canEdit,
 }: {
   filtersProps: FiltersProps;
@@ -1593,6 +1600,7 @@ function SchedulePage({
   onOpenTask(): void;
   onOpenProject(): void;
   onOpenPerson(): void;
+  onEditPerson(person: Person): void;
   canEdit: boolean;
 }) {
   const [mode, setMode] = useState<'tasks' | 'projects' | 'people'>('tasks');
@@ -2046,6 +2054,7 @@ function SchedulePage({
                       e.dataTransfer.effectAllowed = 'copy';
                     }}
                     onDragEnd={() => setDraggedAssignee(null)}
+                    onClick={() => onEditPerson(person)}
                     className="cursor-move rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition"
                   >
                     <div className="font-medium">{person.氏名}</div>
@@ -2342,6 +2351,7 @@ function App() {
   const [personModalOpen, setPersonModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
   const toastTimers = useRef<Map<string, number>>(new Map());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -2734,6 +2744,31 @@ function App() {
     }
   };
 
+  const handleUpdatePerson = async (personId: string, payload: Partial<Person>) => {
+    if (!canSync) {
+      setState((prev) => ({
+        ...prev,
+        people: prev.people.map((person) =>
+          person.id === personId
+            ? { ...person, ...payload, updatedAt: todayString() }
+            : person
+        ),
+      }));
+      setEditingPerson(null);
+      pushToast({ tone: 'success', title: '担当者を更新しました（ローカル保存）' });
+      return;
+    }
+    try {
+      await updatePerson(personId, payload);
+      pushToast({ tone: 'success', title: '担当者を更新しました' });
+      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      setEditingPerson(null);
+    } catch (error) {
+      console.error(error);
+      pushToast({ tone: 'error', title: '担当者の更新に失敗しました' });
+    }
+  };
+
   const handleTaskAssigneeChange = useCallback(
     async (taskId: string, assignee: string) => {
       const previous = state.tasks.find((task) => task.id === taskId);
@@ -2931,6 +2966,7 @@ function App() {
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
+                onEditPerson={setEditingPerson}
                 canEdit={canEdit}
               />
             }
@@ -2945,6 +2981,7 @@ function App() {
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
+                onEditProject={setEditingProject}
                 sortKey={projectSort}
                 onSortChange={setProjectSort}
                 canEdit={canEdit}
@@ -2983,6 +3020,7 @@ function App() {
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
+                onEditPerson={setEditingPerson}
                 canEdit={canEdit}
               />
             }
@@ -3000,6 +3038,16 @@ function App() {
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
       <PersonModal open={personModalOpen} onOpenChange={setPersonModalOpen} onSubmit={handleCreatePerson} onNotify={pushToast} />
+      <ProjectEditDialog
+        project={editingProject}
+        onClose={() => setEditingProject(null)}
+        onSave={(project) => handleUpdateProject(project.id, project)}
+      />
+      <PersonEditDialog
+        person={editingPerson}
+        onClose={() => setEditingPerson(null)}
+        onSave={(person) => handleUpdatePerson(person.id, person)}
+      />
     </>
   );
 }
