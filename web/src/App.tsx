@@ -42,6 +42,7 @@ import { Sidebar } from './components/Sidebar';
 import { ToastStack, ToastMessage } from './components/ToastStack';
 import { ProjectEditDialog } from './components/ProjectEditDialog';
 import { PersonEditDialog } from './components/PersonEditDialog';
+import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -1164,6 +1165,8 @@ function DashboardPage({
   sortKey,
   onSortChange,
   canEdit,
+  canSync,
+  setManagingMembersProject,
 }: {
   projects: ProjectWithDerived[];
   filteredTasks: Task[];
@@ -1175,6 +1178,8 @@ function DashboardPage({
   sortKey: ProjectSortKey;
   onSortChange(value: ProjectSortKey): void;
   canEdit: boolean;
+  canSync: boolean;
+  setManagingMembersProject: (project: Project | null) => void;
 }) {
   const today = new Date();
   const openTaskCount = useMemo(
@@ -1387,6 +1392,7 @@ function DashboardPage({
                     dueLabel={dueLabel}
                     overdue={overdue}
                     onClick={() => onEditProject(project)}
+                    onManageMembers={canSync ? () => setManagingMembersProject(project) : undefined}
                   />
                 </motion.div>
               );
@@ -2386,6 +2392,7 @@ function App() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
+  const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
   const toastTimers = useRef<Map<string, number>>(new Map());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -3019,6 +3026,8 @@ function App() {
                 sortKey={projectSort}
                 onSortChange={setProjectSort}
                 canEdit={canEdit}
+                canSync={canSync}
+                setManagingMembersProject={setManagingMembersProject}
               />
             }
           />
@@ -3082,6 +3091,12 @@ function App() {
         onClose={() => setEditingPerson(null)}
         onSave={(person) => handleUpdatePerson(person.id, person)}
       />
+      {managingMembersProject && (
+        <ProjectMembersDialog
+          project={managingMembersProject}
+          onClose={() => setManagingMembersProject(null)}
+        />
+      )}
     </>
   );
 }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Users } from 'lucide-react';
 
 interface ProjectCardProps {
   id: string;
@@ -13,6 +14,7 @@ interface ProjectCardProps {
   overdue?: boolean;
   openTasks?: number;
   onClick?: () => void;
+  onManageMembers?: (e: React.MouseEvent) => void;
 }
 
 const statusTone: Record<string, string> = {
@@ -52,6 +54,7 @@ export function ProjectCard({
   overdue,
   openTasks,
   onClick,
+  onManageMembers,
 }: ProjectCardProps) {
   const pct = Math.round(progress * 100);
   const statusClass = statusTone[status] ?? 'bg-slate-100 text-slate-600';
@@ -95,6 +98,18 @@ export function ProjectCard({
           </div>
         ) : null}
       </div>
+      {onManageMembers && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onManageMembers(e);
+          }}
+          className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+        >
+          <Users className="w-4 h-4" />
+          メンバー管理
+        </button>
+      )}
     </div>
   );
 }
