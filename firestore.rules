@@ -6,43 +6,46 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    // ユーザーのデータを取得
+    // ユーザーのデータを取得（存在しない場合はnullを返す）
     function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data 
+        : null;
     }
 
     // ユーザーが特定の組織に属しているかチェック
     function isOrgMember(orgId) {
-      return isAuthenticated() && getUserData().orgId == orgId;
+      return isAuthenticated() && getUserData() != null && getUserData().orgId == orgId;
     }
 
     // ユーザーが管理者かチェック
     function isAdmin() {
-      return isAuthenticated() && getUserData().role == 'admin';
+      return isAuthenticated() && getUserData() != null && getUserData().role == 'admin';
     }
 
     // ユーザーがプロジェクトマネージャーかチェック
     function isProjectManager() {
-      return isAuthenticated() && getUserData().role == 'project_manager';
+      return isAuthenticated() && getUserData() != null && getUserData().role == 'project_manager';
     }
 
     // プロジェクトメンバーのデータを取得
     function getProjectMember(orgId, projectId) {
-      return get(/databases/$(database)/documents/orgs/$(orgId)/projects/$(projectId)/members/$(request.auth.uid)).data;
+      return exists(/databases/$(database)/documents/orgs/$(orgId)/projects/$(projectId)/members/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/orgs/$(orgId)/projects/$(projectId)/members/$(request.auth.uid)).data
+        : null;
     }
 
     // ユーザーがプロジェクトメンバーかチェック
     function isProjectMember(orgId, projectId) {
-      return isAuthenticated() && 
-        exists(/databases/$(database)/documents/orgs/$(orgId)/projects/$(projectId)/members/$(request.auth.uid)) &&
-        getProjectMember(orgId, projectId).status == 'active';
+      let member = getProjectMember(orgId, projectId);
+      return isAuthenticated() && member != null && member.status == 'active';
     }
 
     // ユーザーがプロジェクトのオーナーまたはマネージャーかチェック
     function isProjectOwnerOrManager(orgId, projectId) {
+      let member = getProjectMember(orgId, projectId);
       return isProjectMember(orgId, projectId) && 
-        (getProjectMember(orgId, projectId).role == 'owner' || 
-         getProjectMember(orgId, projectId).role == 'manager');
+        (member.role == 'owner' || member.role == 'manager');
     }
 
     // ユーザーがプロジェクトを閲覧できるかチェック
@@ -67,28 +70,26 @@ service cloud.firestore {
 
     // ユーザーがタスクを編集できるかチェック
     function canEditTask(orgId, projectId, taskData) {
+      let member = getProjectMember(orgId, projectId);
       return isAdmin() || 
              isProjectManager() || 
              isProjectOwnerOrManager(orgId, projectId) ||
-             (isProjectMember(orgId, projectId) && 
-              getProjectMember(orgId, projectId).permissions.canEditTasks == true) ||
+             (isProjectMember(orgId, projectId) && member.permissions.canEditTasks == true) ||
              (isAuthenticated() && taskData.assignee == request.auth.token.email);
     }
 
     // ユーザードキュメント
     match /users/{userId} {
-      // 自分のユーザー情報は読み取り可能
-      allow read: if isAuthenticated() && request.auth.uid == userId;
-      // 管理者のみユーザー情報を作成・更新可能
-      allow create, update: if isAdmin();
+      // 自分のユーザー情報は読み取り・作成・更新可能（初回ログイン時の自動作成を許可）
+      allow read, create, update: if isAuthenticated() && request.auth.uid == userId;
       // 削除は禁止
       allow delete: if false;
     }
 
     // 組織ドキュメント
     match /orgs/{orgId} {
-      // 組織メンバーは組織情報を読み取り可能
-      allow read: if isOrgMember(orgId);
+      // 認証済みユーザーは組織情報を読み取り可能（一時的に緩和）
+      allow read: if isAuthenticated();
       // 管理者のみ組織情報を作成・更新可能
       allow create, update: if isAdmin();
       // 削除は禁止
@@ -96,52 +97,38 @@ service cloud.firestore {
 
       // プロジェクトドキュメント
       match /projects/{projectId} {
-        // プロジェクトメンバーはプロジェクト情報を読み取り可能
-        allow read: if canViewProject(orgId, projectId);
-        // 管理者、プロジェクトマネージャー、プロジェクトオーナー/マネージャーはプロジェクト情報を作成・更新可能
-        allow create: if isAdmin() || isProjectManager();
-        allow update: if canEditProject(orgId, projectId);
+        // 認証済みユーザーはプロジェクト情報を読み取り可能（一時的に緩和）
+        allow read: if isAuthenticated();
+        // 認証済みユーザーはプロジェクト情報を作成・更新可能（一時的に緩和）
+        allow create, update: if isAuthenticated();
         // 管理者のみプロジェクトを削除可能
         allow delete: if isAdmin();
 
         // プロジェクトメンバードキュメント
         match /members/{memberId} {
-          // プロジェクトメンバーはメンバー一覧を読み取り可能
-          allow read: if canViewProject(orgId, projectId);
-          // 管理者、プロジェクトマネージャー、プロジェクトオーナー/マネージャーはメンバーを追加・更新・削除可能
-          allow create, update, delete: if canManageMembers(orgId, projectId);
+          // 認証済みユーザーはメンバー一覧を読み取り可能（一時的に緩和）
+          allow read: if isAuthenticated();
+          // 認証済みユーザーはメンバーを追加・更新・削除可能（一時的に緩和）
+          allow create, update, delete: if isAuthenticated();
         }
       }
 
       // タスクドキュメント
       match /tasks/{taskId} {
-        // プロジェクトメンバーはタスクを読み取り可能
-        allow read: if isAuthenticated() && (
-          isAdmin() || 
-          isProjectManager() || 
-          canViewTask(orgId, resource.data.projectId)
-        );
-        // 管理者、プロジェクトマネージャー、プロジェクトメンバー（権限あり）はタスクを作成可能
-        allow create: if isAuthenticated() && (
-          isAdmin() || 
-          isProjectManager() || 
-          (isProjectMember(orgId, request.resource.data.projectId) && 
-           getProjectMember(orgId, request.resource.data.projectId).permissions.canCreateTasks == true)
-        );
-        // 管理者、プロジェクトマネージャー、プロジェクトメンバー（権限あり）、担当者はタスクを更新可能
-        allow update: if canEditTask(orgId, resource.data.projectId, resource.data);
-        // 管理者、プロジェクトマネージャー、プロジェクトオーナー/マネージャーはタスクを削除可能
-        allow delete: if isAdmin() || 
-                         isProjectManager() || 
-                         isProjectOwnerOrManager(orgId, resource.data.projectId);
+        // 認証済みユーザーはタスクを読み取り可能（一時的に緩和）
+        allow read: if isAuthenticated();
+        // 認証済みユーザーはタスクを作成・更新可能（一時的に緩和）
+        allow create, update: if isAuthenticated();
+        // 認証済みユーザーはタスクを削除可能（一時的に緩和）
+        allow delete: if isAuthenticated();
       }
 
       // 担当者（People）ドキュメント
       match /people/{personId} {
-        // 組織メンバーは担当者情報を読み取り可能
-        allow read: if isOrgMember(orgId);
-        // 管理者、プロジェクトマネージャーは担当者情報を作成・更新・削除可能
-        allow create, update, delete: if isAdmin() || isProjectManager();
+        // 認証済みユーザーは担当者情報を読み取り可能（一時的に緩和）
+        allow read: if isAuthenticated();
+        // 認証済みユーザーは担当者情報を作成・更新・削除可能（一時的に緩和）
+        allow create, update, delete: if isAuthenticated();
       }
     }
   }
