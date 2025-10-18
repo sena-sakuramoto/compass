@@ -452,13 +452,15 @@ export function GanttChartView({
         {/* 独自のY軸ラベル */}
         <div 
           className="absolute left-0 top-0 bottom-0 bg-white" 
-          style={{ width: yAxisWidth, paddingTop: 20, paddingBottom: 20, zIndex: 9999, pointerEvents: 'none' }}
+          style={{ width: yAxisWidth, zIndex: 9999, pointerEvents: 'none' }}
         >
           {displayData.map((entry, index) => {
             const barSize = 24;
             const barCategoryGap = 8;
             const itemHeight = barSize + barCategoryGap;
-            const yPosition = 20 + index * itemHeight + barSize / 2; // バーの中央に揃える
+            const xAxisHeight = 48; // XAxisのheight
+            const marginTop = 20;
+            const yPosition = marginTop + xAxisHeight + index * itemHeight + barSize / 2; // XAxisを考慮
             
             // シンプルな1行表示
             const labelText = entry.name || '（無題）';
