@@ -1843,7 +1843,7 @@ function SchedulePage({
     const taskCount = ganttData.data.length;
     if (taskCount === 0) return 460; // データがない場合の最小高さ
     
-    const rowHeight = 40; // 1タスクあたりの高さ
+    const rowHeight = 50; // 1タスクあたりの高さ（プロジェクト名とタスク名の2行表示を考慮）
     const headerHeight = 150; // ヘッダーとマージン
     const calculatedHeight = taskCount * rowHeight + headerHeight;
     
@@ -2111,6 +2111,7 @@ function SchedulePage({
           className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4"
           style={{ height: ganttChartHeight, minHeight: 460 }}
         >
+          {console.log('Gantt data:', ganttData.data.slice(0, 3))}
           <GanttChartView
             data={ganttData.data}
             ticks={ganttData.ticks}
@@ -2229,21 +2230,30 @@ function buildGantt(items: GanttItemInput[], options: BuildGanttOptions = {}) {
   }
 
   const spanDays = Math.max(1, Math.ceil((maxDate.getTime() - minDate.getTime()) / DAY_MS));
-  const autoTickStep = spanDays > 240 ? 30 : spanDays > 60 ? 7 : 1;
+  
+  // 日付ラベルの重なりを防ぐため、期間に応じてより広い間隔を設定
+  const autoTickStep = 
+    spanDays > 365 ? 60 :  // 1年以上 → 60日間隔
+    spanDays > 180 ? 30 :  // 半年以上 → 30日間隔
+    spanDays > 90 ? 14 :   // 3ヶ月以上 → 14日間隔
+    spanDays > 60 ? 7 :    // 2ヶ月以上 → 7日間隔
+    spanDays > 30 ? 3 :    // 1ヶ月以上 → 3日間隔
+    1;                     // 1ヶ月以下 → 1日間隔
+  
   let tickStep = autoTickStep;
 
   switch (timeScale) {
     case 'six_weeks':
-      tickStep = 1;
+      tickStep = 3;  // 6週間表示では3日間隔
       break;
     case 'quarter':
-      tickStep = 7;
+      tickStep = 7;  // 四半期表示では7日間隔
       break;
     case 'half_year':
-      tickStep = 14;
+      tickStep = 14; // 半年表示では14日間隔
       break;
     case 'full':
-      tickStep = Math.max(7, Math.ceil(spanDays / 10));
+      tickStep = Math.max(14, Math.ceil(spanDays / 15)); // 全期間表示では最低14日間隔
       break;
     default:
       tickStep = autoTickStep;

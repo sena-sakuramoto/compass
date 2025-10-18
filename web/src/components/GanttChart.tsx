@@ -103,19 +103,38 @@ function GanttXAxisTick({ x, y, payload, minDate }: { x: number; y: number; payl
 
 function GanttYAxisTick({ x, y, payload, width }: { x: number; y: number; payload: any; width?: number }) {
   const datum = (payload?.payload ?? {}) as GanttDatum;
-  const project = datum.projectLabel ?? datum.name;
+  
+  // デバッグ用ログ
+  console.log('GanttYAxisTick rendered:', { x, y, datum, payload });
+  
+  // projectLabelがあればそれを使用、なければnameを使用
+  const project = (datum.projectLabel || datum.name || '（無題）');
+  // projectLabelがある場合はnameをタスク名として表示
   const taskName = datum.projectLabel ? datum.name : undefined;
   const assignee = datum.assigneeLabel;
   const maxWidth = (width ?? 300) - 20; // 左右のマージンを考慮
+  
+  // テキストを切り詰める関数
+  const truncateText = (text: string, maxLen: number) => {
+    if (!text || text.length <= maxLen) return text;
+    return text.substring(0, maxLen - 1) + '…';
+  };
+  
+  const maxProjectChars = Math.floor(maxWidth / 8); // おおよその文字幅
+  const maxTaskChars = Math.floor(maxWidth / 7);
+  
   return (
     <g transform={`translate(${x},${y})`}>
-      <text x={-8} y={-2} textAnchor="end" fontSize={13} fontWeight={600} fill="#0f172a" style={{ maxWidth: `${maxWidth}px` }}>
-        {project}
+      <text x={-8} y={-4} textAnchor="end" fontSize={12} fontWeight={600} fill="#0f172a">
+        {truncateText(project, maxProjectChars)}
       </text>
       {taskName ? (
-        <text x={-8} y={12} textAnchor="end" fontSize={11} fill="#64748b" style={{ maxWidth: `${maxWidth}px` }}>
-          {taskName}
-          {assignee ? ` ｜ ${assignee}` : ''}
+        <text x={-8} y={10} textAnchor="end" fontSize={10} fill="#64748b">
+          {truncateText(taskName + (assignee ? ` ｜ ${assignee}` : ''), maxTaskChars)}
+        </text>
+      ) : assignee ? (
+        <text x={-8} y={10} textAnchor="end" fontSize={10} fill="#64748b">
+          {truncateText(assignee, maxTaskChars)}
         </text>
       ) : null}
     </g>
@@ -433,6 +452,32 @@ export function GanttChartView({
         </div>
       ) : null}
       <div className="relative flex-1" ref={containerRef}>
+        {/* 独自のY軸ラベル - テスト版 */}
+        <div 
+          className="absolute left-0 top-0 bottom-0 bg-yellow-200" 
+          style={{ width: yAxisWidth, paddingTop: 20, paddingBottom: 20, zIndex: 9999, pointerEvents: 'none' }}
+        >
+          <div className="text-xs font-semibold text-red-600">テストラベル</div>
+          {displayData.map((entry, index) => {
+            const itemHeight = 32; // barSize + barCategoryGapの代わりに固定値
+            const yPosition = 20 + index * itemHeight; // top padding + index * height
+            const labelText = entry.name || entry.projectLabel || 'テスト';
+            
+            return (
+              <div
+                key={entry.key}
+                className="absolute right-2 text-right"
+                style={{ 
+                  top: `${yPosition}px`, 
+                  maxWidth: yAxisWidth - 16,
+                  backgroundColor: 'rgba(255,0,0,0.1)' // デバッグ用背景色
+                }}
+              >
+                <div className="text-xs font-semibold text-slate-800">{labelText}</div>
+              </div>
+            );
+          })}
+        </div>
         <ResponsiveContainer
           width="100%"
           height="100%"
@@ -446,8 +491,8 @@ export function GanttChartView({
             data={displayData}
             layout="vertical"
             margin={{ left: yAxisWidth, right: 32, top: 20, bottom: 20 }}
-            barCategoryGap={10}
-            barSize={28}
+            barCategoryGap={8}
+            barSize={24}
           >
             <CartesianGrid horizontal vertical={false} stroke="#e2e8f0" strokeDasharray="2 4" />
             <XAxis
@@ -462,14 +507,7 @@ export function GanttChartView({
               height={48}
               orientation="top"
             />
-            <YAxis
-              type="category"
-              dataKey="name"
-              width={yAxisWidth}
-              tickLine={false}
-              axisLine={false}
-              tick={(props) => <GanttYAxisTick {...props} width={yAxisWidth} />}
-            />
+
             <Bar dataKey="offset" stackId="g" fill="transparent" isAnimationActive={false} />
             <Bar
               dataKey="duration"
