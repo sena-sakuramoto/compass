@@ -2111,7 +2111,6 @@ function SchedulePage({
           className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4"
           style={{ height: ganttChartHeight, minHeight: 460 }}
         >
-          {console.log('Gantt data:', ganttData.data.slice(0, 3))}
           <GanttChartView
             data={ganttData.data}
             ticks={ganttData.ticks}

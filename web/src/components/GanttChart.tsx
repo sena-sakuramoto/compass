@@ -104,9 +104,6 @@ function GanttXAxisTick({ x, y, payload, minDate }: { x: number; y: number; payl
 function GanttYAxisTick({ x, y, payload, width }: { x: number; y: number; payload: any; width?: number }) {
   const datum = (payload?.payload ?? {}) as GanttDatum;
   
-  // デバッグ用ログ
-  console.log('GanttYAxisTick rendered:', { x, y, datum, payload });
-  
   // projectLabelがあればそれを使用、なければnameを使用
   const project = (datum.projectLabel || datum.name || '（無題）');
   // projectLabelがある場合はnameをタスク名として表示
@@ -452,16 +449,17 @@ export function GanttChartView({
         </div>
       ) : null}
       <div className="relative flex-1" ref={containerRef}>
-        {/* 独自のY軸ラベル - テスト版 */}
+        {/* 独自のY軸ラベル */}
         <div 
-          className="absolute left-0 top-0 bottom-0 bg-yellow-200" 
+          className="absolute left-0 top-0 bottom-0 bg-white" 
           style={{ width: yAxisWidth, paddingTop: 20, paddingBottom: 20, zIndex: 9999, pointerEvents: 'none' }}
         >
-          <div className="text-xs font-semibold text-red-600">テストラベル</div>
           {displayData.map((entry, index) => {
-            const itemHeight = 32; // barSize + barCategoryGapの代わりに固定値
-            const yPosition = 20 + index * itemHeight; // top padding + index * height
-            const labelText = entry.name || entry.projectLabel || 'テスト';
+            const itemHeight = 32; // barSize + barCategoryGap
+            const yPosition = 20 + index * itemHeight;
+            const project = entry.projectLabel || entry.name || '（無題）';
+            const taskName = entry.projectLabel ? entry.name : undefined;
+            const assignee = entry.assigneeLabel;
             
             return (
               <div
@@ -469,11 +467,17 @@ export function GanttChartView({
                 className="absolute right-2 text-right"
                 style={{ 
                   top: `${yPosition}px`, 
-                  maxWidth: yAxisWidth - 16,
-                  backgroundColor: 'rgba(255,0,0,0.1)' // デバッグ用背景色
+                  maxWidth: yAxisWidth - 16
                 }}
               >
-                <div className="text-xs font-semibold text-slate-800">{labelText}</div>
+                <div className="text-xs font-semibold text-slate-800 truncate leading-tight">
+                  {project}
+                </div>
+                {taskName && (
+                  <div className="text-[10px] text-slate-500 truncate leading-tight mt-0.5">
+                    {taskName}{assignee ? ` ｜ ${assignee}` : ''}
+                  </div>
+                )}
               </div>
             );
           })}
