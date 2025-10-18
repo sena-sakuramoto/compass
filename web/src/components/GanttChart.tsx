@@ -455,11 +455,13 @@ export function GanttChartView({
           style={{ width: yAxisWidth, paddingTop: 20, paddingBottom: 20, zIndex: 9999, pointerEvents: 'none' }}
         >
           {displayData.map((entry, index) => {
-            const itemHeight = 32; // barSize + barCategoryGap
-            const yPosition = 20 + index * itemHeight;
-            const project = entry.projectLabel || entry.name || '（無題）';
-            const taskName = entry.projectLabel ? entry.name : undefined;
-            const assignee = entry.assigneeLabel;
+            const barSize = 24;
+            const barCategoryGap = 8;
+            const itemHeight = barSize + barCategoryGap;
+            const yPosition = 20 + index * itemHeight + barSize / 2; // バーの中央に揃える
+            
+            // シンプルな1行表示
+            const labelText = entry.name || '（無題）';
             
             return (
               <div
@@ -467,17 +469,13 @@ export function GanttChartView({
                 className="absolute right-2 text-right"
                 style={{ 
                   top: `${yPosition}px`, 
-                  maxWidth: yAxisWidth - 16
+                  maxWidth: yAxisWidth - 16,
+                  transform: 'translateY(-50%)' // 中央揃え
                 }}
               >
-                <div className="text-xs font-semibold text-slate-800 truncate leading-tight">
-                  {project}
+                <div className="text-sm font-medium text-slate-700 truncate">
+                  {labelText}
                 </div>
-                {taskName && (
-                  <div className="text-[10px] text-slate-500 truncate leading-tight mt-0.5">
-                    {taskName}{assignee ? ` ｜ ${assignee}` : ''}
-                  </div>
-                )}
               </div>
             );
           })}
