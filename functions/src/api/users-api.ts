@@ -1,0 +1,209 @@
+import { Router } from 'express';
+import { getAuth } from 'firebase-admin/auth';
+import {
+  createUser,
+  getUser,
+  updateUser,
+  listUsers,
+  getUserByEmail,
+  updateLastLogin,
+  deactivateUser,
+  activateUser,
+} from '../lib/users';
+import { UserInput } from '../lib/auth-types';
+import { canManageUsers } from '../lib/access-control';
+
+const router = Router();
+
+/**
+ * 認証ミドルウェア
+ */
+async function authenticate(req: any, res: any, next: any) {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    const token = authHeader.split('Bearer ')[1];
+    const decodedToken = await getAuth().verifyIdToken(token);
+    
+    const user = await getUser(decodedToken.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    
+    req.user = user;
+    req.uid = decodedToken.uid;
+    next();
+  } catch (error) {
+    console.error('Authentication error:', error);
+    res.status(401).json({ error: 'Unauthorized' });
+  }
+}
+
+/**
+ * GET /api/users
+ * ユーザー一覧を取得
+ */
+router.get('/', authenticate, async (req: any, res) => {
+  try {
+    const { orgId, role, isActive } = req.query;
+    
+    const users = await listUsers({
+      orgId,
+      role,
+      isActive: isActive !== undefined ? isActive === 'true' : undefined,
+    });
+    
+    res.json(users);
+  } catch (error) {
+    console.error('Error listing users:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/users/:userId
+ * ユーザー詳細を取得
+ */
+router.get('/:userId', authenticate, async (req: any, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const user = await getUser(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json(user);
+  } catch (error) {
+    console.error('Error getting user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/users
+ * ユーザーを作成（管理者のみ）
+ */
+router.post('/', authenticate, async (req: any, res) => {
+  try {
+    // 権限チェック
+    if (!canManageUsers(req.user)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    const input: UserInput = req.body;
+    
+    // Firebase Authにユーザーを作成
+    const userRecord = await getAuth().createUser({
+      email: input.email,
+      displayName: input.displayName,
+      emailVerified: false,
+    });
+    
+    // Firestoreにユーザー情報を保存
+    const user = await createUser(userRecord.uid, input);
+    
+    res.status(201).json(user);
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * PATCH /api/users/:userId
+ * ユーザーを更新
+ */
+router.patch('/:userId', authenticate, async (req: any, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // 自分自身または管理者のみ更新可能
+    if (req.uid !== userId && !canManageUsers(req.user)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    const updates = req.body;
+    
+    // 管理者以外はロールを変更できない
+    if (updates.role && !canManageUsers(req.user)) {
+      delete updates.role;
+    }
+    
+    await updateUser(userId, updates);
+    
+    const updatedUser = await getUser(userId);
+    res.json(updatedUser);
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/users/:userId/deactivate
+ * ユーザーを非アクティブ化（管理者のみ）
+ */
+router.post('/:userId/deactivate', authenticate, async (req: any, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // 権限チェック
+    if (!canManageUsers(req.user)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    await deactivateUser(userId);
+    
+    const updatedUser = await getUser(userId);
+    res.json(updatedUser);
+  } catch (error) {
+    console.error('Error deactivating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/users/:userId/activate
+ * ユーザーをアクティブ化（管理者のみ）
+ */
+router.post('/:userId/activate', authenticate, async (req: any, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // 権限チェック
+    if (!canManageUsers(req.user)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    
+    await activateUser(userId);
+    
+    const updatedUser = await getUser(userId);
+    res.json(updatedUser);
+  } catch (error) {
+    console.error('Error activating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/users/me
+ * 現在のユーザー情報を取得
+ */
+router.get('/me', authenticate, async (req: any, res) => {
+  try {
+    // ログイン時刻を更新
+    await updateLastLogin(req.uid);
+    
+    res.json(req.user);
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+export default router;
+

@@ -77,6 +77,12 @@ export async function listProjects() {
   return snap.docs.map((doc) => serialize<ProjectDoc>(doc));
 }
 
+export async function getProject(orgId: string, projectId: string) {
+  const doc = await db.collection('orgs').doc(orgId).collection('projects').doc(projectId).get();
+  if (!doc.exists) return null;
+  return serialize<ProjectDoc>(doc as admin.firestore.QueryDocumentSnapshot);
+}
+
 export async function listPeople() {
   const snap = await orgCollection('people').get();
   return snap.docs.map((doc) => serialize<PersonDoc>(doc));

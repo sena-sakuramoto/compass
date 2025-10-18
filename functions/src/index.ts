@@ -9,6 +9,8 @@ import scheduleRouter from './api/schedule';
 import calendarRouter from './api/calendar';
 import jobsRouter from './api/jobs';
 import settingsRouter from './api/settings';
+import usersRouter from './api/users-api';
+import projectMembersRouter from './api/project-members-api';
 import { processPendingJobs } from './lib/jobProcessor';
 
 const app = express();
@@ -29,6 +31,8 @@ app.use('/api/schedule', scheduleRouter);
 app.use('/api/calendar', calendarRouter);
 app.use('/api/jobs', jobsRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/users', usersRouter);
+app.use('/api', projectMembersRouter);
 app.use('/api', excelRouter);
 
 app.get('/api/health', (_req, res) => {
