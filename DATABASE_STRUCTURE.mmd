@@ -1,0 +1,102 @@
+%% Compass Database Structure (Firestore)
+
+erDiagram
+    USERS ||--o{ PROJECT_MEMBERS : joins
+    USERS {
+        string id PK
+        string email
+        string displayName
+        string orgId FK
+        string role
+        string shokushu
+        string busho
+        string tel
+        string photoURL
+        boolean isActive
+        timestamp createdAt
+        timestamp updatedAt
+        timestamp lastLoginAt
+    }
+
+    ORGS ||--o{ PROJECTS : owns
+    ORGS ||--o{ TASKS : owns
+    ORGS ||--o{ PEOPLE : owns
+    ORGS {
+        string id PK
+        string name
+        string type
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    PROJECTS ||--o{ PROJECT_MEMBERS : has
+    PROJECTS ||--o{ TASKS : contains
+    PROJECTS {
+        string id PK
+        string bukkenName
+        string status
+        string priority
+        string client
+        string lsTanto
+        string jishaPM
+        string basho
+        string folderURL
+        string startDate
+        string plannedEndDate
+        string surveyDate
+        string constructionStartDate
+        string completionDate
+        timestamp createdAt
+        timestamp updatedAt
+        string createdBy
+    }
+
+    PROJECT_MEMBERS {
+        string userId
+        string email
+        string displayName
+        string orgId
+        string orgName
+        string role
+        string shokushu
+        string permissions
+        string invitedBy
+        timestamp invitedAt
+        timestamp joinedAt
+        string status
+    }
+
+    TASKS {
+        string id PK
+        string projectId FK
+        string taskName
+        string taskType
+        string tanto
+        string assignee
+        string status
+        number progress
+        string priority
+        string plannedStart
+        string deadline
+        string actualStart
+        string actualEnd
+        string start
+        string end
+        number durationDays
+        number estimatedHours
+        string notes
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    PEOPLE {
+        string id PK
+        string name
+        string shokushu
+        string busho
+        string tel
+        string email
+        timestamp createdAt
+        timestamp updatedAt
+    }
+

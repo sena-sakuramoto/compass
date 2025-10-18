@@ -1,0 +1,90 @@
+%% Compass データフロー図
+
+sequenceDiagram
+    participant User as ユーザー
+    participant UI as フロントエンド
+    participant Auth as Firebase Auth
+    participant API as Cloud Functions
+    participant AC as アクセス制御
+    participant FS as Firestore
+    participant Rules as Security Rules
+
+    %% ログインフロー
+    rect rgb(230, 240, 255)
+        Note over User,Auth: ログインフロー
+        User->>UI: ログインボタンをクリック
+        UI->>Auth: Googleアカウントでログイン
+        Auth-->>UI: 認証トークン
+        UI->>API: トークンを含むリクエスト
+        API->>FS: ユーザー情報を取得
+        FS-->>API: ユーザーデータ（role, orgId）
+        API-->>UI: ユーザー情報
+    end
+
+    %% プロジェクト閲覧フロー
+    rect rgb(240, 255, 230)
+        Note over User,FS: プロジェクト閲覧フロー
+        User->>UI: ダッシュボードを表示
+        UI->>API: GET /api/projects
+        API->>AC: アクセス権限チェック
+        AC->>FS: ユーザーのロールとメンバーシップを確認
+        FS-->>AC: 権限情報
+        AC-->>API: アクセス許可
+        API->>FS: プロジェクト一覧を取得
+        Rules->>FS: セキュリティルール検証
+        FS-->>API: プロジェクトデータ
+        API-->>UI: プロジェクト一覧
+        UI-->>User: プロジェクトカード表示
+    end
+
+    %% メンバー招待フロー
+    rect rgb(255, 240, 230)
+        Note over User,FS: メンバー招待フロー
+        User->>UI: メンバー管理ボタンをクリック
+        UI->>API: GET /api/projects/{id}/members
+        API->>AC: メンバー一覧閲覧権限チェック
+        AC-->>API: アクセス許可
+        API->>FS: メンバー一覧を取得
+        FS-->>API: メンバーデータ
+        API-->>UI: メンバー一覧
+        UI-->>User: メンバー管理ダイアログ表示
+        
+        User->>UI: メンバー招待フォーム入力
+        UI->>API: POST /api/projects/{id}/members
+        API->>AC: メンバー追加権限チェック
+        AC->>FS: ユーザーがオーナー/マネージャーか確認
+        FS-->>AC: 権限情報
+        AC-->>API: アクセス許可
+        API->>FS: 新しいメンバーを追加
+        Rules->>FS: セキュリティルール検証
+        FS-->>API: 成功
+        API-->>UI: 招待完了
+        UI-->>User: 成功メッセージ表示
+    end
+
+    %% タスク編集フロー
+    rect rgb(255, 230, 240)
+        Note over User,FS: タスク編集フロー
+        User->>UI: タスクを編集
+        UI->>API: PATCH /api/tasks/{id}
+        API->>AC: タスク編集権限チェック
+        AC->>FS: ユーザーの権限と担当者を確認
+        FS-->>AC: 権限情報
+        
+        alt ユーザーが管理者/PM/オーナー/マネージャー
+            AC-->>API: アクセス許可
+        else ユーザーがタスクの担当者
+            AC-->>API: アクセス許可
+        else 権限なし
+            AC-->>API: アクセス拒否
+            API-->>UI: エラー
+            UI-->>User: エラーメッセージ表示
+        end
+        
+        API->>FS: タスクを更新
+        Rules->>FS: セキュリティルール検証
+        FS-->>API: 成功
+        API-->>UI: 更新完了
+        UI-->>User: 成功メッセージ表示
+    end
+

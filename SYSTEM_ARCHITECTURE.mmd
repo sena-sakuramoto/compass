@@ -1,0 +1,94 @@
+%% Compass システムアーキテクチャ
+
+graph TB
+    subgraph "フロントエンド (React)"
+        UI[ユーザーインターフェース]
+        Auth[Firebase Authentication]
+        
+        subgraph "主要コンポーネント"
+            Dashboard[ダッシュボード]
+            ProjectCard[プロジェクトカード]
+            TaskList[タスク一覧]
+            GanttChart[ガントチャート]
+            MemberDialog[メンバー管理ダイアログ]
+        end
+    end
+    
+    subgraph "バックエンド (Cloud Functions)"
+        API[API Gateway]
+        
+        subgraph "API エンドポイント"
+            ProjectAPI[プロジェクトAPI]
+            TaskAPI[タスクAPI]
+            UserAPI[ユーザーAPI]
+            MemberAPI[メンバーAPI]
+        end
+        
+        subgraph "ビジネスロジック"
+            AccessControl[アクセス制御]
+            RoleManager[ロール管理]
+            ProjectMembers[メンバー管理]
+            TaskDerive[タスク派生フィールド]
+        end
+    end
+    
+    subgraph "データベース (Firestore)"
+        subgraph "コレクション構造"
+            Users["users/{userId}"]
+            Orgs["orgs/{orgId}"]
+            Projects["orgs/{orgId}/projects/{projectId}"]
+            Members["orgs/{orgId}/projects/{projectId}/members/{userId}"]
+            Tasks["orgs/{orgId}/tasks/{taskId}"]
+            People["orgs/{orgId}/people/{personId}"]
+        end
+        
+        Rules[Firestore Security Rules]
+    end
+    
+    %% フロー
+    UI -->|ログイン| Auth
+    Auth -->|認証トークン| API
+    
+    Dashboard --> ProjectCard
+    Dashboard --> TaskList
+    Dashboard --> GanttChart
+    ProjectCard -->|メンバー管理| MemberDialog
+    
+    MemberDialog -->|メンバー招待| MemberAPI
+    ProjectCard -->|プロジェクト編集| ProjectAPI
+    TaskList -->|タスク編集| TaskAPI
+    
+    API --> ProjectAPI
+    API --> TaskAPI
+    API --> UserAPI
+    API --> MemberAPI
+    
+    ProjectAPI --> AccessControl
+    TaskAPI --> AccessControl
+    UserAPI --> RoleManager
+    MemberAPI --> ProjectMembers
+    
+    AccessControl --> Rules
+    ProjectAPI --> Projects
+    TaskAPI --> Tasks
+    TaskAPI --> TaskDerive
+    UserAPI --> Users
+    MemberAPI --> Members
+    
+    Projects --> Orgs
+    Members --> Projects
+    Tasks --> Projects
+    People --> Orgs
+    
+    Rules -.検証.-> Users
+    Rules -.検証.-> Projects
+    Rules -.検証.-> Members
+    Rules -.検証.-> Tasks
+    
+    style UI fill:#e1f5ff
+    style Auth fill:#fff4e1
+    style API fill:#ffe1f5
+    style Rules fill:#f5e1ff
+    style AccessControl fill:#ff9999
+    style RoleManager fill:#99ff99
+

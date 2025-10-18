@@ -1,0 +1,137 @@
+%% Compass ロールと権限の関係図
+
+graph TB
+    subgraph "グローバルロール（システム全体）"
+        Admin[管理者<br/>admin]
+        PM[プロジェクトマネージャー<br/>project_manager]
+        Sales[営業<br/>sales]
+        Designer[設計<br/>designer]
+        SiteManager[施工管理<br/>site_manager]
+        Worker[職人<br/>worker]
+        Viewer[閲覧者<br/>viewer]
+    end
+    
+    subgraph "プロジェクトロール（プロジェクトごと）"
+        Owner[オーナー<br/>owner]
+        Manager[マネージャー<br/>manager]
+        Member[メンバー<br/>member]
+        PViewer[閲覧者<br/>viewer]
+    end
+    
+    subgraph "権限（プロジェクト）"
+        ViewProject[プロジェクト閲覧]
+        EditProject[プロジェクト編集]
+        DeleteProject[プロジェクト削除]
+        ManageMembers[メンバー管理]
+    end
+    
+    subgraph "権限（タスク）"
+        ViewTask[タスク閲覧]
+        CreateTask[タスク作成]
+        EditTask[タスク編集]
+        DeleteTask[タスク削除]
+    end
+    
+    subgraph "権限（ファイル）"
+        ViewFile[ファイル閲覧]
+        UploadFile[ファイルアップロード]
+    end
+    
+    %% グローバルロールの権限
+    Admin -.すべての権限.-> ViewProject
+    Admin -.すべての権限.-> EditProject
+    Admin -.すべての権限.-> DeleteProject
+    Admin -.すべての権限.-> ManageMembers
+    Admin -.すべての権限.-> ViewTask
+    Admin -.すべての権限.-> CreateTask
+    Admin -.すべての権限.-> EditTask
+    Admin -.すべての権限.-> DeleteTask
+    Admin -.すべての権限.-> ViewFile
+    Admin -.すべての権限.-> UploadFile
+    
+    PM -.プロジェクト管理.-> ViewProject
+    PM -.プロジェクト管理.-> EditProject
+    PM -.プロジェクト管理.-> ManageMembers
+    PM -.タスク管理.-> ViewTask
+    PM -.タスク管理.-> CreateTask
+    PM -.タスク管理.-> EditTask
+    PM -.タスク管理.-> DeleteTask
+    
+    Sales -.営業関連.-> ViewProject
+    Sales -.営業関連.-> ViewTask
+    
+    Designer -.設計関連.-> ViewProject
+    Designer -.設計関連.-> ViewTask
+    Designer -.設計関連.-> EditTask
+    
+    SiteManager -.施工管理.-> ViewProject
+    SiteManager -.施工管理.-> ViewTask
+    SiteManager -.施工管理.-> CreateTask
+    SiteManager -.施工管理.-> EditTask
+    
+    Worker -.自分のタスクのみ.-> ViewTask
+    Worker -.自分のタスクのみ.-> EditTask
+    
+    Viewer -.閲覧のみ.-> ViewProject
+    Viewer -.閲覧のみ.-> ViewTask
+    
+    %% プロジェクトロールの権限
+    Owner ==>|完全な管理権限| ViewProject
+    Owner ==> EditProject
+    Owner ==> DeleteProject
+    Owner ==> ManageMembers
+    Owner ==> ViewTask
+    Owner ==> CreateTask
+    Owner ==> EditTask
+    Owner ==> DeleteTask
+    Owner ==> ViewFile
+    Owner ==> UploadFile
+    
+    Manager ==>|管理権限| ViewProject
+    Manager ==> EditProject
+    Manager ==> ManageMembers
+    Manager ==> ViewTask
+    Manager ==> CreateTask
+    Manager ==> EditTask
+    Manager ==> DeleteTask
+    Manager ==> ViewFile
+    Manager ==> UploadFile
+    
+    Member ==>|メンバー権限| ViewProject
+    Member ==> ViewTask
+    Member ==> CreateTask
+    Member ==> EditTask
+    Member ==> ViewFile
+    Member ==> UploadFile
+    
+    PViewer ==>|閲覧のみ| ViewProject
+    PViewer ==> ViewTask
+    PViewer ==> ViewFile
+    
+    %% スタイル
+    style Admin fill:#ff6b6b
+    style PM fill:#4ecdc4
+    style Sales fill:#95e1d3
+    style Designer fill:#95e1d3
+    style SiteManager fill:#95e1d3
+    style Worker fill:#ffe66d
+    style Viewer fill:#ddd
+    
+    style Owner fill:#ff6b6b
+    style Manager fill:#4ecdc4
+    style Member fill:#95e1d3
+    style PViewer fill:#ddd
+    
+    style ViewProject fill:#e8f5e9
+    style EditProject fill:#fff9c4
+    style DeleteProject fill:#ffebee
+    style ManageMembers fill:#e3f2fd
+    
+    style ViewTask fill:#e8f5e9
+    style CreateTask fill:#fff9c4
+    style EditTask fill:#fff9c4
+    style DeleteTask fill:#ffebee
+    
+    style ViewFile fill:#e8f5e9
+    style UploadFile fill:#fff9c4
+
