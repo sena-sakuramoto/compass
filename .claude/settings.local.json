@@ -19,7 +19,17 @@
       "Bash(npm install:*)",
       "Bash(npm run lint)",
       "Bash(npm run dev)",
-      "Bash(firebase login:*)"
+      "Bash(firebase login:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm run logs:*)",
+      "Bash(lsof:*)",
+      "Bash(firebase emulators:start:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git log -1 --format='%an %ae')",
+      "Bash(curl -X GET \"https://api-g3xwwspyla-an.a.run.app/api/health\" -H \"Content-Type: application/json\")",
+      "Bash(git stash)",
+      "Bash(git stash pop)",
+      "Bash(npm uninstall @sendgrid/mail)"
     ],
     "deny": [],
     "ask": []
