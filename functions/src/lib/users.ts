@@ -35,7 +35,11 @@ export async function createUser(uid: string, input: UserInput): Promise<User> {
 export async function getUser(uid: string): Promise<User | null> {
   const doc = await db.collection('users').doc(uid).get();
   if (!doc.exists) return null;
-  return doc.data() as User;
+  const data = doc.data() as User;
+  return {
+    ...data,
+    id: doc.id, // Ensure id is set from document ID
+  };
 }
 
 /**
@@ -75,7 +79,10 @@ export async function listUsers(filters?: {
   }
   
   const snapshot = await query.get();
-  return snapshot.docs.map(doc => doc.data() as User);
+  return snapshot.docs.map(doc => ({
+    ...(doc.data() as User),
+    id: doc.id, // Ensure id is set from document ID
+  }));
 }
 
 /**
@@ -86,9 +93,13 @@ export async function getUserByEmail(email: string): Promise<User | null> {
     .where('email', '==', email)
     .limit(1)
     .get();
-  
+
   if (snapshot.empty) return null;
-  return snapshot.docs[0].data() as User;
+  const doc = snapshot.docs[0];
+  return {
+    ...(doc.data() as User),
+    id: doc.id, // Ensure id is set from document ID
+  };
 }
 
 /**
@@ -140,7 +151,11 @@ export async function createOrganization(input: Omit<Organization, 'id' | 'creat
 export async function getOrganization(orgId: string): Promise<Organization | null> {
   const doc = await db.collection('organizations').doc(orgId).get();
   if (!doc.exists) return null;
-  return doc.data() as Organization;
+  const data = doc.data() as Organization;
+  return {
+    ...data,
+    id: doc.id, // Ensure id is set from document ID
+  };
 }
 
 /**
@@ -148,13 +163,16 @@ export async function getOrganization(orgId: string): Promise<Organization | nul
  */
 export async function listOrganizations(type?: Organization['type']): Promise<Organization[]> {
   let query = db.collection('organizations') as FirebaseFirestore.Query;
-  
+
   if (type) {
     query = query.where('type', '==', type);
   }
-  
+
   const snapshot = await query.get();
-  return snapshot.docs.map(doc => doc.data() as Organization);
+  return snapshot.docs.map(doc => ({
+    ...(doc.data() as Organization),
+    id: doc.id, // Ensure id is set from document ID
+  }));
 }
 
 /**
