@@ -1,0 +1,304 @@
+// タスクバーコンポーネント
+
+import React, { useState, useRef, useEffect } from 'react';
+import { addDays, differenceInDays } from 'date-fns';
+import type { GanttTask } from './types';
+import { getStatusColor, isOverdue } from './utils';
+
+type DragMode = 'move' | 'resize-start' | 'resize-end' | null;
+
+interface GanttTaskBarProps {
+  task: GanttTask;
+  position: { left: number; width: number; top: number };
+  dateRange: { start: Date; end: Date };
+  containerWidth: number;
+  onUpdate?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
+  onCopy?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
+  onClick?: (task: GanttTask) => void;
+  interactive?: boolean;
+}
+
+export const GanttTaskBar: React.FC<GanttTaskBarProps> = ({
+  task,
+  position,
+  dateRange,
+  containerWidth,
+  onUpdate,
+  onCopy,
+  onClick,
+  interactive = false
+}) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragMode, setDragMode] = useState<DragMode>(null);
+  const [previewPosition, setPreviewPosition] = useState(position);
+  const [isCopyMode, setIsCopyMode] = useState(false);
+  const dragStartX = useRef<number>(0);
+  const hasDragged = useRef<boolean>(false);
+  const originalStartDate = useRef<Date>(task.startDate);
+  const originalEndDate = useRef<Date>(task.endDate);
+  const pendingStartDate = useRef<Date>(task.startDate);
+  const pendingEndDate = useRef<Date>(task.endDate);
+
+  // ステータスに応じた色を取得
+  const overdue = isOverdue(task);
+  const color = overdue ? '#dc2626' : getStatusColor(task.status);
+
+  // バーの高さ
+  const barHeight = 32;
+  const barTop = position.top + 8; // 上下のマージン
+
+  // タスク名の表示（幅に応じて省略）
+  const displayName = task.name.length > 20 ? task.name.substring(0, 18) + '…' : task.name;
+
+  // ピクセルから日数への変換
+  const pixelsToDays = (pixels: number): number => {
+    const totalDays = differenceInDays(dateRange.end, dateRange.start);
+    return Math.round((pixels / containerWidth) * totalDays);
+  };
+
+  // ドラッグ開始
+  const handleMouseDown = (e: React.MouseEvent, mode: DragMode) => {
+    if (!interactive || (!onUpdate && !onCopy)) return;
+    e.stopPropagation();
+
+    // Altキーが押されている場合はコピーモード
+    const copyMode = e.altKey && mode === 'move' && !!onCopy;
+    setIsCopyMode(copyMode);
+
+    setIsDragging(true);
+    setDragMode(mode);
+    hasDragged.current = false;
+    dragStartX.current = e.clientX;
+    originalStartDate.current = task.startDate;
+    originalEndDate.current = task.endDate;
+  };
+
+  // ドラッグ中 - プレビューのみ更新、保存はしない
+  const handleMouseMove = (e: MouseEvent) => {
+    if (!isDragging || !dragMode) return;
+
+    const deltaX = e.clientX - dragStartX.current;
+    const deltaDays = pixelsToDays(deltaX);
+
+    // ドラッグしたことを記録
+    if (Math.abs(deltaX) > 3) {
+      hasDragged.current = true;
+    }
+
+    // Altキーの状態を常に更新（ドラッグ中にキーを押した/離した場合に対応）
+    if (dragMode === 'move' && onCopy) {
+      setIsCopyMode(e.altKey);
+    }
+
+    let newStartDate = originalStartDate.current;
+    let newEndDate = originalEndDate.current;
+
+    if (dragMode === 'move') {
+      // タスク全体を移動
+      newStartDate = addDays(originalStartDate.current, deltaDays);
+      newEndDate = addDays(originalEndDate.current, deltaDays);
+    } else if (dragMode === 'resize-start') {
+      // 開始日を変更
+      newStartDate = addDays(originalStartDate.current, deltaDays);
+      // 開始日が終了日を超えないようにする
+      if (newStartDate >= originalEndDate.current) {
+        newStartDate = addDays(originalEndDate.current, -1);
+      }
+    } else if (dragMode === 'resize-end') {
+      // 終了日を変更
+      newEndDate = addDays(originalEndDate.current, deltaDays);
+      // 終了日が開始日より前にならないようにする
+      if (newEndDate <= originalStartDate.current) {
+        newEndDate = addDays(originalStartDate.current, 1);
+      }
+    }
+
+    // 日付範囲内に収める
+    if (newStartDate < dateRange.start) {
+      const diff = differenceInDays(newEndDate, newStartDate);
+      newStartDate = dateRange.start;
+      if (dragMode === 'move') {
+        newEndDate = addDays(newStartDate, diff);
+      }
+    }
+    if (newEndDate > dateRange.end) {
+      const diff = differenceInDays(newEndDate, newStartDate);
+      newEndDate = dateRange.end;
+      if (dragMode === 'move') {
+        newStartDate = addDays(newEndDate, -diff);
+      }
+    }
+
+    // 一時的な日付を保存（プレビュー用）
+    pendingStartDate.current = newStartDate;
+    pendingEndDate.current = newEndDate;
+
+    // プレビュー用の位置を計算
+    const totalDays = differenceInDays(dateRange.end, dateRange.start);
+    const startOffset = differenceInDays(newStartDate, dateRange.start);
+    const duration = differenceInDays(newEndDate, newStartDate) + 1;
+    const dayWidth = containerWidth / totalDays;
+
+    let left: number;
+    let width: number;
+
+    if (duration === 1) {
+      left = startOffset * dayWidth;
+      width = dayWidth;
+    } else {
+      left = (startOffset + 0.5) * dayWidth;
+      width = (duration - 1) * dayWidth;
+    }
+
+    setPreviewPosition({ left, width, top: position.top });
+  };
+
+  // ドラッグ終了 - この時点で保存
+  const handleMouseUp = () => {
+    if (isDragging) {
+      // 日付が変更されている場合のみ保存
+      const hasChanged =
+        pendingStartDate.current.getTime() !== originalStartDate.current.getTime() ||
+        pendingEndDate.current.getTime() !== originalEndDate.current.getTime();
+
+      if (hasChanged) {
+        if (isCopyMode && onCopy) {
+          // コピーモード：新しいタスクを作成
+          onCopy(task, pendingStartDate.current, pendingEndDate.current);
+        } else if (onUpdate) {
+          // 通常モード：既存のタスクを更新
+          onUpdate(task, pendingStartDate.current, pendingEndDate.current);
+        }
+      }
+    }
+
+    setIsDragging(false);
+    setDragMode(null);
+    setIsCopyMode(false);
+    setPreviewPosition(position);
+  };
+
+  // positionが変更されたらプレビュー位置も更新
+  useEffect(() => {
+    if (!isDragging) {
+      setPreviewPosition(position);
+    }
+  }, [position, isDragging]);
+
+  // グローバルイベントリスナーの設定
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging, dragMode]);
+
+  const handleClick = (e: React.MouseEvent) => {
+    // ドラッグした場合はクリックイベントを無視
+    if (hasDragged.current) {
+      e.stopPropagation();
+      return;
+    }
+
+    // 編集画面は表示しない（自動保存のみ）
+    // if (onClick) {
+    //   onClick(task);
+    // }
+  };
+
+  // ドラッグ中はプレビュー位置を使用、それ以外は通常の位置を使用
+  const displayPosition = isDragging ? previewPosition : position;
+
+  return (
+    <div
+      className="absolute group"
+      style={{
+        left: `${displayPosition.left}px`,
+        width: `${Math.max(displayPosition.width, 4)}px`,
+        top: `${barTop}px`,
+        height: `${barHeight}px`
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={handleClick}
+    >
+      {/* バーの本体 */}
+      <div
+        className={`h-full rounded-lg flex items-center px-3 text-white text-xs font-medium shadow-sm transition-all duration-200 ${
+          interactive ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'
+        } ${isHovered || isDragging ? 'shadow-md transform -translate-y-0.5' : ''} ${
+          isCopyMode ? 'ring-2 ring-blue-400' : ''
+        }`}
+        style={{
+          backgroundColor: color,
+          opacity: task.status === 'completed' ? 0.6 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1
+        }}
+        onMouseDown={(e) => handleMouseDown(e, 'move')}
+      >
+        {/* 進捗バー */}
+        {task.progress > 0 && task.progress < 100 && (
+          <div
+            className="absolute left-0 top-0 bottom-0 bg-white/30 rounded-l-lg"
+            style={{ width: `${task.progress}%` }}
+          />
+        )}
+
+        {/* タスク名（バー内に表示） */}
+        {position.width > 60 && (
+          <span className="relative z-10 truncate">{displayName}</span>
+        )}
+      </div>
+
+      {/* ホバー時のツールチップ */}
+      {isHovered && (
+        <div className="absolute top-full left-0 mt-2 z-50 min-w-[220px] rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none">
+          <div className="text-sm font-semibold text-slate-800">{task.name}</div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            {task.startDate.toLocaleDateString('ja-JP')} → {task.endDate.toLocaleDateString('ja-JP')}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            担当: {task.assignee || '未設定'}
+          </div>
+          {task.progress > 0 && (
+            <div className="mt-2 flex items-center gap-2">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-1.5 bg-slate-800" style={{ width: `${task.progress}%` }} />
+              </div>
+              <span className="text-[11px] font-medium text-slate-700">{task.progress}%</span>
+            </div>
+          )}
+          {overdue && (
+            <div className="mt-2">
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
+                期限超過
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* リサイズハンドル（インタラクティブモード時のみ） */}
+      {interactive && position.width > 40 && (
+        <>
+          {/* 左ハンドル */}
+          <div
+            className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}
+            onMouseDown={(e) => handleMouseDown(e, 'resize-start')}
+          />
+          {/* 右ハンドル */}
+          <div
+            className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}
+            onMouseDown={(e) => handleMouseDown(e, 'resize-end')}
+          />
+        </>
+      )}
+    </div>
+  );
+};

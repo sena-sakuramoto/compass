@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* React DatePicker styles */
+@import 'react-datepicker/dist/react-datepicker.css';
+
 body {
   @apply bg-white text-slate-900;
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;

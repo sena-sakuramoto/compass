@@ -46,7 +46,6 @@ export const PROJECT_ROLE_LABELS: Record<ProjectRole, string> = {
  * プロジェクト権限
  */
 export interface ProjectPermissions {
-  canViewProject: boolean;
   canEditProject: boolean;
   canDeleteProject: boolean;
   canManageMembers: boolean;

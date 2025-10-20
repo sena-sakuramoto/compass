@@ -36,13 +36,15 @@ import { Filters } from './components/Filters';
 import { ProjectCard } from './components/ProjectCard';
 import { TaskCard, computeProgress } from './components/TaskCard';
 import { TaskTable, TaskTableRow } from './components/TaskTable';
-import { GanttChartView, GanttDatum } from './components/GanttChart';
+import { GanttDatum } from './components/GanttChart';
+import { GanttChart as NewGanttChart, GanttTask } from './components/GanttChart/GanttChart';
 import { WorkerMonitor } from './components/WorkerMonitor';
 import { Sidebar } from './components/Sidebar';
 import { ToastStack, ToastMessage } from './components/ToastStack';
 import { ProjectEditDialog } from './components/ProjectEditDialog';
 import { PersonEditDialog } from './components/PersonEditDialog';
 import ProjectMembersDialog from './components/ProjectMembersDialog';
+import { InvitationNotifications } from './components/InvitationNotifications';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -171,12 +173,11 @@ function AppLayout({
       <Sidebar />
       <div className="lg:pl-64">
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 lg:px-8">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2 lg:px-8">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div className="lg:ml-0">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">APDW Project Compass</p>
-                <h1 className="text-2xl font-bold text-slate-900 md:text-[28px]">工程管理ダッシュボード</h1>
-                <p className="mt-1 text-xs text-slate-500 md:text-sm">全プロジェクト・タスクを横断し、進捗と負荷をひと目で把握できます。</p>
+                <h1 className="text-lg font-bold text-slate-900">APDW Project Compass</h1>
+                <p className="text-xs text-slate-500">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
               </div>
               <HeaderActions
                 user={user}
@@ -238,7 +239,7 @@ function AppLayout({
             <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
           </div>
         ) : null}
-        <main className="mx-auto max-w-7xl px-4 pb-10 pt-6 md:pt-8 lg:px-8">{children}</main>
+        <main className="mx-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8 max-w-full">{children}</main>
         <BottomBar
           onOpenTask={onOpenTask}
           onOpenProject={onOpenProject}
@@ -415,6 +416,7 @@ function HeaderActions({
         <FileSpreadsheet className="h-4 w-4" /> Excel読み込み
       </button>
       <div className="h-6 w-px bg-slate-200" />
+      {authSupported && user && <InvitationNotifications />}
       {authSupported ? (
         user ? (
           <div className="flex items-center gap-2">
@@ -1432,6 +1434,7 @@ function TasksPage({
   filteredTasks,
   projectMap,
   onComplete,
+  onTaskUpdate: updateTask,
   onOpenTask,
   onOpenProject,
   onOpenPerson,
@@ -1444,6 +1447,7 @@ function TasksPage({
   filteredTasks: Task[];
   projectMap: Record<string, Project>;
   onComplete(task: Task, done: boolean): void;
+  onTaskUpdate(taskId: string, updates: Partial<Task>): void;
   onOpenTask(): void;
   onOpenProject(): void;
   onOpenPerson(): void;
@@ -1594,7 +1598,10 @@ function SchedulePage({
   onOpenProject,
   onOpenPerson,
   onEditPerson,
+  pushToast,
+  setState,
   canEdit,
+  canSync,
 }: {
   filtersProps: FiltersProps;
   filteredTasks: Task[];
@@ -1607,10 +1614,11 @@ function SchedulePage({
   onOpenProject(): void;
   onOpenPerson(): void;
   onEditPerson(person: Person): void;
+  pushToast: (toast: ToastInput) => void;
+  setState: React.Dispatch<React.SetStateAction<CompassState>>;
   canEdit: boolean;
+  canSync: boolean;
 }) {
-  const [mode, setMode] = useState<'tasks' | 'projects' | 'people'>('tasks');
-  const [timeScale, setTimeScale] = useState<TimeScale>('auto');
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
   const todayLabel = formatDate(today);
@@ -1715,458 +1723,287 @@ function SchedulePage({
     return chips;
   }, [filtersProps]);
 
-  const ganttData = useMemo(() => {
-    if (!filteredTasks.length) {
-      return { data: [], ticks: [], min: 0, max: 0, minDate: null, maxDate: null, todayX: null };
-    }
 
-    const deriveProjectStatus = (tasks: Task[]) => {
-      if (!tasks.length) return undefined;
-      if (tasks.every((task) => task.ステータス === '完了')) return '完了';
-      if (tasks.some((task) => task.ステータス === '進行中' || task.ステータス === '確認待ち')) return '進行中';
-      if (tasks.some((task) => task.ステータス === '保留')) return '保留';
-      if (tasks.some((task) => task.ステータス === '未着手')) return '未着手';
-      return tasks[0]?.ステータス;
-    };
-
-    if (mode === 'projects') {
-      const buckets: Record<
-        string,
-        {
-          label: string;
-          start: Date;
-          end: Date;
-          tasks: Task[];
-        }
-      > = {};
-
-      filteredTasks.forEach((task) => {
-        const start = parseDate(task.start ?? task.予定開始日);
-        const end = parseDate(task.end ?? task.期限 ?? task.実績完了日) ?? start;
-        if (!start) return;
-        const label = projectMap[task.projectId]?.物件名 ?? task.projectId;
-        if (!buckets[task.projectId]) {
-          buckets[task.projectId] = { label, start, end: end ?? start, tasks: [] };
-        }
-        const bucket = buckets[task.projectId]!;
-        bucket.tasks.push(task);
-        if (start < bucket.start) bucket.start = start;
-        if ((end ?? start) > bucket.end) bucket.end = end ?? start;
-      });
-
-      const items = Object.entries(buckets).map(([projectId, bucket]) => {
-        const progress = bucket.tasks.length
-          ? bucket.tasks.reduce((sum, task) => sum + computeProgress(task.progress, task.ステータス), 0) /
-            bucket.tasks.length
-          : 0;
-        return {
-          key: projectId,
-          name: bucket.label,
-          start: bucket.start,
-          end: bucket.end,
-          status: deriveProjectStatus(bucket.tasks),
-          progress,
-        };
-      });
-
-      return buildGantt(items, { timeScale });
-    }
-
-    if (mode === 'people') {
-      const buckets: Record<
-        string,
-        {
-          label: string;
-          start: Date;
-          end: Date;
-          tasks: Task[];
-        }
-      > = {};
-
-      filteredTasks.forEach((task) => {
-        const start = parseDate(task.start ?? task.予定開始日);
-        const end = parseDate(task.end ?? task.期限 ?? task.実績完了日) ?? start;
-        if (!start) return;
-        const assignee = task.assignee ?? task.担当者 ?? '未設定';
-        if (!buckets[assignee]) {
-          buckets[assignee] = { label: assignee || '未設定', start, end: end ?? start, tasks: [] };
-        }
-        const bucket = buckets[assignee]!;
-        bucket.tasks.push(task);
-        if (start < bucket.start) bucket.start = start;
-        if ((end ?? start) > bucket.end) bucket.end = end ?? start;
-      });
-
-      const items = Object.entries(buckets).map(([assignee, bucket]) => {
-        const progress = bucket.tasks.length
-          ? bucket.tasks.reduce((sum, task) => sum + computeProgress(task.progress, task.ステータス), 0) /
-            bucket.tasks.length
-          : 0;
-        return {
-          key: `person:${assignee || '未設定'}`,
-          name: bucket.label,
-          start: bucket.start,
-          end: bucket.end,
-          status: deriveProjectStatus(bucket.tasks),
-          progress,
-        };
-      });
-
-      return buildGantt(items, { timeScale });
-    }
-
-    const items = filteredTasks
-      .map((task): GanttItemInput | null => {
-        const start = parseDate(task.start ?? task.予定開始日);
-        const end = parseDate(task.end ?? task.期限 ?? task.実績完了日) ?? start;
-        if (!start) return null;
-        const projectName = projectMap[task.projectId]?.物件名 || '(プロジェクト未設定)';
-        const assignee = task.assignee ?? task.担当者 ?? '未設定';
-        return {
-          key: task.id,
-          name: task.タスク名 || '(無題)',
-          start,
-          end: end ?? start,
-          status: task.ステータス,
-          progress: computeProgress(task.progress, task.ステータス),
-          projectLabel: projectName,
-          assigneeLabel: assignee && assignee !== '未設定' ? assignee : undefined,
-        };
-      })
-      .filter((item): item is GanttItemInput => Boolean(item));
-
-    return buildGantt(items, { timeScale });
-  }, [filteredTasks, mode, projectMap, timeScale]);
-
-  // ガントチャートの動的な高さ計算
-  const ganttChartHeight = useMemo(() => {
-    const taskCount = ganttData.data.length;
-    if (taskCount === 0) return 460; // データがない場合の最小高さ
-    
-    const rowHeight = 50; // 1タスクあたりの高さ（プロジェクト名とタスク名の2行表示を考慮）
-    const headerHeight = 150; // ヘッダーとマージン
-    const calculatedHeight = taskCount * rowHeight + headerHeight;
-    
-    // 画面の高さの80%を最大値とする
-    const maxHeight = typeof window !== 'undefined' ? window.innerHeight * 0.8 : 800;
-    const minHeight = 460;
-    
-    return Math.max(minHeight, Math.min(calculatedHeight, maxHeight));
-  }, [ganttData.data.length]);
-
-  const upcomingTasks = useMemo(() => {
-    const anchor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const items: {
-      id: string;
-      title: string;
-      projectLabel: string;
-      assignee: string;
-      dueDate: Date;
-      dueLabel: string;
-      accent: 'danger' | 'warning' | 'neutral';
-      status: string;
-    }[] = [];
-
+  // 新しいGanttChartのためのデータ変換
+  const newGanttTasks = useMemo((): GanttTask[] => {
+    // プロジェクトごとの進捗率を計算
+    const projectProgressMap: Record<string, number> = {};
     filteredTasks.forEach((task) => {
-      if (task.ステータス === '完了') return;
-      const due = parseDate(task.end ?? task.期限 ?? task.実績完了日);
-      if (!due) return;
-      const daysUntil = Math.ceil((due.getTime() - anchor.getTime()) / DAY_MS);
-      if (daysUntil > 21) return;
-      const projectLabel = projectMap[task.projectId]?.物件名 ?? task.projectId;
-      const assignee = task.assignee ?? task.担当者 ?? '未設定';
-      let dueLabel: string;
-      let accent: 'danger' | 'warning' | 'neutral' = 'neutral';
-      if (daysUntil > 0) {
-        dueLabel = `あと ${daysUntil} 日`;
-        if (daysUntil <= 3) accent = 'warning';
-      } else if (daysUntil === 0) {
-        dueLabel = '本日締切';
-        accent = 'warning';
-      } else {
-        dueLabel = `${Math.abs(daysUntil)} 日遅延`;
-        accent = 'danger';
+      const projectId = task.projectId;
+      if (!projectProgressMap[projectId]) {
+        // このプロジェクトの全タスクを取得
+        const projectTasks = filteredTasks.filter((t) => t.projectId === projectId);
+        const completedTasks = projectTasks.filter((t) => t.ステータス === '完了').length;
+        const totalTasks = projectTasks.length;
+        projectProgressMap[projectId] = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
       }
-      items.push({
-        id: task.id,
-        title: task.タスク名 || '(無題)',
-        projectLabel,
-        assignee,
-        dueDate: due,
-        dueLabel,
-        accent,
-        status: task.ステータス,
-      });
     });
 
-    return items
-      .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
-      .slice(0, 5);
-  }, [filteredTasks, projectMap, today]);
+    const tasks = filteredTasks
+      .filter((task) => {
+        const startDate = task.start || task.予定開始日;
+        const endDate = task.end || task.期限;
+        return startDate && endDate;
+      })
+      .map((task): GanttTask | null => {
+        const startDateStr = task.start || task.予定開始日 || '';
+        const endDateStr = task.end || task.期限 || '';
+        const startDate = parseDate(startDateStr);
+        const endDate = parseDate(endDateStr);
 
-  const timeScaleOptions: { value: TimeScale; label: string }[] = [
-    { value: 'six_weeks', label: '6週間' },
-    { value: 'quarter', label: '3か月' },
-    { value: 'half_year', label: '半年' },
-    { value: 'full', label: '全期間' },
-    { value: 'auto', label: '自動' },
-  ];
+        // nullチェック
+        if (!startDate || !endDate) {
+          return null;
+        }
 
-  const rangeLabel = ganttData.minDate && ganttData.maxDate
-    ? `${formatDate(ganttData.minDate)} → ${formatDate(ganttData.maxDate)} · ${Math.max(
-        1,
-        Math.ceil((ganttData.maxDate.getTime() - ganttData.minDate.getTime()) / DAY_MS)
-      )}日`
-    : '期間付きデータがありません';
+        const project: Project | undefined = projectMap[task.projectId];
+        const assignee = task.assignee || task.担当者 || '未設定';
 
-  const viewToggleClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-xs font-medium transition ${
-      active ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-    }`;
+        // ステータスを変換
+        let status: GanttTask['status'] = 'not_started';
+        if (task.ステータス === '完了') status = 'completed';
+        else if (task.ステータス === '進行中') status = 'in_progress';
+        else if (task.ステータス === '保留') status = 'on_hold';
+        else if (task.ステータス === '未着手') status = 'not_started';
+        else if (task.ステータス === '確認待ち') status = 'in_progress';
 
-  const scaleToggleClass = (active: boolean) =>
-    `rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-      active ? 'border-slate-900 bg-slate-900 text-white shadow-sm' : 'border-slate-200 text-slate-600 hover:bg-slate-100'
-    }`;
+        // 今日の日付（時刻を0時0分0秒にリセット）
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
 
-  const handleGanttInteraction = useCallback(
-    (
-      entry: GanttDatum,
-      change: { startDate: Date; endDate: Date },
-      kind: 'move' | 'resize-start' | 'resize-end'
-    ) => {
-      if (mode !== 'tasks') return;
-      if (!onTaskDateChange) return;
-      const startStr = formatDate(change.startDate);
-      const endStr = formatDate(change.endDate);
-      if (!startStr || !endStr) return;
-      onTaskDateChange(entry.key, { start: startStr, end: endStr, kind });
-    },
-    [mode, onTaskDateChange]
-  );
+        // 開始日（時刻を0時0分0秒にリセット）
+        const startDateOnly = new Date(startDate);
+        startDateOnly.setHours(0, 0, 0, 0);
+
+        // 着手日（開始日）が今日以前で未着手の場合、自動的に進行中に変更
+        if (status === 'not_started' && startDateOnly <= today) {
+          status = 'in_progress';
+        }
+
+        // 期限超過チェック
+        const isOverdue = endDate < today && status !== 'completed';
+        if (isOverdue) {
+          status = 'overdue';
+        }
+
+        // プロジェクト全体の進捗率を使用
+        const progress = projectProgressMap[task.projectId] || 0;
+
+        return {
+          id: task.id,
+          name: task.タスク名 || '（無題）',
+          startDate,
+          endDate,
+          assignee,
+          progress,
+          status,
+          projectId: task.projectId,
+          projectName: project?.物件名 || '（プロジェクト名なし）',
+          dependencies: task['依存タスク'] || [],
+          milestone: task['マイルストーン'] === true || task['milestone'] === true,
+        };
+      })
+      .filter((task): task is GanttTask => task !== null);
+
+    // プロジェクトごとにグループ化し、プロジェクトの竣工予定日順にソート
+    const projectGroups = new Map<string, GanttTask[]>();
+    tasks.forEach(task => {
+      if (!projectGroups.has(task.projectId)) {
+        projectGroups.set(task.projectId, []);
+      }
+      projectGroups.get(task.projectId)!.push(task);
+    });
+
+    // 各プロジェクト内のタスクを開始日順にソート
+    projectGroups.forEach((projectTasks) => {
+      projectTasks.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+    });
+
+    // プロジェクトを竣工予定日順にソート
+    const sortedProjects = Array.from(projectGroups.keys()).sort((a, b) => {
+      const projectA = projectMap[a];
+      const projectB = projectMap[b];
+
+      const completionDateA = projectA?.竣工予定日 ? parseDate(projectA.竣工予定日) : null;
+      const completionDateB = projectB?.竣工予定日 ? parseDate(projectB.竣工予定日) : null;
+
+      if (completionDateA && completionDateB) {
+        return completionDateA.getTime() - completionDateB.getTime();
+      } else if (completionDateA) {
+        return -1;
+      } else if (completionDateB) {
+        return 1;
+      }
+      return 0;
+    });
+
+    // プロジェクト順に結合
+    const sortedTasks: GanttTask[] = [];
+    sortedProjects.forEach(projectId => {
+      sortedTasks.push(...projectGroups.get(projectId)!);
+    });
+
+    return sortedTasks;
+  }, [filteredTasks, projectMap]);
+
 
   return (
-    <div className="space-y-4">
-      {/* メインガントチャートエリア */}
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-800">スケジュール管理</h2>
-            <p className="text-xs text-slate-500">
-              {mode === 'projects'
-                ? 'プロジェクト単位での期間を俯瞰します'
-                : mode === 'people'
-                ? '担当者ごとの稼働バランスを俯瞰します'
-                : '担当付きタスクを横断して把握します'}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onOpenTask}
-              disabled={!canEdit}
-              className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
-            >
-              + タスク追加
-            </button>
-            <button
-              type="button"
-              onClick={onOpenProject}
-              disabled={!canEdit}
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
-            >
-              + プロジェクト追加
-            </button>
-          </div>
-        </div>
-
-        {/* コントロールバー */}
-        <div className="mt-4 flex flex-wrap items-center gap-4">
+    <div className="flex flex-col h-[calc(100vh-120px)] gap-2">
+      {/* 極小ヘッダー - フィルター統合 */}
+      <section className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm flex-shrink-0">
+        <div className="flex flex-col gap-1.5">
+          {/* タイトル、フィルター、ボタンを1行に */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">グルーピング</span>
-            {(
-              [
-                { value: 'tasks' as const, label: 'タスクごと' },
-                { value: 'projects' as const, label: 'プロジェクトごと' },
-                { value: 'people' as const, label: '担当者ごと' },
-              ] as const
-            ).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={viewToggleClass(mode === option.value)}
-                onClick={() => setMode(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500">期間スケール</span>
-            {timeScaleOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={scaleToggleClass(timeScale === option.value)}
-                onClick={() => setTimeScale(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ステータスと統計情報 */}
-        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-2xl bg-slate-50 px-4 py-3">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-semibold text-slate-700">{todayLabel}</span>
-            <span className="text-slate-400">|</span>
-            <span className="text-slate-600">進行中: {tasksActiveToday.length}件</span>
-            <span className="text-slate-400">|</span>
-            <span className="text-slate-600">今日開始: {tasksStartingToday}件</span>
-            <span className="text-slate-400">|</span>
-            <span className={tasksDueToday > 0 ? 'font-semibold text-rose-600' : 'text-slate-600'}>
-              今日締切: {tasksDueToday}件
-            </span>
-            <span className="text-slate-400">|</span>
-            <span className="text-slate-600">空きメンバー: {freeMembers.length}人</span>
-          </div>
-          <div className="ml-auto text-xs text-slate-500">
-            表示: {ganttData.data.length}件 / 全{filteredTasks.length}件 · {rangeLabel}
-          </div>
-        </div>
-
-        {/* フィルターと担当者パネル */}
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_280px]">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h3 className="text-sm font-semibold text-slate-700">絞り込み</h3>
-              <span className="text-xs text-slate-500">対象: {filteredTasks.length} 件</span>
-            </div>
-            <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-slate-800 whitespace-nowrap">スケジュール</h2>
+            <div className="flex-1 min-w-0">
               <Filters {...filtersProps} resultCount={undefined} />
-              {activeFilterChips.length ? (
-                <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-                  {activeFilterChips.map((chip) => (
-                    <span key={chip} className="rounded-full bg-slate-100 px-2 py-1">
-                      {chip}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={onOpenTask}
+                disabled={!canEdit}
+                className="rounded px-2 py-1 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+              >
+                +タスク
+              </button>
+              <button
+                type="button"
+                onClick={onOpenProject}
+                disabled={!canEdit}
+                className="rounded px-2 py-1 text-xs font-medium text-slate-700 border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50"
+                title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+              >
+                +PJ
+              </button>
             </div>
           </div>
 
-          {/* 担当者パネル */}
-          {mode === 'tasks' && people.length > 0 && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="mb-3">
-                <h3 className="text-sm font-semibold text-slate-700">担当者</h3>
-                <p className="text-xs text-slate-500 mt-1">タスクにドラッグ&ドロップ</p>
-              </div>
-              <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                {people.map((person) => (
-                  <div
-                    key={person.id}
-                    draggable
-                    onDragStart={(e) => {
-                      setDraggedAssignee(person.氏名 || '');
-                      e.dataTransfer.effectAllowed = 'copy';
-                    }}
-                    onDragEnd={() => setDraggedAssignee(null)}
-                    onClick={() => onEditPerson(person)}
-                    className="cursor-move rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition"
-                  >
-                    <div className="font-medium">{person.氏名}</div>
-                    {person.部署 && <div className="text-xs text-slate-500">{person.部署}</div>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 予定開始日がないタスクの警告 */}
-        {mode === 'tasks' && filteredTasks.some(task => !task.start && !task.予定開始日) && (
-          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-            <div className="flex items-start gap-2">
-              <svg className="h-5 w-5 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              <div className="text-sm text-amber-800">
-                <p className="font-medium">予定開始日が設定されていないタスクがあります</p>
-                <p className="mt-1 text-xs">
-                  {filteredTasks.filter(task => !task.start && !task.予定開始日).length}件のタスクがガントチャートに表示されません。
-                  タスクを編集して予定開始日を設定してください。
-                </p>
-              </div>
-            </div>
+          {/* 統計情報を1行にコンパクト化 */}
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span className="font-medium">{todayLabel}</span>
+            <span className="text-slate-300">|</span>
+            <span>進行中:{tasksActiveToday.length}</span>
+            <span className="text-slate-300">|</span>
+            <span>今日開始:{tasksStartingToday}</span>
+            <span className="text-slate-300">|</span>
+            <span className={tasksDueToday > 0 ? 'font-medium text-rose-600' : ''}>
+              締切:{tasksDueToday}
+            </span>
+            <span className="text-slate-300">|</span>
+            <span>空き:{freeMembers.length}人</span>
+            <span className="ml-auto text-slate-500">{newGanttTasks.length}件</span>
           </div>
-        )}
-
-        {/* ガントチャート */}
-        <div
-          className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4"
-          style={{ height: ganttChartHeight, minHeight: 460 }}
-        >
-          <GanttChartView
-            data={ganttData.data}
-            ticks={ganttData.ticks}
-            min={ganttData.min}
-            max={ganttData.max}
-            minDate={ganttData.minDate}
-            maxDate={ganttData.maxDate}
-            todayX={ganttData.todayX}
-            interactive={mode === 'tasks'}
-            onChange={handleGanttInteraction}
-            onAssigneeChange={(taskKey, assignee) => {
-              if (mode === 'tasks' && onTaskAssigneeChange) {
-                onTaskAssigneeChange(taskKey, assignee);
-              }
-            }}
-            draggedAssignee={draggedAssignee}
-          />
         </div>
       </section>
 
-      {/* 近日の期限（コンパクト表示） */}
-      {upcomingTasks.length > 0 && (
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-800">近日の期限</h2>
-              <p className="text-xs text-slate-500">直近3週間の期限付きタスク</p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            {upcomingTasks.map((task) => (
-              <div
-                key={task.id}
-                className="flex flex-col gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-3"
-              >
-                <div className="text-sm font-medium text-slate-800 line-clamp-1">{task.title}</div>
-                <div className="text-[11px] text-slate-500 line-clamp-1">
-                  {task.projectLabel} · {task.assignee}
-                </div>
-                <div
-                  className={`text-xs font-semibold ${
-                    task.accent === 'danger'
-                      ? 'text-rose-600'
-                      : task.accent === 'warning'
-                      ? 'text-amber-600'
-                      : 'text-slate-600'
-                  }`}
-                >
-                  {task.dueLabel}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+      {/* 予定開始日がないタスクの警告 - 極小化 */}
+      {filteredTasks.some(task => !task.start && !task.予定開始日) && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 flex items-center gap-1.5 flex-shrink-0">
+          <svg className="h-3 w-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <p className="text-xs text-amber-800">
+            {filteredTasks.filter(task => !task.start && !task.予定開始日).length}件が開始日未設定
+          </p>
+        </div>
       )}
 
+      {/* ガントチャート - 最大化表示（残りの高さを全て使用） */}
+      <section className="flex-1 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden min-h-0">
+
+          <NewGanttChart
+            tasks={newGanttTasks}
+            interactive={true}
+            onTaskClick={(task) => {
+              console.log('Task clicked:', task);
+            }}
+            onTaskToggleComplete={(task) => {
+              // チェックボックスで完了状態をトグル
+              const isCompleted = task.status === 'completed';
+              const newStatus = isCompleted ? '進行中' : '完了';
+              updateTask(task.id, { ステータス: newStatus });
+            }}
+            onTaskUpdate={(task, newStartDate, newEndDate) => {
+              // タスク更新処理
+              const originalTask = filteredTasks.find(t => t.id === task.id);
+              if (originalTask && onTaskDateChange) {
+                const startStr = formatDate(newStartDate);
+                const endStr = formatDate(newEndDate);
+                if (startStr && endStr) {
+                  onTaskDateChange(task.id, { start: startStr, end: endStr, kind: 'move' });
+                }
+              }
+            }}
+            onTaskCopy={(task, newStartDate, newEndDate) => {
+              // タスクコピー処理
+              const originalTask = filteredTasks.find(t => t.id === task.id);
+              if (originalTask) {
+                const startStr = formatDate(newStartDate);
+                const endStr = formatDate(newEndDate);
+                if (startStr && endStr) {
+                  // 新しいタスクのデータを作成
+                  const newTaskData: Partial<Task> = {
+                    タスク名: `${originalTask.タスク名} (コピー)`,
+                    予定開始日: startStr,
+                    期限: endStr,
+                    担当者: originalTask.担当者 || originalTask.assignee,
+                    ステータス: '未着手',
+                    projectId: originalTask.projectId,
+                  };
+
+                  // ローカルモードの場合
+                  if (!canSync) {
+                    const newTask: Task = {
+                      ...originalTask,
+                      ...newTaskData,
+                      id: `local-task-copy-${Date.now()}`,
+                      createdAt: todayString(),
+                      updatedAt: todayString(),
+                    };
+                    setState((current) => ({
+                      ...current,
+                      tasks: [...current.tasks, newTask],
+                    }));
+                    pushToast({ tone: 'success', title: 'タスクをコピーしました（ローカル保存）' });
+                    return;
+                  }
+
+                  // サーバーに保存
+                  console.log('Copying task with data:', newTaskData);
+                  pushToast({ tone: 'info', title: 'タスクをコピー中...', description: 'サーバー連携機能は未実装です' });
+                }
+              }
+            }}
+            onTaskSave={(updatedTask) => {
+              // モーダルからのタスク保存処理
+              console.log('onTaskSave called with:', updatedTask);
+
+              // ステータスを日本語に変換
+              let statusJa = '未着手';
+              if (updatedTask.status === 'completed') statusJa = '完了';
+              else if (updatedTask.status === 'in_progress') statusJa = '進行中';
+              else if (updatedTask.status === 'on_hold') statusJa = '保留';
+              else if (updatedTask.status === 'overdue') statusJa = '進行中'; // 期限超過は進行中として保存
+
+              const updates: Partial<Task> = {
+                タスク名: updatedTask.name,
+                予定開始日: formatDate(updatedTask.startDate),
+                期限: formatDate(updatedTask.endDate),
+                担当者: updatedTask.assignee,
+                ステータス: statusJa,
+                進捗率: updatedTask.progress,
+                '依存タスク': updatedTask.dependencies || [],
+              };
+
+              console.log('Updates to apply:', updates);
+
+              // updateTaskコールバックに委譲
+              updateTask(updatedTask.id, updates);
+            }}
+          />
+      </section>
     </div>
   );
 }
@@ -2632,6 +2469,29 @@ function App() {
     }
   };
 
+  const handleTaskUpdate = async (taskId: string, updates: Partial<Task>) => {
+    if (!canSync) {
+      setState((current) => ({
+        ...current,
+        tasks: current.tasks.map((task) =>
+          task.id === taskId
+            ? { ...task, ...updates, updatedAt: todayString() }
+            : task
+        ),
+      }));
+      pushToast({ tone: 'success', title: 'タスクを更新しました（ローカル保存）' });
+      return;
+    }
+    try {
+      await updateTask(taskId, updates);
+      pushToast({ tone: 'success', title: 'タスクを更新しました' });
+      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+    } catch (err) {
+      console.error('Task update error:', err);
+      pushToast({ tone: 'error', title: 'タスクの更新に失敗しました', description: String(err) });
+    }
+  };
+
   const handleCreateTask = async (payload: {
     projectId: string;
     タスク名: string;
@@ -3017,7 +2877,10 @@ function App() {
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
+                pushToast={pushToast}
+                setState={setState}
                 canEdit={canEdit}
+                canSync={canSync}
               />
             }
           />
@@ -3048,6 +2911,7 @@ function App() {
                 filteredTasks={filteredTasks}
                 projectMap={projectMap}
                 onComplete={handleComplete}
+                onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
@@ -3073,7 +2937,10 @@ function App() {
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
+                pushToast={pushToast}
+                setState={setState}
                 canEdit={canEdit}
+                canSync={canSync}
               />
             }
           />
@@ -3111,3 +2978,4 @@ function App() {
 }
 
 export default App;
+ 
