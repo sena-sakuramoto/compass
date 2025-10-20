@@ -33,6 +33,12 @@ export async function createUser(uid: string, input: UserInput): Promise<User> {
  * ユーザーを取得
  */
 export async function getUser(uid: string): Promise<User | null> {
+  // uid が空の場合は null を返す
+  if (!uid || uid.trim() === '') {
+    console.error('getUser called with empty uid');
+    return null;
+  }
+
   const doc = await db.collection('users').doc(uid).get();
   if (!doc.exists) return null;
   const data = doc.data() as User;
