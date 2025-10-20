@@ -45,6 +45,7 @@ import { ProjectEditDialog } from './components/ProjectEditDialog';
 import { PersonEditDialog } from './components/PersonEditDialog';
 import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { InvitationNotifications } from './components/InvitationNotifications';
+import { UserManagement } from './components/UserManagement';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -165,6 +166,7 @@ function AppLayout({
     { path: '/summary', label: 'サマリー' },
     { path: '/tasks', label: 'タスク' },
     { path: '/workload', label: '稼働状況' },
+    { path: '/users', label: '人員管理' },
   ];
   const offline = !authSupported || !user;
 
@@ -2951,6 +2953,7 @@ function App() {
             }
           />
           <Route path="/workload" element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} />} />
+          <Route path="/users" element={<UserManagement />} />
         </Routes>
       </AppLayout>
       <TaskModal

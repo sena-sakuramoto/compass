@@ -242,3 +242,64 @@ export async function saveNavigationConfig(navigationItems: NavigationItem[]) {
     body: JSON.stringify({ navigationItems }),
   });
 }
+
+// ==================== ユーザー管理 API ====================
+
+export interface User {
+  id: string;
+  email: string;
+  displayName: string;
+  orgId: string;
+  role: 'admin' | 'project_manager' | 'viewer';
+  職種?: string;
+  部署?: string;
+  電話番号?: string;
+  photoURL?: string;
+  isActive: boolean;
+  createdAt: any;
+  updatedAt: any;
+}
+
+export async function listUsers(params?: { orgId?: string; role?: string; isActive?: boolean }) {
+  const query = new URLSearchParams();
+  if (params?.orgId) query.set('orgId', params.orgId);
+  if (params?.role) query.set('role', params.role);
+  if (params?.isActive !== undefined) query.set('isActive', String(params.isActive));
+  const qs = query.toString();
+  const suffix = qs ? `?${qs}` : '';
+  return request<User[]>(`/users${suffix}`);
+}
+
+export async function getUser(userId: string) {
+  return request<User>(`/users/${userId}`);
+}
+
+export async function getCurrentUser() {
+  return request<User>('/users/me');
+}
+
+export async function createUser(payload: Partial<User>) {
+  return request<User>('/users', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateUser(userId: string, payload: Partial<User>) {
+  return request<User>(`/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deactivateUser(userId: string) {
+  return request<User>(`/users/${userId}/deactivate`, {
+    method: 'POST',
+  });
+}
+
+export async function activateUser(userId: string) {
+  return request<User>(`/users/${userId}/activate`, {
+    method: 'POST',
+  });
+}

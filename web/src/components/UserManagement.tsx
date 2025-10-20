@@ -1,0 +1,200 @@
+import { useState, useEffect } from 'react';
+import { listUsers, updateUser, deactivateUser, activateUser, type User } from '../lib/api';
+
+export function UserManagement() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function loadUsers() {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await listUsers();
+      setUsers(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '読み込みに失敗しました');
+      console.error('Failed to load users:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUpdateUser(userId: string, updates: Partial<User>) {
+    try {
+      await updateUser(userId, updates);
+      await loadUsers();
+      setEditingUser(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新に失敗しました');
+      console.error('Failed to update user:', err);
+    }
+  }
+
+  async function handleToggleActive(user: User) {
+    try {
+      if (user.isActive) {
+        await deactivateUser(user.id);
+      } else {
+        await activateUser(user.id);
+      }
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ステータスの変更に失敗しました');
+      console.error('Failed to toggle user status:', err);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-slate-500">読み込み中...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-rose-50 border border-rose-200 rounded-lg p-4">
+        <div className="text-rose-800 font-medium">エラー</div>
+        <div className="text-rose-600 text-sm mt-1">{error}</div>
+        <button
+          onClick={() => loadUsers()}
+          className="mt-3 text-sm text-rose-700 hover:text-rose-900 underline"
+        >
+          再読み込み
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-slate-900">人員管理</h2>
+        <div className="text-sm text-slate-500">
+          {users.length}人のユーザー
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-slate-50 border-b border-slate-200">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">名前</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メール</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役割</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">組織</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">部署</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">ステータス</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200">
+            {users.map((user) => (
+              <tr key={user.id} className="hover:bg-slate-50">
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    {user.photoURL && (
+                      <img
+                        src={user.photoURL}
+                        alt={user.displayName}
+                        className="w-8 h-8 rounded-full"
+                      />
+                    )}
+                    <div className="text-sm font-medium text-slate-900">
+                      {user.displayName}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-sm text-slate-600">{user.email}</td>
+                <td className="px-4 py-3">
+                  {editingUser?.id === user.id ? (
+                    <select
+                      value={editingUser.role}
+                      onChange={(e) =>
+                        setEditingUser({
+                          ...editingUser,
+                          role: e.target.value as User['role'],
+                        })
+                      }
+                      className="text-xs border border-slate-300 rounded px-2 py-1"
+                    >
+                      <option value="admin">管理者</option>
+                      <option value="project_manager">プロジェクトマネージャー</option>
+                      <option value="viewer">閲覧者</option>
+                    </select>
+                  ) : (
+                    <span
+                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        user.role === 'admin'
+                          ? 'bg-purple-100 text-purple-800'
+                          : user.role === 'project_manager'
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-slate-100 text-slate-800'
+                      }`}
+                    >
+                      {user.role === 'admin'
+                        ? '管理者'
+                        : user.role === 'project_manager'
+                        ? 'PM'
+                        : '閲覧者'}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-slate-600">{user.orgId}</td>
+                <td className="px-4 py-3 text-sm text-slate-600">{user.部署 || '-'}</td>
+                <td className="px-4 py-3">
+                  <button
+                    onClick={() => handleToggleActive(user)}
+                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      user.isActive
+                        ? 'bg-teal-100 text-teal-800 hover:bg-teal-200'
+                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                    }`}
+                  >
+                    {user.isActive ? 'アクティブ' : '非アクティブ'}
+                  </button>
+                </td>
+                <td className="px-4 py-3">
+                  {editingUser?.id === user.id ? (
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() =>
+                          handleUpdateUser(user.id, {
+                            role: editingUser.role,
+                          })
+                        }
+                        className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        保存
+                      </button>
+                      <button
+                        onClick={() => setEditingUser(null)}
+                        className="px-2 py-1 text-xs bg-slate-200 text-slate-700 rounded hover:bg-slate-300"
+                      >
+                        キャンセル
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setEditingUser(user)}
+                      className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      編集
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
