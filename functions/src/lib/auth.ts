@@ -9,6 +9,7 @@ const allowList = (process.env.ALLOW_EMAILS || '').split(',').map((value: string
 
 export interface AuthedRequest extends Request {
   user?: admin.auth.DecodedIdToken;
+  uid?: string; // req.uidとしてアクセスできるようにする
 }
 
 export async function verifyToken(token?: string) {
@@ -52,6 +53,7 @@ export function authMiddleware(): (req: AuthedRequest, res: Response, next: Next
       return;
     }
     req.user = decoded;
+    req.uid = decoded.uid; // req.uidとしてもアクセスできるようにする
     next();
   };
 }
