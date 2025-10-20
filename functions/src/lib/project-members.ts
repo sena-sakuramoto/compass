@@ -3,7 +3,6 @@ import { ProjectMember, ProjectMemberInput, User } from './auth-types';
 import { ProjectRole, getProjectRolePermissions, ProjectPermissions } from './roles';
 import { getUser, getUserByEmail } from './users';
 import { getOrganization } from './users';
-import { sendProjectInvitationEmail } from './email';
 
 const db = getFirestore();
 
@@ -81,14 +80,8 @@ export async function addProjectMember(
   // プロジェクトのメンバー数を更新
   await updateProjectMemberCount(orgId, projectId);
 
-  // 招待メール送信（非同期、エラーでも処理は続行）
-  sendProjectInvitationEmail(
-    input.email,
-    projectName,
-    invitedByName,
-    input.role,
-    input.message
-  ).catch(err => console.error('Failed to send invitation email:', err));
+  // メール通知は実装していません（UI上のベル通知のみ）
+  console.log(`Project invitation created for ${input.email} to project ${projectName}`);
 
   return member;
 }
