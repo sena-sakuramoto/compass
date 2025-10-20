@@ -18,7 +18,7 @@ interface GanttTaskBarProps {
   interactive?: boolean;
 }
 
-export const GanttTaskBar: React.FC<GanttTaskBarProps> = ({
+const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   task,
   position,
   dateRange,
@@ -302,3 +302,17 @@ export const GanttTaskBar: React.FC<GanttTaskBarProps> = ({
     </div>
   );
 };
+
+// React.memoでラップしてパフォーマンスを最適化
+export const GanttTaskBar = React.memo(GanttTaskBarComponent, (prevProps, nextProps) => {
+  // 以下のpropsが変更された場合のみ再レンダリング
+  return (
+    prevProps.task.id === nextProps.task.id &&
+    prevProps.task.status === nextProps.task.status &&
+    prevProps.task.progress === nextProps.task.progress &&
+    prevProps.position.left === nextProps.position.left &&
+    prevProps.position.width === nextProps.position.width &&
+    prevProps.position.top === nextProps.position.top &&
+    prevProps.interactive === nextProps.interactive
+  );
+});
