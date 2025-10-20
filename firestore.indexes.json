@@ -23,13 +23,6 @@
         { "fieldPath": "`担当者`", "order": "ASCENDING" },
         { "fieldPath": "`ステータス`", "order": "ASCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "projects",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []
