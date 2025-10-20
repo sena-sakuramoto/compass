@@ -79,26 +79,28 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
   try {
     const { projectId } = req.params;
     const input: ProjectMemberInput = req.body;
-    
+
     // プロジェクトを取得
     const project = await getProject(req.user.orgId, projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     // 権限チェック
     const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
     if (!canManage) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     const member = await addProjectMember(
       req.user.orgId,
       projectId,
+      (project as any).物件名 || projectId,
       input,
-      req.uid
+      req.uid,
+      req.user.displayName || req.user.email
     );
-    
+
     res.status(201).json(member);
   } catch (error) {
     console.error('Error adding project member:', error);
