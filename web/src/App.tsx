@@ -600,6 +600,7 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }:
   const [name, setName] = useState('');
   const [start, setStart] = useState('');
   const [due, setDue] = useState('');
+  const [durationDays, setDurationDays] = useState<number>(1);
   const [priority, setPriority] = useState('中');
   const [status, setStatus] = useState('未着手');
   const [estimate, setEstimate] = useState(4);
@@ -633,6 +634,40 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }:
     const person = people.find((p) => p.氏名 === assignee);
     setAssigneeEmail(person?.メール ?? '');
   }, [assignee, people]);
+
+  // 開始日と期間から終了日を計算
+  const handleStartChange = (newStart: string) => {
+    setStart(newStart);
+    if (newStart && durationDays > 0) {
+      const startDate = new Date(newStart);
+      const endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + durationDays - 1);
+      setDue(formatDate(endDate) || '');
+    }
+  };
+
+  // 期間変更時に終了日を再計算
+  const handleDurationChange = (days: number) => {
+    setDurationDays(days);
+    if (start && days > 0) {
+      const startDate = new Date(start);
+      const endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + days - 1);
+      setDue(formatDate(endDate) || '');
+    }
+  };
+
+  // 終了日変更時に期間を再計算
+  const handleDueChange = (newDue: string) => {
+    setDue(newDue);
+    if (start && newDue) {
+      const startDate = new Date(start);
+      const dueDate = new Date(newDue);
+      const diffTime = dueDate.getTime() - startDate.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      setDurationDays(diffDays > 0 ? diffDays : 1);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -727,25 +762,40 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }:
             required
           />
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="space-y-3">
           <div>
             <label className="mb-1 block text-xs text-slate-500">予定開始日</label>
             <input
               type="date"
               className="w-full rounded-2xl border border-slate-200 px-3 py-2"
               value={start}
-              onChange={(e) => setStart(e.target.value)}
+              onChange={(e) => handleStartChange(e.target.value)}
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">期限</label>
-            <input
-              type="date"
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={due}
-              onChange={(e) => setDue(e.target.value)}
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">作業期間（日数）</label>
+              <input
+                type="number"
+                min="1"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+                value={durationDays}
+                onChange={(e) => handleDurationChange(parseInt(e.target.value) || 1)}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">期限（自動計算）</label>
+              <input
+                type="date"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+                value={due}
+                onChange={(e) => handleDueChange(e.target.value)}
+              />
+            </div>
           </div>
+          <p className="text-[11px] text-slate-500">
+            開始日と作業期間を入力すると期限が自動計算されます。期限を直接変更すると作業期間が再計算されます。
+          </p>
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>

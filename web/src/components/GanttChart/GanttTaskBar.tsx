@@ -39,6 +39,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   const originalEndDate = useRef<Date>(task.endDate);
   const pendingStartDate = useRef<Date>(task.startDate);
   const pendingEndDate = useRef<Date>(task.endDate);
+  const lastUpdateTime = useRef<number>(0);
 
   // ステータスに応じた色を取得
   const overdue = isOverdue(task);
@@ -77,6 +78,13 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   // ドラッグ中 - プレビューのみ更新、保存はしない
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging || !dragMode) return;
+
+    // スロットリング: 16ms（約60fps）ごとに更新
+    const now = Date.now();
+    if (now - lastUpdateTime.current < 16) {
+      return;
+    }
+    lastUpdateTime.current = now;
 
     const deltaX = e.clientX - dragStartX.current;
     const deltaDays = pixelsToDays(deltaX);
@@ -221,10 +229,12 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         left: `${displayPosition.left}px`,
         width: `${Math.max(displayPosition.width, 4)}px`,
         top: `${barTop}px`,
-        height: `${barHeight}px`
+        height: `${barHeight}px`,
+        zIndex: isDragging ? 1000 : 10,
+        pointerEvents: isDragging ? 'none' : 'auto'
       }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => !isDragging && setIsHovered(true)}
+      onMouseLeave={() => !isDragging && setIsHovered(false)}
       onClick={handleClick}
     >
       {/* バーの本体 */}
@@ -254,8 +264,8 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         )}
       </div>
 
-      {/* ホバー時のツールチップ */}
-      {isHovered && (
+      {/* ホバー時のツールチップ（ドラッグ中は非表示） */}
+      {isHovered && !isDragging && (
         <div className="absolute top-full left-0 mt-2 z-50 min-w-[220px] rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none">
           <div className="text-sm font-semibold text-slate-800">{task.name}</div>
           <div className="mt-1 text-[11px] text-slate-500">
