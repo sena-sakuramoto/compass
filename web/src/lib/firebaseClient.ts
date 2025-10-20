@@ -44,7 +44,7 @@ async function ensureUserDocument(user: User, token: string): Promise<void> {
         email: user.email || '',
         displayName: user.displayName || user.email?.split('@')[0] || '名無し',
         orgId: defaultOrgId,
-        role: 'viewer', // デフォルトは閲覧者
+        role: 'project_manager', // デフォルトはプロジェクトマネージャー
         photoURL: (user as any).photoURL || '',
         isActive: true,
         createdAt: serverTimestamp(),

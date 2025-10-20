@@ -84,14 +84,17 @@ export async function canManageProjectMembers(
 ): Promise<boolean> {
   // 管理者は常に管理可能
   if (user.role === 'admin') return true;
-  
+
+  // プロジェクトマネージャーは自組織のプロジェクトを管理可能
+  if (user.role === 'project_manager' && user.orgId === orgId) return true;
+
   // プロジェクトオーナーは常に管理可能
   if (project.ownerUserId && project.ownerUserId === user.id) return true;
-  
+
   // プロジェクトメンバーの権限を確認
   const permissions = await getProjectMemberPermissions(orgId, project.id, user.id);
   if (permissions && permissions.canManageMembers) return true;
-  
+
   return false;
 }
 
