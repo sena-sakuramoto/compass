@@ -43,22 +43,85 @@ async function authenticate(req: any, res: any, next: any) {
 }
 
 /**
+ * GET /api/users/me
+ * 現在のユーザー情報を取得
+ * NOTE: 特定のルートは動的ルート /:userId の前に定義する必要がある
+ */
+router.get('/me', authenticate, async (req: any, res) => {
+  try {
+    // ログイン時刻を更新
+    await updateLastLogin(req.uid);
+
+    res.json(req.user);
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/users
  * ユーザー一覧を取得
  */
 router.get('/', authenticate, async (req: any, res) => {
   try {
     const { orgId, role, isActive } = req.query;
-    
+
     const users = await listUsers({
       orgId,
       role,
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
     });
-    
+
     res.json(users);
   } catch (error) {
     console.error('Error listing users:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/users/:userId/invitations
+ * ユーザーのプロジェクト招待一覧を取得
+ * NOTE: 動的ルート /:userId より前に定義する必要がある
+ */
+router.get('/:userId/invitations', authenticate, async (req: any, res) => {
+  try {
+    const { userId } = req.params;
+
+    // 自分自身の招待のみ取得可能
+    if (req.uid !== userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { listUserProjects } = await import('../lib/project-members');
+    const { getProject } = await import('../lib/firestore');
+
+    // ユーザーが参加しているプロジェクトを取得
+    const projects = await listUserProjects(req.user.orgId, userId);
+
+    // 招待中のプロジェクトのみをフィルタリング
+    const invitations = [];
+    for (const { projectId, member } of projects) {
+      if (member.status === 'invited') {
+        const project = await getProject(req.user.orgId, projectId);
+        if (project) {
+          invitations.push({
+            projectId,
+            projectName: project.物件名 || projectId,
+            invitedBy: member.invitedBy,
+            invitedByName: member.invitedBy, // TODO: 招待者の名前を取得
+            role: member.role,
+            invitedAt: member.invitedAt,
+            message: '', // TODO: メッセージの取得
+          });
+        }
+      }
+    }
+
+    res.json(invitations);
+  } catch (error) {
+    console.error('Error getting user invitations:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -185,67 +248,6 @@ router.post('/:userId/activate', authenticate, async (req: any, res) => {
     res.json(updatedUser);
   } catch (error) {
     console.error('Error activating user:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * GET /api/users/me
- * 現在のユーザー情報を取得
- */
-router.get('/me', authenticate, async (req: any, res) => {
-  try {
-    // ログイン時刻を更新
-    await updateLastLogin(req.uid);
-
-    res.json(req.user);
-  } catch (error) {
-    console.error('Error getting current user:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * GET /api/users/:userId/invitations
- * ユーザーのプロジェクト招待一覧を取得
- */
-router.get('/:userId/invitations', authenticate, async (req: any, res) => {
-  try {
-    const { userId } = req.params;
-
-    // 自分自身の招待のみ取得可能
-    if (req.uid !== userId) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    const { listUserProjects } = await import('../lib/project-members');
-    const { getProject } = await import('../lib/firestore');
-
-    // ユーザーが参加しているプロジェクトを取得
-    const projects = await listUserProjects(req.user.orgId, userId);
-
-    // 招待中のプロジェクトのみをフィルタリング
-    const invitations = [];
-    for (const { projectId, member } of projects) {
-      if (member.status === 'invited') {
-        const project = await getProject(req.user.orgId, projectId);
-        if (project) {
-          invitations.push({
-            projectId,
-            projectName: project.物件名 || projectId,
-            invitedBy: member.invitedBy,
-            invitedByName: member.invitedBy, // TODO: 招待者の名前を取得
-            role: member.role,
-            invitedAt: member.invitedAt,
-            message: '', // TODO: メッセージの取得
-          });
-        }
-      }
-    }
-
-    res.json(invitations);
-  } catch (error) {
-    console.error('Error getting user invitations:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
