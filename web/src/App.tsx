@@ -762,40 +762,103 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }:
             required
           />
         </div>
-        <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">予定開始日</label>
-            <input
-              type="date"
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={start}
-              onChange={(e) => handleStartChange(e.target.value)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">作業期間（日数）</label>
-              <input
-                type="number"
-                min="1"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-                value={durationDays}
-                onChange={(e) => handleDurationChange(parseInt(e.target.value) || 1)}
-              />
+        <div className="space-y-4">
+          <div className="text-sm font-semibold text-slate-700">作業スケジュール</div>
+
+          {/* ビジュアルタイムライン */}
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-4 border border-blue-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-col items-center flex-1">
+                <div className="text-xs font-medium text-blue-600 mb-1">開始</div>
+                <div className="w-3 h-3 rounded-full bg-blue-500 shadow-lg shadow-blue-200"></div>
+                <div className="text-xs font-bold text-slate-700 mt-1">
+                  {start ? new Date(start).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }) : '未設定'}
+                </div>
+              </div>
+
+              <div className="flex-1 flex flex-col items-center px-4">
+                <div className="w-full h-1 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full mb-2"></div>
+                <div className="bg-white rounded-full px-4 py-1.5 shadow-sm border border-slate-200">
+                  <span className="text-lg font-bold text-slate-800">{durationDays}</span>
+                  <span className="text-xs text-slate-500 ml-1">日間</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center flex-1">
+                <div className="text-xs font-medium text-purple-600 mb-1">終了</div>
+                <div className="w-3 h-3 rounded-full bg-purple-500 shadow-lg shadow-purple-200"></div>
+                <div className="text-xs font-bold text-slate-700 mt-1">
+                  {due ? new Date(due).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }) : '未設定'}
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">期限（自動計算）</label>
+          </div>
+
+          {/* 入力フィールド */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="bg-white rounded-xl border-2 border-blue-200 p-3 hover:border-blue-300 transition-colors">
+              <label className="block text-xs font-semibold text-blue-700 mb-2">📅 開始日</label>
               <input
                 type="date"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+                className="w-full text-sm font-medium border-0 focus:outline-none focus:ring-0 p-0"
+                value={start}
+                onChange={(e) => handleStartChange(e.target.value)}
+              />
+            </div>
+
+            <div className="bg-white rounded-xl border-2 border-green-200 p-3 hover:border-green-300 transition-colors">
+              <label className="block text-xs font-semibold text-green-700 mb-2">⏱️ 期間</label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDurationChange(Math.max(1, durationDays - 1))}
+                  className="w-7 h-7 rounded-lg bg-green-100 hover:bg-green-200 text-green-700 font-bold flex items-center justify-center transition-colors"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min="1"
+                  className="flex-1 text-center text-sm font-bold border-0 focus:outline-none focus:ring-0 p-0"
+                  value={durationDays}
+                  onChange={(e) => handleDurationChange(parseInt(e.target.value) || 1)}
+                />
+                <span className="text-xs text-slate-500">日</span>
+                <button
+                  type="button"
+                  onClick={() => handleDurationChange(durationDays + 1)}
+                  className="w-7 h-7 rounded-lg bg-green-100 hover:bg-green-200 text-green-700 font-bold flex items-center justify-center transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border-2 border-purple-200 p-3 hover:border-purple-300 transition-colors">
+              <label className="block text-xs font-semibold text-purple-700 mb-2">🏁 期限</label>
+              <input
+                type="date"
+                className="w-full text-sm font-medium border-0 focus:outline-none focus:ring-0 p-0"
                 value={due}
                 onChange={(e) => handleDueChange(e.target.value)}
               />
             </div>
           </div>
-          <p className="text-[11px] text-slate-500">
-            開始日と作業期間を入力すると期限が自動計算されます。期限を直接変更すると作業期間が再計算されます。
-          </p>
+
+          {/* クイック期間選択 */}
+          <div className="flex flex-wrap gap-2">
+            <div className="text-xs text-slate-500 w-full mb-1">クイック設定:</div>
+            {[1, 3, 5, 7, 14, 30].map((days) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => start && handleDurationChange(days)}
+                className="px-3 py-1 text-xs font-medium rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+              >
+                {days}日
+              </button>
+            ))}
+          </div>
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
