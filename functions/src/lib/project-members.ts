@@ -16,47 +16,68 @@ export async function addProjectMember(
   invitedBy: string
 ): Promise<ProjectMember> {
   const now = Timestamp.now();
-  
+
   // メールアドレスからユーザーを検索
   const user = await getUserByEmail(input.email);
-  if (!user) {
-    throw new Error(`User with email ${input.email} not found`);
-  }
-  
-  // ユーザーの組織情報を取得
-  const org = await getOrganization(user.orgId);
-  if (!org) {
-    throw new Error(`Organization ${user.orgId} not found`);
-  }
-  
+
   // 権限を設定（カスタム権限がある場合はそれを使用、なければロールのデフォルト権限）
   const permissions: ProjectPermissions = input.permissions
     ? { ...getProjectRolePermissions(input.role), ...input.permissions }
     : getProjectRolePermissions(input.role);
-  
-  const member: ProjectMember = {
-    userId: user.id,
-    email: user.email,
-    displayName: user.displayName,
-    orgId: user.orgId,
-    orgName: org.name,
-    role: input.role,
-    職種: user.職種,
-    permissions,
-    invitedBy,
-    invitedAt: now,
-    status: 'invited',
-  };
-  
-  await db
-    .collection('orgs').doc(orgId)
-    .collection('projects').doc(projectId)
-    .collection('members').doc(user.id)
-    .set(member);
-  
+
+  let member: ProjectMember;
+
+  if (user) {
+    // 既存ユーザーの場合
+    const org = await getOrganization(user.orgId);
+
+    member = {
+      userId: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      orgId: user.orgId,
+      orgName: org?.name || user.orgId,
+      role: input.role,
+      職種: user.職種,
+      permissions,
+      invitedBy,
+      invitedAt: now,
+      status: 'invited',
+    };
+
+    await db
+      .collection('orgs').doc(orgId)
+      .collection('projects').doc(projectId)
+      .collection('members').doc(user.id)
+      .set(member);
+  } else {
+    // 未登録ユーザーの場合、メールアドレスをキーとして招待レコードを作成
+    // ユーザーが初回ログイン時に、このレコードを自分のUIDに紐付ける
+    const userId = `pending_${input.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    member = {
+      userId,
+      email: input.email,
+      displayName: input.email.split('@')[0],
+      orgId,
+      orgName: '',
+      role: input.role,
+      permissions,
+      invitedBy,
+      invitedAt: now,
+      status: 'invited',
+    };
+
+    await db
+      .collection('orgs').doc(orgId)
+      .collection('projects').doc(projectId)
+      .collection('members').doc(userId)
+      .set(member);
+  }
+
   // プロジェクトのメンバー数を更新
   await updateProjectMemberCount(orgId, projectId);
-  
+
   return member;
 }
 
