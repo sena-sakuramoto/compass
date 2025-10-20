@@ -31,10 +31,11 @@ export function InvitationNotifications() {
 
     try {
       setLoading(true);
-      const token = await user.getIdToken();
+      const token = await user.getIdToken(true); // Force refresh
       const response = await fetch(`${BASE_URL}/users/${user.uid}/invitations`, {
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
@@ -53,11 +54,12 @@ export function InvitationNotifications() {
     if (!user) return;
 
     try {
-      const token = await user.getIdToken();
+      const token = await user.getIdToken(true);
       const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${user.uid}/accept`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 
@@ -76,11 +78,12 @@ export function InvitationNotifications() {
     if (!confirm('この招待を辞退しますか？')) return;
 
     try {
-      const token = await user.getIdToken();
+      const token = await user.getIdToken(true);
       const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${user.uid}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
         },
       });
 

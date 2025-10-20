@@ -141,7 +141,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     const auth = getAuth(app);
     const user = auth.currentUser;
     if (!user) throw new Error('Not authenticated');
-    return user.getIdToken();
+    return user.getIdToken(true); // Force refresh token
   };
 
   const getStatusBadge = (status: ProjectMember['status']) => {
