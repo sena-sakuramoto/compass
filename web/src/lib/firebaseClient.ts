@@ -27,6 +27,37 @@ const isConfigValid = REQUIRED_KEYS.every((key) => typeof firebaseConfig[key] ==
 
 let firebaseApp: FirebaseApp | null = null;
 
+/**
+ * 初回ログイン時にFirestoreにユーザードキュメントを作成
+ */
+async function ensureUserDocument(user: User, token: string): Promise<void> {
+  try {
+    const { getFirestore, doc, getDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
+    const db = getFirestore();
+    const userRef = doc(db, 'users', user.uid);
+    const userDoc = await getDoc(userRef);
+
+    if (!userDoc.exists()) {
+      // デフォルトの組織IDを設定（後で変更可能）
+      const defaultOrgId = 'archi-prisma'; // TODO: 実際の組織IDに変更するUIを追加
+      await setDoc(userRef, {
+        email: user.email || '',
+        displayName: user.displayName || user.email?.split('@')[0] || '名無し',
+        orgId: defaultOrgId,
+        role: 'viewer', // デフォルトは閲覧者
+        photoURL: (user as any).photoURL || '',
+        isActive: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      console.log('User document created for', user.email);
+    }
+  } catch (error) {
+    console.error('Failed to ensure user document:', error);
+    // エラーでも続行（認証は成功しているため）
+  }
+}
+
 function getFirebaseApp() {
   if (!isConfigValid) return null;
   if (firebaseApp) return firebaseApp;
@@ -71,6 +102,10 @@ export function useFirebaseAuth() {
         if (firebaseUser) {
           const token = await firebaseUser.getIdToken();
           setIdToken(token);
+
+          // 初回ログイン時にFirestoreにユーザードキュメントを作成
+          await ensureUserDocument(firebaseUser, token);
+
           setState({ user: firebaseUser, ready: true, error: null });
         } else {
           setIdToken();
