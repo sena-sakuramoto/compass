@@ -10,6 +10,8 @@ import {
   TaskInput,
 } from '../lib/firestore';
 import { enqueueNotificationSeed } from '../lib/jobs';
+import { listUserProjects } from '../lib/project-members';
+import { getUser } from '../lib/users';
 
 const router = Router();
 
@@ -25,11 +27,38 @@ const listQuerySchema = z.object({
   to: z.string().optional(),
 });
 
-router.get('/', async (req, res, next) => {
+router.get('/', async (req: any, res, next) => {
   try {
     const params = listQuerySchema.parse(req.query);
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // 管理者は全タスクを取得
+    if (user.role === 'admin') {
+      const tasks = await listTasks(params);
+      res.json({ tasks });
+      return;
+    }
+
+    // 一般ユーザーは参加しているプロジェクトのタスクのみ取得
+    const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+    const projectIds = userProjectMemberships.map(m => m.projectId);
+
+    // プロジェクトIDでフィルタリング
+    if (params.projectId && !projectIds.includes(params.projectId)) {
+      // アクセス権がないプロジェクトのタスクは返さない
+      res.json({ tasks: [] });
+      return;
+    }
+
     const tasks = await listTasks(params);
-    res.json({ tasks });
+
+    // ユーザーが参加しているプロジェクトのタスクのみフィルタ
+    const filteredTasks = tasks.filter(task => projectIds.includes(task.projectId));
+
+    res.json({ tasks: filteredTasks });
   } catch (error) {
     next(error);
   }

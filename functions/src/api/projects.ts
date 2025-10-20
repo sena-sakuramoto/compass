@@ -1,16 +1,41 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
-import { createProject, listProjects, updateProject, ProjectInput } from '../lib/firestore';
+import { createProject, listProjects, updateProject, ProjectInput, getProject } from '../lib/firestore';
+import { listUserProjects } from '../lib/project-members';
+import { getUser } from '../lib/users';
 
 const router = Router();
 
 router.use(authMiddleware());
 
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req: any, res, next) => {
   try {
-    const projects = await listProjects();
-    res.json({ projects });
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // 管理者は全プロジェクトを取得
+    if (user.role === 'admin') {
+      const projects = await listProjects();
+      res.json({ projects });
+      return;
+    }
+
+    // 一般ユーザーは参加しているプロジェクトのみ取得
+    const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+    const projectIds = userProjectMemberships.map(m => m.projectId);
+
+    // プロジェクト詳細を取得
+    const projects = await Promise.all(
+      projectIds.map(projectId => getProject(user.orgId, projectId))
+    );
+
+    // null を除外
+    const validProjects = projects.filter(p => p !== null);
+
+    res.json({ projects: validProjects });
   } catch (error) {
     next(error);
   }
