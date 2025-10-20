@@ -1926,14 +1926,17 @@ function SchedulePage({
               updateTask(task.id, { ステータス: newStatus });
             }}
             onTaskUpdate={(task, newStartDate, newEndDate) => {
-              // タスク更新処理
-              const originalTask = filteredTasks.find(t => t.id === task.id);
-              if (originalTask && onTaskDateChange) {
-                const startStr = formatDate(newStartDate);
-                const endStr = formatDate(newEndDate);
-                if (startStr && endStr) {
-                  onTaskDateChange(task.id, { start: startStr, end: endStr, kind: 'move' });
-                }
+              // タスク更新処理 - Firestoreに直接保存
+              console.log('onTaskUpdate called:', task.id, newStartDate, newEndDate);
+              const startStr = formatDate(newStartDate);
+              const endStr = formatDate(newEndDate);
+              if (startStr && endStr) {
+                updateTask(task.id, {
+                  予定開始日: startStr,
+                  期限: endStr,
+                  start: startStr,
+                  end: endStr
+                });
               }
             }}
             onTaskCopy={(task, newStartDate, newEndDate) => {

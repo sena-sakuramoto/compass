@@ -305,11 +305,14 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
 // React.memoでラップしてパフォーマンスを最適化
 export const GanttTaskBar = React.memo(GanttTaskBarComponent, (prevProps, nextProps) => {
-  // 以下のpropsが変更された場合のみ再レンダリング
+  // 以下のpropsが全て同じ場合は再レンダリングをスキップ (return true)
+  // いずれかが変更された場合は再レンダリング (return false)
   return (
     prevProps.task.id === nextProps.task.id &&
     prevProps.task.status === nextProps.task.status &&
     prevProps.task.progress === nextProps.task.progress &&
+    prevProps.task.startDate.getTime() === nextProps.task.startDate.getTime() &&
+    prevProps.task.endDate.getTime() === nextProps.task.endDate.getTime() &&
     prevProps.position.left === nextProps.position.left &&
     prevProps.position.width === nextProps.position.width &&
     prevProps.position.top === nextProps.position.top &&
