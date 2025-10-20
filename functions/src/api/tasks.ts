@@ -100,9 +100,24 @@ const taskSchema = z.object({
   '通知設定': notificationSchema,
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', async (req: any, res, next) => {
   try {
     const payload = taskSchema.parse(req.body) as TaskInput;
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // 管理者以外はメンバーシップをチェック
+    if (user.role !== 'admin') {
+      const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+      const projectIds = userProjectMemberships.map(m => m.projectId);
+
+      if (!projectIds.includes(payload.projectId)) {
+        return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
+      }
+    }
+
     const id = await createTask(payload);
     res.status(201).json({ id });
   } catch (error) {
@@ -110,9 +125,31 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', async (req: any, res, next) => {
   try {
     const payload = taskSchema.partial().parse(req.body) as Partial<TaskInput>;
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // タスクを取得してプロジェクトIDを確認
+    const tasks = await listTasks({});
+    const task = tasks.find(t => t.id === req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // 管理者以外はメンバーシップをチェック
+    if (user.role !== 'admin') {
+      const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+      const projectIds = userProjectMemberships.map(m => m.projectId);
+
+      if (!projectIds.includes(task.projectId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+
     await updateTask(req.params.id, payload);
     res.json({ ok: true });
   } catch (error) {
@@ -122,9 +159,31 @@ router.patch('/:id', async (req, res, next) => {
 
 const completeSchema = z.object({ done: z.boolean() });
 
-router.post('/:id/complete', async (req, res, next) => {
+router.post('/:id/complete', async (req: any, res, next) => {
   try {
     const { done } = completeSchema.parse(req.body);
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // タスクを取得してプロジェクトIDを確認
+    const tasks = await listTasks({});
+    const task = tasks.find(t => t.id === req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // 管理者以外はメンバーシップをチェック
+    if (user.role !== 'admin') {
+      const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+      const projectIds = userProjectMemberships.map(m => m.projectId);
+
+      if (!projectIds.includes(task.projectId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+
     await completeTaskRepo(req.params.id, done);
     res.json({ ok: true });
   } catch (error) {
@@ -141,9 +200,31 @@ const moveSchema = z
     message: '少なくとも1つのフィールドが必要です',
   });
 
-router.post('/:id/move', async (req, res, next) => {
+router.post('/:id/move', async (req: any, res, next) => {
   try {
     const payload = moveSchema.parse(req.body);
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // タスクを取得してプロジェクトIDを確認
+    const tasks = await listTasks({});
+    const task = tasks.find(t => t.id === req.params.id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    // 管理者以外はメンバーシップをチェック
+    if (user.role !== 'admin') {
+      const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+      const projectIds = userProjectMemberships.map(m => m.projectId);
+
+      if (!projectIds.includes(task.projectId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+
     await moveTaskDates(req.params.id, payload);
     res.json({ ok: true });
   } catch (error) {
