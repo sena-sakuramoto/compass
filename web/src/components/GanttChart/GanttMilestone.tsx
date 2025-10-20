@@ -45,15 +45,15 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
     >
-      {/* ダイヤモンド型のマイルストーン */}
+      {/* 赤丸のマイルストーン */}
       <div
-        className="w-full h-full cursor-pointer transition-all duration-200"
+        className="w-full h-full rounded-full cursor-pointer transition-all duration-200"
         style={{
-          transform: isHovered ? 'rotate(45deg) scale(1.2)' : 'rotate(45deg)',
-          backgroundColor: color,
+          transform: isHovered ? 'scale(1.2)' : 'scale(1)',
+          backgroundColor: overdue ? '#dc2626' : '#ef4444', // 赤色
           boxShadow: isHovered
-            ? '0 4px 12px rgba(0, 0, 0, 0.2)'
-            : '0 2px 4px rgba(0, 0, 0, 0.1)',
+            ? '0 4px 12px rgba(239, 68, 68, 0.4)'
+            : '0 2px 4px rgba(239, 68, 68, 0.3)',
           border: '2px solid white'
         }}
       />
@@ -73,14 +73,13 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 min-w-[220px] rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none">
           <div className="flex items-center gap-2">
             <div
-              className="w-3 h-3"
+              className="w-3 h-3 rounded-full"
               style={{
-                transform: 'rotate(45deg)',
-                backgroundColor: color,
+                backgroundColor: overdue ? '#dc2626' : '#ef4444',
                 border: '1px solid white'
               }}
             />
-            <div className="text-sm font-semibold text-slate-800">マイルストーン</div>
+            <div className="text-sm font-semibold text-slate-800">重要ポイント</div>
           </div>
           <div className="mt-2 text-sm font-medium text-slate-800">{task.name}</div>
           <div className="mt-1 text-[11px] text-slate-500">

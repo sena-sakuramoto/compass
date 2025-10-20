@@ -1789,6 +1789,9 @@ function SchedulePage({
         // プロジェクト全体の進捗率を使用
         const progress = projectProgressMap[task.projectId] || 0;
 
+        // マイルストーンフラグが明示的にtrueの場合のみマイルストーンとして扱う
+        const isMilestone = task['マイルストーン'] === true || task['milestone'] === true;
+
         return {
           id: task.id,
           name: task.タスク名 || '（無題）',
@@ -1800,7 +1803,7 @@ function SchedulePage({
           projectId: task.projectId,
           projectName: project?.物件名 || '（プロジェクト名なし）',
           dependencies: task['依存タスク'] || [],
-          milestone: task['マイルストーン'] === true || task['milestone'] === true,
+          milestone: isMilestone,
         };
       })
       .filter((task): task is GanttTask => task !== null);
