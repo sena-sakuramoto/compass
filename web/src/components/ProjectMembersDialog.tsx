@@ -3,6 +3,8 @@ import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle } from 'lu
 import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole } from '../lib/auth-types';
 import { Project } from '../lib/types';
 
+const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
+
 interface ProjectMembersDialogProps {
   project: Project;
   onClose: () => void;
@@ -26,7 +28,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const loadMembers = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/projects/${project.id}/members`, {
+      const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
         headers: {
           'Authorization': `Bearer ${await getAuthToken()}`,
         },
@@ -62,7 +64,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         message: inviteMessage || undefined,
       };
       
-      const response = await fetch(`/api/projects/${project.id}/members`, {
+      const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -93,7 +95,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     if (!confirm('このメンバーをプロジェクトから削除しますか？')) return;
     
     try {
-      const response = await fetch(`/api/projects/${project.id}/members/${userId}`, {
+      const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${await getAuthToken()}`,
@@ -112,7 +114,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
   const handleUpdateRole = async (userId: string, newRole: ProjectRole) => {
     try {
-      const response = await fetch(`/api/projects/${project.id}/members/${userId}`, {
+      const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

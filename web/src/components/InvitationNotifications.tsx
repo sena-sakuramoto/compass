@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Bell, Check, X, Mail } from 'lucide-react';
 import { useFirebaseAuth } from '../lib/firebaseClient';
 
+const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
+
 interface ProjectInvitation {
   projectId: string;
   projectName: string;
@@ -30,7 +32,7 @@ export function InvitationNotifications() {
     try {
       setLoading(true);
       const token = await user.getIdToken();
-      const response = await fetch(`/api/users/${user.uid}/invitations`, {
+      const response = await fetch(`${BASE_URL}/users/${user.uid}/invitations`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -52,7 +54,7 @@ export function InvitationNotifications() {
 
     try {
       const token = await user.getIdToken();
-      const response = await fetch(`/api/projects/${projectId}/members/${user.uid}/accept`, {
+      const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${user.uid}/accept`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -75,7 +77,7 @@ export function InvitationNotifications() {
 
     try {
       const token = await user.getIdToken();
-      const response = await fetch(`/api/projects/${projectId}/members/${user.uid}`, {
+      const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${user.uid}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
