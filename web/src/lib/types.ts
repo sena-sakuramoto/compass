@@ -55,6 +55,9 @@ export interface Task {
   end?: string;
   duration_days?: number;
   progress?: number;
+  進捗率?: number;
+  マイルストーン?: boolean;
+  milestone?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
