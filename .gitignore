@@ -1,10 +1,13 @@
 node_modules
 .DS_Store
 .env
+.env.local
+.env.*.local
 firebase-debug.log
 *.log
 dist
 .firebase
+nul
 
 # Documentation and requirement files
 apdw_project_compass_google環境_要件定義_codex_cli向けspec_v_*.md

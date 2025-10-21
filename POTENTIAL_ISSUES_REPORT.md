@@ -14,38 +14,45 @@
 
 ### 🔴 重大な問題
 
-#### 1. ガントチャートの高さが画面に合わせて拡大しない
+#### 1. ガントチャートの高さが画面に合わせて拡大しない → ✅ 対応済み
 
-**問題の詳細**:
-- 現在の実装: `height: '60vh'` で固定（App.tsx 2072行目）
-- タスク数が多い場合、スクロールが必要になり、全体像が把握しにくい
-- タスク数が少ない場合、無駄なスペースが生まれる
-- 画面の残りスペースを有効活用できていない
+**問題の詳細（解消済み）**:
+- 旧実装では `height: '60vh'` 固定で、タスク数や画面サイズに応じた調整ができなかった
+- タスク数が多い場合はスクロールが必須、少ない場合は余白が生じていた
 
-**影響度**: 高（ユーザー体験に直接影響）
-
-**解決策**:
-1. **動的な高さ調整**: タスク数に応じて高さを自動調整
-2. **最大高さの設定**: 画面の80-90%を使用
-3. **レスポンシブ対応**: 画面サイズに応じて最適な高さを設定
-
-**実装方法**:
+**最新の実装**:
 ```tsx
-// 動的な高さ計算
-const chartHeight = useMemo(() => {
-  const taskCount = ganttData.data.length;
-  const baseHeight = 460; // 最小高さ
-  const rowHeight = 40; // 1タスクあたりの高さ
-  const calculatedHeight = Math.max(baseHeight, taskCount * rowHeight + 150);
-  const maxHeight = window.innerHeight * 0.8; // 画面の80%
-  return Math.min(calculatedHeight, maxHeight);
-}, [ganttData.data.length]);
+const [viewportHeight, setViewportHeight] = useState(() =>
+  typeof window !== 'undefined' ? window.innerHeight : 1080
+);
 
-<div
-  className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4"
-  style={{ height: chartHeight }}
+useEffect(() => {
+  if (typeof window === 'undefined') return;
+  const handleResize = () => setViewportHeight(window.innerHeight);
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
+}, []);
+
+const ganttChartHeight = useMemo(() => {
+  const baseHeight = 460;
+  const rowHeight = 40;
+  const headerBuffer = 150;
+  const taskCount = newGanttTasks.length;
+  const calculatedHeight = taskCount > 0 ? taskCount * rowHeight + headerBuffer : baseHeight;
+  const maxHeight = viewportHeight * 0.8;
+  return Math.max(baseHeight, Math.min(calculatedHeight, maxHeight));
+}, [newGanttTasks.length, viewportHeight]);
+
+<section
+  className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+  style={{ minHeight: 460, height: ganttChartHeight }}
 >
 ```
+
+**効果**:
+- タスク数と画面サイズに応じて高さが自動調整される
+- ビュー高さの80%を上限とし、過度なスクロールや余白を防止
+- リサイズにも追従し、レスポンシブに動作
 
 ---
 

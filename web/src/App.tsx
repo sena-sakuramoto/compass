@@ -1838,6 +1838,16 @@ function SchedulePage({
     return chips;
   }, [filtersProps]);
 
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window !== 'undefined' ? window.innerHeight : 1080
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleResize = () => setViewportHeight(window.innerHeight);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // 新しいGanttChartのためのデータ変換
   const newGanttTasks = useMemo((): GanttTask[] => {
@@ -1964,9 +1974,18 @@ function SchedulePage({
     return sortedTasks;
   }, [filteredTasks, projectMap]);
 
+  const ganttChartHeight = useMemo(() => {
+    const baseHeight = 460;
+    const rowHeight = 40;
+    const headerBuffer = 150;
+    const taskCount = newGanttTasks.length;
+    const calculatedHeight = taskCount > 0 ? taskCount * rowHeight + headerBuffer : baseHeight;
+    const maxHeight = viewportHeight * 0.8;
+    return Math.max(baseHeight, Math.min(calculatedHeight, maxHeight));
+  }, [newGanttTasks.length, viewportHeight]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)] gap-2">
+    <div className="flex flex-col gap-2">
       {/* 極小ヘッダー - フィルター統合 */}
       <section className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm flex-shrink-0">
         <div className="flex flex-col gap-1.5">
@@ -2028,35 +2047,33 @@ function SchedulePage({
         </div>
       )}
 
-      {/* ガントチャート - 最大化表示（残りの高さを全て使用） */}
-      <section className="flex-1 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden min-h-0">
-
-          <NewGanttChart
-            tasks={newGanttTasks}
-            interactive={true}
-            onTaskClick={(task) => {
-              console.log('Task clicked:', task);
-            }}
-            onTaskToggleComplete={(task) => {
-              // チェックボックスで完了状態をトグル
-              const isCompleted = task.status === 'completed';
-              const newStatus = isCompleted ? '進行中' : '完了';
-              updateTask(task.id, { ステータス: newStatus });
-            }}
-            onTaskUpdate={(task, newStartDate, newEndDate) => {
-              // タスク更新処理 - Firestoreに直接保存
-              console.log('onTaskUpdate called:', task.id, newStartDate, newEndDate);
-              const startStr = formatDate(newStartDate);
-              const endStr = formatDate(newEndDate);
-              if (startStr && endStr) {
-                updateTask(task.id, {
-                  予定開始日: startStr,
-                  期限: endStr,
-                  start: startStr,
-                  end: endStr
-                });
-              }
-            }}
+      {/* ガントチャート - タスク数に応じた動的高さ */}
+      <section
+        className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+        style={{ minHeight: 460, height: ganttChartHeight }}
+      >
+        <NewGanttChart
+          tasks={newGanttTasks}
+          interactive={true}
+          onTaskClick={(task) => {
+            console.log('Task clicked:', task);
+          }}
+          onTaskToggleComplete={(task) => {
+            // チェックボックスで完了状態をトグル
+            const isCompleted = task.status === 'completed';
+            const newStatus = isCompleted ? '進行中' : '完了';
+            updateTask(task.id, { ステータス: newStatus });
+          }}
+          onTaskUpdate={(task, newStartDate, newEndDate) => {
+            const startStr = formatDate(newStartDate);
+            const endStr = formatDate(newEndDate);
+            if (!startStr || !endStr) return;
+            onTaskDateChange?.(task.id, {
+              start: startStr,
+              end: endStr,
+              kind: 'move',
+            });
+          }}
             onTaskCopy={(task, newStartDate, newEndDate) => {
               // タスクコピー処理
               const originalTask = filteredTasks.find(t => t.id === task.id);

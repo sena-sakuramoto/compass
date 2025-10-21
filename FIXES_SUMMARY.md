@@ -19,30 +19,37 @@ style={{ minHeight: 460, height: '60vh' }}
 
 **修正後**:
 ```tsx
-const ganttChartHeight = useMemo(() => {
-  const taskCount = ganttData.data.length;
-  if (taskCount === 0) return 460; // データがない場合の最小高さ
-  
-  const rowHeight = 40; // 1タスクあたりの高さ
-  const headerHeight = 150; // ヘッダーとマージン
-  const calculatedHeight = taskCount * rowHeight + headerHeight;
-  
-  // 画面の高さの80%を最大値とする
-  const maxHeight = typeof window !== 'undefined' ? window.innerHeight * 0.8 : 800;
-  const minHeight = 460;
-  
-  return Math.max(minHeight, Math.min(calculatedHeight, maxHeight));
-}, [ganttData.data.length]);
+const [viewportHeight, setViewportHeight] = useState(() =>
+  typeof window !== 'undefined' ? window.innerHeight : 1080
+);
 
-style={{ height: ganttChartHeight, minHeight: 460 }}
+useEffect(() => {
+  if (typeof window === 'undefined') return;
+  const handleResize = () => setViewportHeight(window.innerHeight);
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
+}, []);
+
+const ganttChartHeight = useMemo(() => {
+  const baseHeight = 460;
+  const rowHeight = 40;
+  const headerBuffer = 150;
+  const taskCount = newGanttTasks.length;
+  const calculatedHeight = taskCount > 0 ? taskCount * rowHeight + headerBuffer : baseHeight;
+  const maxHeight = viewportHeight * 0.8;
+  return Math.max(baseHeight, Math.min(calculatedHeight, maxHeight));
+}, [newGanttTasks.length, viewportHeight]);
+
+<section
+  className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+  style={{ minHeight: 460, height: ganttChartHeight }}
+>
 ```
 
 **効果**:
 - タスク数に応じて高さが動的に調整される
-- 最小高さ: 460px（データがない場合）
-- 最大高さ: 画面の80%（大量のタスクがある場合）
-- タスクが10件の場合: 約550px（10 × 40 + 150）
-- タスクが50件の場合: 約2150px（50 × 40 + 150）→ 画面の80%に制限
+- 画面リサイズに追従し、常にビュー高さの80%以内に収まる
+- データがない場合は最小460pxを維持し、余白を最小限に抑える
 
 #### 2. 既存タスクに予定開始日がない場合の警告がない ✅
 
@@ -52,21 +59,14 @@ style={{ height: ganttChartHeight, minHeight: 460 }}
 
 **修正後**:
 ```tsx
-{/* 予定開始日がないタスクの警告 */}
-{mode === 'tasks' && filteredTasks.some(task => !task.start && !task.予定開始日) && (
-  <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
-    <div className="flex items-start gap-2">
-      <svg className="h-5 w-5 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-      <div className="text-sm text-amber-800">
-        <p className="font-medium">予定開始日が設定されていないタスクがあります</p>
-        <p className="mt-1 text-xs">
-          {filteredTasks.filter(task => !task.start && !task.予定開始日).length}件のタスクがガントチャートに表示されません。
-          タスクを編集して予定開始日を設定してください。
-        </p>
-      </div>
-    </div>
+{filteredTasks.some(task => !task.start && !task.予定開始日) && (
+  <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 flex items-center gap-1.5">
+    <svg className="h-3 w-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    </svg>
+    <p className="text-xs text-amber-800">
+      {filteredTasks.filter(task => !task.start && !task.予定開始日).length}件が開始日未設定
+    </p>
   </div>
 )}
 ```
@@ -76,35 +76,20 @@ style={{ height: ganttChartHeight, minHeight: 460 }}
 - 警告メッセージには、該当するタスクの件数が表示される
 - ユーザーが何をすべきか明確に理解できる
 
-### 🟡 中程度の問題（修正済み）
-
-#### 3. 担当者パネルの高さ制限 ✅
-
-**修正前**:
-```tsx
-<div className="space-y-2 max-h-[120px] overflow-y-auto">
-```
-- 最大高さが120pxに固定
-- 担当者が多い場合、スクロールが必要で全員を一目で確認できない
-
-**修正後**:
-```tsx
-<div className="space-y-2 max-h-[300px] overflow-y-auto">
-```
-
-**効果**:
-- 最大高さが300pxに拡大
-- より多くの担当者を一目で確認できる
-- スクロールの頻度が減少
-
 ## 修正されたファイル
 
 ### 1. web/src/App.tsx
-- ガントチャートの動的な高さ計算を追加（1835-1849行目）
+- ガントチャートの動的な高さ計算を追加（1835-1857行目）
 - 予定開始日がないタスクの警告表示を追加（2085-2101行目）
-- 担当者パネルの最大高さを拡大（2063行目）
 
-### 2. POTENTIAL_ISSUES_REPORT.md（新規作成）
+### 2. web/src/lib/types.ts / web/src/lib/normalize.ts
+- プロジェクト型に `所在地_現地` フィールドを追加
+- Firestoreのサニタイズ済みフィールドを自動的に復元する正規化ロジックを追加
+
+### 3. web/src/components/ProjectEditDialog.tsx
+- フォーム入力時に `所在地/現地` と `所在地_現地` を同期更新
+
+### 4. POTENTIAL_ISSUES_REPORT.md（新規作成）
 - システム全体の潜在的な問題を調査したレポート
 - 13個の問題を発見し、優先順位付け
 - 各問題の詳細な説明と解決策

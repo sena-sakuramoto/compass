@@ -12,6 +12,7 @@ export interface Project {
   着工日?: string;
   竣工予定日?: string;
   '所在地/現地'?: string;
+  '所在地_現地'?: string;
   'フォルダURL'?: string;
   '備考'?: string;
   createdAt?: string;

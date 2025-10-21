@@ -93,6 +93,9 @@ function normalizeTask(raw: any, index: number): Task {
 }
 
 function normalizeProject(raw: any): Project {
+  const location = raw['所在地/現地'] ?? raw['所在地_現地'] ?? '';
+  const sanitizedLocation = raw['所在地_現地'];
+
   return {
     id: String(raw.id ?? raw.ProjectID ?? raw.projectId ?? ''),
     物件名: raw['物件名'] ?? '',
@@ -103,7 +106,8 @@ function normalizeProject(raw: any): Project {
     優先度: raw['優先度'] ?? '',
     開始日: formatDate(raw['開始日']),
     予定完了日: formatDate(raw['予定完了日']),
-    '所在地/現地': raw['所在地/現地'] ?? '',
+    '所在地/現地': location,
+    ...(sanitizedLocation !== undefined ? { '所在地_現地': sanitizedLocation } : location ? { '所在地_現地': location } : {}),
     'フォルダURL': raw['フォルダURL'] ?? '',
     '備考': raw['備考'] ?? '',
     createdAt: raw.createdAt,

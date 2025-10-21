@@ -12,6 +12,7 @@ interface Project {
   開始日?: string;
   予定完了日?: string;
   '所在地/現地'?: string;
+  '所在地_現地'?: string;
   'フォルダURL'?: string;
   備考?: string;
 }
@@ -37,6 +38,7 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
     開始日: '',
     予定完了日: '',
     '所在地/現地': '',
+    '所在地_現地': '',
     'フォルダURL': '',
     備考: '',
   });
@@ -185,7 +187,14 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
                 <input
                   type="text"
                   value={formData['所在地/現地'] || ''}
-                  onChange={(e) => setFormData({ ...formData, '所在地/現地': e.target.value })}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({
+                      ...formData,
+                      '所在地/現地': value,
+                      '所在地_現地': value,
+                    });
+                  }}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>

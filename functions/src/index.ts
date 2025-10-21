@@ -15,9 +15,26 @@ import { processPendingJobs } from './lib/jobProcessor';
 
 const app = express();
 
+// CORS configuration with strict origin validation
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+  : ['https://compass-31e9e.web.app', 'https://compass-31e9e.firebaseapp.com'];
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN ?? true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, Postman, etc.)
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS policy violation: ${origin} is not allowed`));
+      }
+    },
     credentials: true,
   })
 );
