@@ -58,20 +58,28 @@ const projectSchema = z.object({
   '備考': z.string().optional().nullable(),
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', async (req: any, res, next) => {
   try {
     const payload = projectSchema.parse(req.body) as ProjectInput;
-    const id = await createProject(payload);
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    const id = await createProject(payload, user.orgId);
     res.status(201).json({ id });
   } catch (error) {
     next(error);
   }
 });
 
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', async (req: any, res, next) => {
   try {
     const payload = projectSchema.partial().parse(req.body) as Partial<ProjectInput>;
-    await updateProject(req.params.id, payload);
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    await updateProject(req.params.id, payload, user.orgId);
     res.json({ ok: true });
   } catch (error) {
     next(error);

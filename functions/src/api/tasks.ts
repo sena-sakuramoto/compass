@@ -118,7 +118,7 @@ router.post('/', async (req: any, res, next) => {
       }
     }
 
-    const id = await createTask(payload);
+    const id = await createTask(payload, user.orgId);
     res.status(201).json({ id });
   } catch (error) {
     next(error);
@@ -150,7 +150,7 @@ router.patch('/:id', async (req: any, res, next) => {
       }
     }
 
-    await updateTask(req.params.id, payload);
+    await updateTask(req.params.id, payload, user.orgId);
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -184,7 +184,7 @@ router.post('/:id/complete', async (req: any, res, next) => {
       }
     }
 
-    await completeTaskRepo(req.params.id, done);
+    await completeTaskRepo(req.params.id, done, user.orgId);
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -225,7 +225,7 @@ router.post('/:id/move', async (req: any, res, next) => {
       }
     }
 
-    await moveTaskDates(req.params.id, payload);
+    await moveTaskDates(req.params.id, payload, user.orgId);
     res.json({ ok: true });
   } catch (error) {
     next(error);

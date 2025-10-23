@@ -30,10 +30,14 @@ const personSchema = z.object({
   '稼働時間/日(h)': z.number().optional(),
 });
 
-router.post('/', async (req, res, next) => {
+router.post('/', async (req: any, res, next) => {
   try {
     const payload = personSchema.parse(req.body) as PersonInput;
-    const id = await createPerson(payload);
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    const id = await createPerson(payload, user.orgId);
     res.status(201).json({ id });
   } catch (error) {
     next(error);

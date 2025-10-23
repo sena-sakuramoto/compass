@@ -213,10 +213,11 @@ function sanitizeFieldNames(payload: Record<string, any>): Record<string, any> {
   return sanitized;
 }
 
-export async function createProject(payload: ProjectInput) {
+export async function createProject(payload: ProjectInput, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
   const projectId = payload.id ?? payload.ProjectID ?? (await generateProjectId());
-  const docRef = orgCollection('projects').doc(projectId);
+  const docRef = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
   const sanitizedPayload = sanitizeFieldNames(payload);
   await docRef.set({
     ...sanitizedPayload,
@@ -228,23 +229,25 @@ export async function createProject(payload: ProjectInput) {
   return projectId;
 }
 
-export async function updateProject(projectId: string, payload: Partial<ProjectInput>) {
-  const ref = orgCollection('projects').doc(projectId);
+export async function updateProject(projectId: string, payload: Partial<ProjectInput>, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('Project not found');
-  
+
   const sanitizedPayload = sanitizeFieldNames(payload);
-  
+
   await ref.update({
     ...sanitizedPayload,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 }
 
-export async function createPerson(payload: PersonInput) {
+export async function createPerson(payload: PersonInput, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
   const personId = payload.氏名;
-  const docRef = orgCollection('people').doc(personId);
+  const docRef = db.collection('orgs').doc(targetOrgId).collection('people').doc(personId);
   await docRef.set({
     ...payload,
     id: personId,
@@ -254,10 +257,11 @@ export async function createPerson(payload: PersonInput) {
   return personId;
 }
 
-export async function createTask(payload: TaskInput) {
+export async function createTask(payload: TaskInput, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
   const taskId = payload.id ?? payload.TaskID ?? (await generateTaskId());
-  const docRef = orgCollection('tasks').doc(taskId);
+  const docRef = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
   const notifications = normalizeNotificationSettings(payload['通知設定']);
   const dependencies = normalizeDependencies(payload['依存タスク']);
   const assigneeEmail = normalizeAssigneeEmail(payload.担当者メール);
@@ -277,8 +281,9 @@ export async function createTask(payload: TaskInput) {
   return taskId;
 }
 
-export async function updateTask(taskId: string, payload: Partial<TaskInput>) {
-  const ref = orgCollection('tasks').doc(taskId);
+export async function updateTask(taskId: string, payload: Partial<TaskInput>, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('Task not found');
   const normalizedPayload: Partial<TaskInput> = { ...payload };
@@ -303,8 +308,9 @@ export async function updateTask(taskId: string, payload: Partial<TaskInput>) {
   });
 }
 
-export async function moveTaskDates(taskId: string, payload: { 予定開始日?: string | null; 期限?: string | null }) {
-  const ref = orgCollection('tasks').doc(taskId);
+export async function moveTaskDates(taskId: string, payload: { 予定開始日?: string | null; 期限?: string | null }, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('Task not found');
   const base = snapshot.data() as TaskInput;
@@ -324,8 +330,9 @@ export async function moveTaskDates(taskId: string, payload: { 予定開始日?:
   });
 }
 
-export async function completeTask(taskId: string, done: boolean) {
-  const ref = orgCollection('tasks').doc(taskId);
+export async function completeTask(taskId: string, done: boolean, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('Task not found');
   const data = snapshot.data() as TaskInput;
@@ -339,7 +346,7 @@ export async function completeTask(taskId: string, done: boolean) {
   } else {
     payload.progress = STATUS_PROGRESS[newStatus] ?? 0;
   }
-  await updateTask(taskId, payload);
+  await updateTask(taskId, payload, orgId);
 }
 
 export async function importSnapshot(payload: SnapshotPayload) {
