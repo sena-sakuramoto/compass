@@ -2055,6 +2055,7 @@ function SchedulePage({
         <NewGanttChart
           tasks={newGanttTasks}
           interactive={true}
+          projectMap={projectMap}
           onTaskClick={(task) => {
             console.log('Task clicked:', task);
           }}
@@ -2857,40 +2858,38 @@ function App() {
       taskId: string,
       payload: { start: string; end: string; kind: 'move' | 'resize-start' | 'resize-end' }
     ) => {
-      const previous = state.tasks.find((task) => task.id === taskId);
-      if (!previous) return;
-      const previousSnapshot = { ...previous };
-      const updates = {
-        start: payload.start,
-        end: payload.end,
-        予定開始日: payload.start,
-        期限: payload.end,
-        duration_days: calculateDuration(payload.start, payload.end),
-      } as Partial<Task>;
-
-      setState((current) => ({
-        ...current,
-        tasks: current.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
-      }));
-
       try {
         if (!canSync) {
+          // ローカルモード：即座にstateを更新
+          setState((current) => {
+            const updates = {
+              start: payload.start,
+              end: payload.end,
+              予定開始日: payload.start,
+              期限: payload.end,
+              duration_days: calculateDuration(payload.start, payload.end),
+            } as Partial<Task>;
+            return {
+              ...current,
+              tasks: current.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
+            };
+          });
           pushToast({ tone: 'success', title: 'スケジュールを更新しました（ローカル保存）' });
           return;
         }
+
+        // APIモード：先にAPIを呼び出し、成功したらリロード
         await moveTaskDates(taskId, { 予定開始日: payload.start, 期限: payload.end });
         pushToast({ tone: 'success', title: 'スケジュールを更新しました' });
+
+        // リロードイベントを発火（useSnapshotがデータを再取得する）
         window.dispatchEvent(new CustomEvent('snapshot:reload'));
       } catch (error) {
         console.error(error);
-        setState((current) => ({
-          ...current,
-          tasks: current.tasks.map((task) => (task.id === taskId ? previousSnapshot : task)),
-        }));
         pushToast({ tone: 'error', title: 'スケジュールの更新に失敗しました' });
       }
     },
-    [canSync, setState, state.tasks]
+    [canSync, setState]
   );
 
   const handleSeedReminders = useCallback(

@@ -9,6 +9,7 @@ interface GanttTaskListProps {
   onTaskClick?: (task: GanttTask) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
   scrollTop?: number;
+  projectMap?: Record<string, { ステータス?: string; [key: string]: any }>;
 }
 
 export const GanttTaskList: React.FC<GanttTaskListProps> = ({
@@ -16,18 +17,21 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   rowHeight,
   onTaskClick,
   onTaskToggleComplete,
-  scrollTop = 0
+  scrollTop = 0,
+  projectMap = {}
 }) => {
   // プロジェクトごとにグループ化
-  const projectGroups: { projectId: string; projectName: string; tasks: GanttTask[] }[] = [];
+  const projectGroups: { projectId: string; projectName: string; projectStatus?: string; tasks: GanttTask[] }[] = [];
   let currentProjectId: string | null = null;
 
   tasks.forEach(task => {
     if (task.projectId !== currentProjectId) {
       currentProjectId = task.projectId;
+      const project = projectMap[task.projectId];
       projectGroups.push({
         projectId: task.projectId,
         projectName: task.projectName,
+        projectStatus: project?.ステータス,
         tasks: []
       });
     }
@@ -49,8 +53,19 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
         {projectGroups.map((group) => (
           <div key={group.projectId}>
             {/* プロジェクトヘッダー（タイムラインと同じ32px） */}
-            <div className="bg-slate-100/50 border-b border-slate-200 flex items-center px-4 sticky z-10" style={{ height: '32px' }}>
+            <div className="bg-slate-100/50 border-b border-slate-200 flex items-center justify-between px-4 sticky z-10" style={{ height: '32px' }}>
               <span className="text-xs font-semibold text-slate-700">{group.projectName}</span>
+              {group.projectStatus && (
+                <span className={`text-xs px-2 py-0.5 rounded ${
+                  group.projectStatus === '施工中' || group.projectStatus === '工事中'
+                    ? 'bg-blue-100 text-blue-700'
+                    : group.projectStatus === '完了'
+                    ? 'bg-green-100 text-green-700'
+                    : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {group.projectStatus}
+                </span>
+              )}
             </div>
 
             {/* プロジェクト内のタスク */}

@@ -17,6 +17,7 @@ interface GanttChartProps {
   onTaskSave?: (task: GanttTask) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
   initialViewMode?: ViewMode;
+  projectMap?: Record<string, { ステータス?: string; [key: string]: any }>;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -27,7 +28,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onTaskCopy,
   onTaskSave,
   onTaskToggleComplete,
-  initialViewMode = 'day'
+  initialViewMode = 'day',
+  projectMap
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -231,6 +233,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             onTaskClick={handleTaskClickInternal}
             onTaskToggleComplete={onTaskToggleComplete}
             scrollTop={scrollTop}
+            projectMap={projectMap}
           />
         </div>
 

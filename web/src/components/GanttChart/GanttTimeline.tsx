@@ -74,17 +74,28 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
   };
 
-  // Alt+スクロールでズーム
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.altKey && onZoom) {
-      e.preventDefault();
-      if (e.deltaY < 0) {
-        onZoom('in');
-      } else {
-        onZoom('out');
+  // Alt+スクロールでズーム（useEffectでネイティブリスナーを追加）
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element || !onZoom) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.altKey) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          onZoom('in');
+        } else {
+          onZoom('out');
+        }
       }
-    }
-  };
+    };
+
+    // passive: falseを明示的に指定してpreventDefaultを使用可能に
+    element.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      element.removeEventListener('wheel', handleWheel);
+    };
+  }, [onZoom]);
 
   // 範囲選択開始
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -308,7 +319,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [isSelecting, selectionStart, selectionEnd]);
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-auto" onScroll={handleScroll} onWheel={handleWheel}>
+    <div ref={scrollRef} className="flex-1 overflow-auto" onScroll={handleScroll}>
       <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
         {/* 時間軸 */}
         <div className="sticky top-0 z-10 bg-white">
