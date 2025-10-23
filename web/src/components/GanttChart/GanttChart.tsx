@@ -44,8 +44,18 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   // 行の高さ
   const rowHeight = 48;
 
-  // 日付範囲を計算
-  const dateRange = useMemo(() => calculateDateRange(tasks), [tasks]);
+  // 日付範囲を計算（安定した範囲を維持）
+  const [dateRange, setDateRange] = useState(() => calculateDateRange(tasks));
+
+  // タスクが変更されたときに日付範囲を更新（拡張のみ、縮小しない）
+  useEffect(() => {
+    const newRange = calculateDateRange(tasks, dateRange);
+    // 範囲が実際に変更された場合のみ更新
+    if (newRange.start.getTime() !== dateRange.start.getTime() ||
+        newRange.end.getTime() !== dateRange.end.getTime()) {
+      setDateRange(newRange);
+    }
+  }, [tasks]);
 
   // 日付軸のティックを計算
   const ticks = useMemo(

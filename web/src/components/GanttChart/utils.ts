@@ -14,7 +14,10 @@ export const STATUS_COLORS: Record<TaskStatus, string> = {
 };
 
 // 日付範囲の計算
-export function calculateDateRange(tasks: GanttTask[]): { start: Date; end: Date } {
+export function calculateDateRange(
+  tasks: GanttTask[],
+  previousRange?: { start: Date; end: Date }
+): { start: Date; end: Date } {
   if (tasks.length === 0) {
     const today = new Date();
     return { start: startOfDay(today), end: endOfDay(addDays(today, 30)) };
@@ -25,10 +28,18 @@ export function calculateDateRange(tasks: GanttTask[]): { start: Date; end: Date
   const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
 
   // 前後に余裕を持たせる
-  return {
-    start: startOfDay(addDays(minDate, -7)),
-    end: endOfDay(addDays(maxDate, 7))
-  };
+  const newStart = startOfDay(addDays(minDate, -7));
+  const newEnd = endOfDay(addDays(maxDate, 7));
+
+  // 既存の範囲がある場合は、それを拡張するだけ（縮小しない）
+  if (previousRange) {
+    return {
+      start: newStart < previousRange.start ? newStart : previousRange.start,
+      end: newEnd > previousRange.end ? newEnd : previousRange.end
+    };
+  }
+
+  return { start: newStart, end: newEnd };
 }
 
 // 日付軸のティックを計算
