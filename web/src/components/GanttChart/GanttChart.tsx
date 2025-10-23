@@ -8,16 +8,24 @@ import { TaskEditModal } from './TaskEditModal';
 import type { GanttTask, ViewMode } from './types';
 import { calculateDateRange, calculateDateTicks } from './utils';
 
+interface Person {
+  id: string;
+  氏名: string;
+  メール?: string;
+  [key: string]: any;
+}
+
 interface GanttChartProps {
   tasks: GanttTask[];
   interactive?: boolean;
   onTaskClick?: (task: GanttTask) => void;
   onTaskUpdate?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onTaskCopy?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
-  onTaskSave?: (task: GanttTask) => void;
+  onTaskSave?: (task: GanttTask & { assigneeEmail?: string }) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
   initialViewMode?: ViewMode;
   projectMap?: Record<string, { ステータス?: string; [key: string]: any }>;
+  people?: Person[];
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -29,7 +37,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onTaskSave,
   onTaskToggleComplete,
   initialViewMode = 'day',
-  projectMap
+  projectMap,
+  people = []
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -273,6 +282,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       <TaskEditModal
         task={selectedTask}
         allTasks={tasks}
+        people={people}
         onClose={handleModalClose}
         onSave={handleTaskSaveInternal}
       />

@@ -9,30 +9,56 @@ import type { GanttTask } from './types';
 // 日本語ロケールを登録
 registerLocale('ja', ja);
 
+interface Person {
+  id: string;
+  氏名: string;
+  メール?: string;
+  [key: string]: any;
+}
+
 interface TaskEditModalProps {
   task: GanttTask | null;
   allTasks: GanttTask[];
+  people?: Person[];
   onClose: () => void;
-  onSave: (task: GanttTask) => void;
+  onSave: (task: GanttTask & { assigneeEmail?: string }) => void;
 }
 
 export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   task,
   allTasks,
+  people = [],
   onClose,
   onSave
 }) => {
   const [editedTask, setEditedTask] = useState<GanttTask | null>(task);
+  const [assigneeEmail, setAssigneeEmail] = useState('');
 
   useEffect(() => {
     setEditedTask(task);
-  }, [task]);
+    // 初期化時に担当者から自動的にメールアドレスを取得
+    if (task?.assignee && people.length > 0) {
+      const person = people.find((p) => p.氏名 === task.assignee);
+      setAssigneeEmail(person?.メール || '');
+    }
+  }, [task, people]);
+
+  // 担当者が変更されたら、自動的にメールアドレスを補完
+  useEffect(() => {
+    if (!editedTask?.assignee) {
+      setAssigneeEmail('');
+      return;
+    }
+    const person = people.find((p) => p.氏名 === editedTask.assignee);
+    setAssigneeEmail(person?.メール || '');
+  }, [editedTask?.assignee, people]);
 
   if (!task || !editedTask) return null;
 
   const handleSave = () => {
     console.log('TaskEditModal handleSave called with:', editedTask);
-    onSave(editedTask);
+    // 担当者メールも含めて保存
+    onSave({ ...editedTask, assigneeEmail });
     onClose();
   };
 
@@ -131,12 +157,32 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
             <label className="block text-sm font-medium text-slate-700 mb-2">
               担当者
             </label>
-            <input
-              type="text"
-              value={editedTask.assignee}
-              onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
+            {people.length > 0 ? (
+              <select
+                value={editedTask.assignee}
+                onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">選択してください</option>
+                {people.map((person) => (
+                  <option key={person.id} value={person.氏名}>
+                    {person.氏名}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={editedTask.assignee}
+                onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            )}
+            {assigneeEmail && (
+              <p className="mt-1 text-xs text-slate-500">
+                メール: {assigneeEmail}
+              </p>
+            )}
           </div>
 
           {/* 進捗率 */}

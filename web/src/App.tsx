@@ -1709,6 +1709,7 @@ function SchedulePage({
   projects,
   onTaskDateChange,
   onTaskAssigneeChange,
+  onTaskUpdate,
   onOpenTask,
   onOpenProject,
   onOpenPerson,
@@ -1725,6 +1726,7 @@ function SchedulePage({
   projects: Project[];
   onTaskDateChange?: (taskId: string, payload: { start: string; end: string; kind: 'move' | 'resize-start' | 'resize-end' }) => void;
   onTaskAssigneeChange?: (taskId: string, assignee: string) => void;
+  onTaskUpdate?: (taskId: string, updates: Partial<Task>) => void;
   onOpenTask(): void;
   onOpenProject(): void;
   onOpenPerson(): void;
@@ -2056,14 +2058,18 @@ function SchedulePage({
           tasks={newGanttTasks}
           interactive={true}
           projectMap={projectMap}
+          people={people}
           onTaskClick={(task) => {
-            console.log('Task clicked:', task);
+            // タスククリックで編集モーダルを開く
+            // Gantt内のモーダルが開くので、ここでは何もしない
           }}
           onTaskToggleComplete={(task) => {
             // チェックボックスで完了状態をトグル
             const isCompleted = task.status === 'completed';
             const newStatus = isCompleted ? '進行中' : '完了';
-            updateTask(task.id, { ステータス: newStatus });
+            if (onTaskUpdate) {
+              onTaskUpdate(task.id, { ステータス: newStatus });
+            }
           }}
           onTaskUpdate={(task, newStartDate, newEndDate) => {
             const startStr = formatDate(newStartDate);
@@ -2131,6 +2137,7 @@ function SchedulePage({
                 予定開始日: formatDate(updatedTask.startDate),
                 期限: formatDate(updatedTask.endDate),
                 担当者: updatedTask.assignee,
+                担当者メール: updatedTask.assigneeEmail || '', // 担当者メールも保存
                 ステータス: statusJa,
                 進捗率: updatedTask.progress,
                 '依存タスク': updatedTask.dependencies || [],
@@ -2138,8 +2145,10 @@ function SchedulePage({
 
               console.log('Updates to apply:', updates);
 
-              // updateTaskコールバックに委譲
-              updateTask(updatedTask.id, updates);
+              // onTaskUpdateコールバックに委譲
+              if (onTaskUpdate) {
+                onTaskUpdate(updatedTask.id, updates);
+              }
             }}
           />
       </section>
@@ -3010,6 +3019,7 @@ function App() {
                 projects={state.projects}
                 onTaskDateChange={handleTaskDateChange}
                 onTaskAssigneeChange={handleTaskAssigneeChange}
+                onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
@@ -3070,6 +3080,7 @@ function App() {
                 projects={state.projects}
                 onTaskDateChange={handleTaskDateChange}
                 onTaskAssigneeChange={handleTaskAssigneeChange}
+                onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => setProjectModalOpen(true)}
                 onOpenPerson={() => setPersonModalOpen(true)}
