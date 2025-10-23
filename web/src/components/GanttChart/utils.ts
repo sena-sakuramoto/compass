@@ -149,7 +149,11 @@ export function calculateTodayPosition(
 
   const totalDays = differenceInDays(dateRange.end, dateRange.start);
   const daysFromStart = differenceInDays(today, dateRange.start);
-  return (daysFromStart / totalDays) * containerWidth;
+  const dayWidth = containerWidth / totalDays;
+
+  // 本日の日付の左端（始まり）に配置
+  // タスクバーと同様に4pxのpaddingを考慮
+  return daysFromStart * dayWidth + 4;
 }
 
 // 期限超過かどうかを判定
