@@ -80,9 +80,56 @@ export interface Counter {
   value: number;
 }
 
+// ユーザーの組織アクセス権限
+export interface UserOrgAccess {
+  role: 'owner' | 'admin' | 'member' | 'guest';
+  joinedAt: FirebaseFirestore.Timestamp;
+  invitedBy?: string | null; // userId of inviter
+  accessLevel: 'full' | 'project-specific';
+  projects?: string[]; // projectIds if project-specific
+}
+
+// ユーザー情報（Firestoreのusersコレクション）
+export interface User {
+  email: string;
+  displayName?: string | null;
+  orgId: string; // Primary/current organization
+  organizations?: Record<string, UserOrgAccess>; // All organizations user belongs to
+  canCreateOrg?: boolean; // Only true if invited by owner
+  createdAt: FirebaseFirestore.Timestamp;
+  updatedAt: FirebaseFirestore.Timestamp;
+}
+
+// プロジェクト招待
+export interface ProjectInvitation {
+  id: string;
+  email: string;
+  projectId: string;
+  projectName: string;
+  orgId: string;
+  orgName: string;
+  invitedBy: string; // userId
+  invitedByName: string;
+  invitedAt: FirebaseFirestore.Timestamp;
+  expiresAt: FirebaseFirestore.Timestamp;
+  role: 'member' | 'guest';
+  status: 'pending' | 'accepted' | 'declined' | 'expired';
+  acceptedAt?: FirebaseFirestore.Timestamp | null;
+  acceptedBy?: string | null; // userId
+  message?: string | null; // Optional welcome message
+}
+
+// タスク作成者追跡（編集権限チェック用）
+export interface TaskCreator {
+  taskId: string;
+  createdBy: string; // userId or email
+  createdByEmail: string;
+}
+
 // API用の入力型（createdAt/updatedAtなし）
 export type ProjectInput = Omit<Project, 'id' | 'createdAt' | 'updatedAt'>;
 export type TaskInput = Omit<Task, 'id' | 'createdAt' | 'updatedAt'>;
 export type PersonInput = Omit<Person, 'createdAt' | 'updatedAt'>;
 export type JobInput = Omit<Job, 'id' | 'state' | 'createdAt' | 'updatedAt'>;
+export type ProjectInvitationInput = Omit<ProjectInvitation, 'id' | 'invitedAt' | 'expiresAt' | 'status' | 'acceptedAt' | 'acceptedBy'>;
 

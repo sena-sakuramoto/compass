@@ -8,6 +8,8 @@ import {
   updateTask,
   moveTaskDates,
   TaskInput,
+  recordTaskCreator,
+  canEditTask,
 } from '../lib/firestore';
 import { enqueueNotificationSeed } from '../lib/jobs';
 import { listUserProjects } from '../lib/project-members';
@@ -119,6 +121,10 @@ router.post('/', async (req: any, res, next) => {
     }
 
     const id = await createTask(payload, user.orgId);
+
+    // タスク作成者を記録
+    await recordTaskCreator(id, user.email, user.orgId);
+
     res.status(201).json({ id });
   } catch (error) {
     next(error);
@@ -148,6 +154,12 @@ router.patch('/:id', async (req: any, res, next) => {
       if (!projectIds.includes(task.projectId)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
+    }
+
+    // タスク編集権限チェック（自分が作成したタスクのみ編集可能）
+    const hasEditPermission = await canEditTask(req.params.id, user.email, user.orgId);
+    if (!hasEditPermission) {
+      return res.status(403).json({ error: 'Forbidden: You can only edit tasks you created' });
     }
 
     await updateTask(req.params.id, payload, user.orgId);
@@ -223,6 +235,12 @@ router.post('/:id/move', async (req: any, res, next) => {
       if (!projectIds.includes(task.projectId)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
+    }
+
+    // タスク編集権限チェック（自分が作成したタスクのみ移動可能）
+    const hasEditPermission = await canEditTask(req.params.id, user.email, user.orgId);
+    if (!hasEditPermission) {
+      return res.status(403).json({ error: 'Forbidden: You can only move tasks you created' });
     }
 
     await moveTaskDates(req.params.id, payload, user.orgId);

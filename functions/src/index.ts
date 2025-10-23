@@ -11,6 +11,7 @@ import jobsRouter from './api/jobs';
 import settingsRouter from './api/settings';
 import usersRouter from './api/users-api';
 import projectMembersRouter from './api/project-members-api';
+import invitationsRouter from './api/invitations';
 import { processPendingJobs } from './lib/jobProcessor';
 
 const app = express();
@@ -49,6 +50,7 @@ app.use('/api/calendar', calendarRouter);
 app.use('/api/jobs', jobsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/invitations', invitationsRouter);
 app.use('/api', projectMembersRouter);
 app.use('/api', excelRouter);
 

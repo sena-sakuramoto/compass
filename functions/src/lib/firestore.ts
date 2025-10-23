@@ -527,3 +527,231 @@ export interface SnapshotPayload {
   tasks?: TaskInput[];
   people?: PersonDoc[];
 }
+
+// ==================== Invitation Functions ====================
+
+import type { User, ProjectInvitation, ProjectInvitationInput, TaskCreator, UserOrgAccess } from './types';
+
+/**
+ * ユーザー情報を取得
+ */
+export async function getUser(uid: string): Promise<User | null> {
+  const doc = await db.collection('users').doc(uid).get();
+  if (!doc.exists) return null;
+  const data = doc.data();
+  if (!data) return null;
+  return data as User;
+}
+
+/**
+ * ユーザー情報を作成または更新
+ */
+export async function upsertUser(uid: string, data: Partial<User>): Promise<void> {
+  const ref = db.collection('users').doc(uid);
+  const doc = await ref.get();
+
+  if (doc.exists) {
+    await ref.update({
+      ...data,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } else {
+    await ref.set({
+      email: data.email || '',
+      orgId: data.orgId || ORG_ID,
+      organizations: data.organizations || {},
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      ...data,
+    });
+  }
+}
+
+/**
+ * プロジェクト招待を作成
+ */
+export async function createInvitation(
+  input: ProjectInvitationInput,
+  orgId?: string
+): Promise<string> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('invitations').doc();
+
+  await ref.set({
+    ...input,
+    invitedAt: admin.firestore.FieldValue.serverTimestamp(),
+    expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    status: 'pending',
+  });
+
+  return ref.id;
+}
+
+/**
+ * 招待一覧を取得
+ */
+export async function listInvitations(orgId?: string): Promise<ProjectInvitation[]> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const snap = await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('invitations')
+    .orderBy('invitedAt', 'desc')
+    .get();
+
+  return snap.docs.map((doc) => serialize<ProjectInvitation>(doc));
+}
+
+/**
+ * 招待を取得
+ */
+export async function getInvitation(invitationId: string, orgId?: string): Promise<ProjectInvitation | null> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const doc = await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('invitations')
+    .doc(invitationId)
+    .get();
+
+  if (!doc.exists) return null;
+  const data = doc.data();
+  if (!data) return null;
+
+  // Manually serialize with type conversion
+  return {
+    ...data,
+    id: doc.id,
+    invitedAt: data.invitedAt instanceof admin.firestore.Timestamp ? data.invitedAt.toDate().toISOString() : data.invitedAt,
+    expiresAt: data.expiresAt instanceof admin.firestore.Timestamp ? data.expiresAt.toDate().toISOString() : data.expiresAt,
+    acceptedAt: data.acceptedAt instanceof admin.firestore.Timestamp ? data.acceptedAt?.toDate().toISOString() : data.acceptedAt,
+  } as ProjectInvitation;
+}
+
+/**
+ * 招待を承認
+ */
+export async function acceptInvitation(
+  invitationId: string,
+  userId: string,
+  orgId?: string
+): Promise<void> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const invitationRef = db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('invitations')
+    .doc(invitationId);
+
+  const invitation = await invitationRef.get();
+  if (!invitation.exists) {
+    throw new Error('Invitation not found');
+  }
+
+  const invData = invitation.data() as ProjectInvitation;
+
+  // Check if expired
+  if (invData.expiresAt.toMillis() < Date.now()) {
+    await invitationRef.update({ status: 'expired' });
+    throw new Error('Invitation has expired');
+  }
+
+  // Update invitation status
+  await invitationRef.update({
+    status: 'accepted',
+    acceptedAt: admin.firestore.FieldValue.serverTimestamp(),
+    acceptedBy: userId,
+  });
+
+  // Update user's organizations
+  const userRef = db.collection('users').doc(userId);
+  const orgAccess: UserOrgAccess = {
+    role: invData.role === 'guest' ? 'guest' : 'member',
+    joinedAt: admin.firestore.Timestamp.now(),
+    invitedBy: invData.invitedBy,
+    accessLevel: 'project-specific',
+    projects: [invData.projectId],
+  };
+
+  await userRef.update({
+    [`organizations.${targetOrgId}`]: orgAccess,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * 招待を拒否
+ */
+export async function declineInvitation(invitationId: string, orgId?: string): Promise<void> {
+  const targetOrgId = orgId ?? ORG_ID;
+  await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('invitations')
+    .doc(invitationId)
+    .update({ status: 'declined' });
+}
+
+/**
+ * 招待を削除（キャンセル）
+ */
+export async function deleteInvitation(invitationId: string, orgId?: string): Promise<void> {
+  const targetOrgId = orgId ?? ORG_ID;
+  await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('invitations')
+    .doc(invitationId)
+    .delete();
+}
+
+/**
+ * タスク作成者を記録
+ */
+export async function recordTaskCreator(
+  taskId: string,
+  creatorEmail: string,
+  orgId?: string
+): Promise<void> {
+  const targetOrgId = orgId ?? ORG_ID;
+  await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('taskCreators')
+    .doc(taskId)
+    .set({
+      taskId,
+      createdBy: creatorEmail,
+      createdByEmail: creatorEmail,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+}
+
+/**
+ * タスク作成者を取得
+ */
+export async function getTaskCreator(taskId: string, orgId?: string): Promise<TaskCreator | null> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const doc = await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('taskCreators')
+    .doc(taskId)
+    .get();
+
+  if (!doc.exists) return null;
+  return doc.data() as TaskCreator;
+}
+
+/**
+ * ユーザーがタスクを編集可能かチェック
+ */
+export async function canEditTask(
+  taskId: string,
+  userEmail: string,
+  orgId?: string
+): Promise<boolean> {
+  const creator = await getTaskCreator(taskId, orgId);
+  if (!creator) return true; // 作成者が記録されていない場合は編集可能（後方互換性）
+  return creator.createdByEmail === userEmail;
+}
