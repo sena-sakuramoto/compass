@@ -33,7 +33,13 @@
       "Bash(firebase functions:list)",
       "Bash(firebase firestore:indexes)",
       "Bash(cat .env)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(node scripts/migrate-projects.js:*)",
+      "Bash(node:*)",
+      "Bash(firebase login:ci:*)",
+      "Bash(set GOOGLE_APPLICATION_CREDENTIALS=)",
+      "Bash(set FIRESTORE_EMULATOR_HOST=)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

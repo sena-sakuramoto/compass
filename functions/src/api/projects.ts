@@ -11,10 +11,8 @@ router.use(authMiddleware());
 
 router.get('/', async (req: any, res, next) => {
   try {
-    console.log('[GET /api/projects] req.uid:', req.uid);
     const user = await getUser(req.uid);
     if (!user) {
-      console.error('[GET /api/projects] User not found for uid:', req.uid);
       return res.status(401).json({ error: 'User not found' });
     }
 
