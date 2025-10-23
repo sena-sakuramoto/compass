@@ -79,12 +79,8 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   const handleMouseMove = (e: MouseEvent) => {
     if (!isDragging || !dragMode) return;
 
-    // スロットリング: 16ms（約60fps）ごとに更新
-    const now = Date.now();
-    if (now - lastUpdateTime.current < 16) {
-      return;
-    }
-    lastUpdateTime.current = now;
+    // requestAnimationFrameで滑らかなドラッグを実現
+    // スロットリングは削除して、常に最新の位置を反映
 
     const deltaX = e.clientX - dragStartX.current;
     const deltaDays = pixelsToDays(deltaX);
@@ -148,16 +144,12 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     const duration = differenceInDays(newEndDate, newStartDate) + 1;
     const dayWidth = containerWidth / totalDays;
 
-    let left: number;
-    let width: number;
+    // タスクバーの余白
+    const padding = 4;
 
-    if (duration === 1) {
-      left = startOffset * dayWidth;
-      width = dayWidth;
-    } else {
-      left = (startOffset + 0.5) * dayWidth;
-      width = (duration - 1) * dayWidth;
-    }
+    // 開始日の左端（少し余白を空ける）から終了日の右端までの範囲
+    const left = startOffset * dayWidth + padding;
+    const width = duration * dayWidth - padding * 2;
 
     setPreviewPosition({ left, width, top: position.top });
   };
