@@ -1,15 +1,30 @@
 import { useState, useEffect } from 'react';
 import { listUsers, updateUser, deactivateUser, activateUser, type User } from '../lib/api';
+import { listInvitations, createInvitation, deleteInvitation, type ProjectInvitation } from '../lib/invitations';
+import { InvitationModal } from './InvitationModal';
+import { InvitationList } from './InvitationList';
+import type { Project } from '../lib/types';
 
-export function UserManagement() {
+interface UserManagementProps {
+  projects?: Project[];
+}
+
+export function UserManagement({ projects = [] }: UserManagementProps) {
   const [users, setUsers] = useState<User[]>([]);
+  const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [invitationModalOpen, setInvitationModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'users' | 'invitations'>('users');
 
   useEffect(() => {
-    loadUsers();
+    loadData();
   }, []);
+
+  async function loadData() {
+    await Promise.all([loadUsers(), loadInvitations()]);
+  }
 
   async function loadUsers() {
     try {
@@ -22,6 +37,31 @@ export function UserManagement() {
       console.error('Failed to load users:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadInvitations() {
+    try {
+      const data = await listInvitations();
+      setInvitations(data);
+    } catch (err) {
+      console.error('Failed to load invitations:', err);
+    }
+  }
+
+  async function handleCreateInvitation(data: { email: string; projectId: string; role: 'member' | 'guest'; message?: string }) {
+    await createInvitation(data);
+    await loadInvitations();
+  }
+
+  async function handleDeleteInvitation(invitationId: string) {
+    if (!confirm('この招待を取り消しますか？')) return;
+    try {
+      await deleteInvitation(invitationId);
+      await loadInvitations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '削除に失敗しました');
+      console.error('Failed to delete invitation:', err);
     }
   }
 
@@ -77,12 +117,43 @@ export function UserManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-slate-900">人員管理</h2>
-        <div className="text-sm text-slate-500">
-          {users.length}人のユーザー
-        </div>
+        <button
+          onClick={() => setInvitationModalOpen(true)}
+          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700"
+        >
+          外部協力者を招待
+        </button>
       </div>
 
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      {/* タブ */}
+      <div className="border-b border-slate-200">
+        <nav className="flex gap-8">
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
+              activeTab === 'users'
+                ? 'border-teal-600 text-teal-600'
+                : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+            }`}
+          >
+            ユーザー ({users.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('invitations')}
+            className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
+              activeTab === 'invitations'
+                ? 'border-teal-600 text-teal-600'
+                : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+            }`}
+          >
+            招待 ({invitations.length})
+          </button>
+        </nav>
+      </div>
+
+      {/* タブコンテンツ */}
+      {activeTab === 'users' ? (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <table className="w-full">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
@@ -195,6 +266,20 @@ export function UserManagement() {
           </tbody>
         </table>
       </div>
+      ) : (
+        <InvitationList
+          invitations={invitations}
+          onDelete={handleDeleteInvitation}
+        />
+      )}
+
+      {/* 招待モーダル */}
+      <InvitationModal
+        open={invitationModalOpen}
+        projects={projects}
+        onClose={() => setInvitationModalOpen(false)}
+        onSubmit={handleCreateInvitation}
+      />
     </div>
   );
 }

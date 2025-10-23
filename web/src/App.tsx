@@ -3093,7 +3093,7 @@ function App() {
             }
           />
           <Route path="/workload" element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} />} />
-          <Route path="/users" element={<UserManagement />} />
+          <Route path="/users" element={<UserManagement projects={state.projects} />} />
         </Routes>
       </AppLayout>
       <TaskModal
