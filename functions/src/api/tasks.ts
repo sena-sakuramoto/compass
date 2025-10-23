@@ -37,7 +37,7 @@ router.get('/', async (req: any, res, next) => {
 
     // 管理者は全タスクを取得
     if (user.role === 'admin') {
-      const tasks = await listTasks(params);
+      const tasks = await listTasks({ ...params, orgId: user.orgId });
       res.json({ tasks });
       return;
     }
@@ -53,7 +53,7 @@ router.get('/', async (req: any, res, next) => {
       return;
     }
 
-    const tasks = await listTasks(params);
+    const tasks = await listTasks({ ...params, orgId: user.orgId });
 
     // ユーザーが参加しているプロジェクトのタスクのみフィルタ
     const filteredTasks = tasks.filter(task => projectIds.includes(task.projectId));
@@ -134,7 +134,7 @@ router.patch('/:id', async (req: any, res, next) => {
     }
 
     // タスクを取得してプロジェクトIDを確認
-    const tasks = await listTasks({});
+    const tasks = await listTasks({ orgId: user.orgId });
     const task = tasks.find(t => t.id === req.params.id);
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -168,7 +168,7 @@ router.post('/:id/complete', async (req: any, res, next) => {
     }
 
     // タスクを取得してプロジェクトIDを確認
-    const tasks = await listTasks({});
+    const tasks = await listTasks({ orgId: user.orgId });
     const task = tasks.find(t => t.id === req.params.id);
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -209,7 +209,7 @@ router.post('/:id/move', async (req: any, res, next) => {
     }
 
     // タスクを取得してプロジェクトIDを確認
-    const tasks = await listTasks({});
+    const tasks = await listTasks({ orgId: user.orgId });
     const task = tasks.find(t => t.id === req.params.id);
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });

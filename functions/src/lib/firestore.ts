@@ -72,8 +72,9 @@ function normalizeAssigneeEmail(value?: string | null): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-export async function listProjects() {
-  const snap = await orgCollection('projects').orderBy('updatedAt', 'desc').get();
+export async function listProjects(orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const snap = await db.collection('orgs').doc(targetOrgId).collection('projects').orderBy('updatedAt', 'desc').get();
   return snap.docs.map((doc) => serialize<ProjectDoc>(doc));
 }
 
@@ -83,8 +84,9 @@ export async function getProject(orgId: string, projectId: string) {
   return serialize<ProjectDoc>(doc as admin.firestore.QueryDocumentSnapshot);
 }
 
-export async function listPeople() {
-  const snap = await orgCollection('people').get();
+export async function listPeople(orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const snap = await db.collection('orgs').doc(targetOrgId).collection('people').get();
   return snap.docs.map((doc) => serialize<PersonDoc>(doc));
 }
 
@@ -98,8 +100,9 @@ export interface TaskListFilters {
   to?: string;
 }
 
-export async function listTasks(filters: TaskListFilters) {
-  let ref: FirebaseFirestore.Query = orgCollection('tasks');
+export async function listTasks(filters: TaskListFilters & { orgId?: string }) {
+  const targetOrgId = filters.orgId ?? ORG_ID;
+  let ref: FirebaseFirestore.Query = db.collection('orgs').doc(targetOrgId).collection('tasks');
   if (filters.projectId) ref = ref.where('projectId', '==', filters.projectId);
   if (filters.assignee) ref = ref.where('assignee', '==', filters.assignee);
   if (filters.status) ref = ref.where('ステータス', '==', filters.status);

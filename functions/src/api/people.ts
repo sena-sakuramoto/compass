@@ -2,14 +2,20 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
 import { listPeople, createPerson, PersonInput } from '../lib/firestore';
+import { getUser } from '../lib/users';
 
 const router = Router();
 
 router.use(authMiddleware());
 
-router.get('/', async (_req, res, next) => {
+router.get('/', async (req: any, res, next) => {
   try {
-    const people = await listPeople();
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const people = await listPeople(user.orgId);
     res.json({ people });
   } catch (error) {
     next(error);

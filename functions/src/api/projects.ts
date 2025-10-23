@@ -18,7 +18,7 @@ router.get('/', async (req: any, res, next) => {
 
     // 管理者は全プロジェクトを取得
     if (user.role === 'admin') {
-      const projects = await listProjects();
+      const projects = await listProjects(user.orgId);
       res.json({ projects });
       return;
     }
