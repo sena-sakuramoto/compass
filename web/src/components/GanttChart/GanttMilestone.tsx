@@ -31,11 +31,14 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
     }
   };
 
+  // マイルストーンは列の中央に配置
+  const centerLeft = position.left + position.width / 2 - milestoneSize / 2;
+
   return (
     <div
       className="absolute group"
       style={{
-        left: `${position.left}px`,
+        left: `${centerLeft}px`,
         width: `${milestoneSize}px`,
         top: `${milestoneTop}px`,
         height: `${milestoneSize}px`,
