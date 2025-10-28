@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Full-height layout */
+html, body, #root {
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 /* React DatePicker styles */
 @import 'react-datepicker/dist/react-datepicker.css';
 

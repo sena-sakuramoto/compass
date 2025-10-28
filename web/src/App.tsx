@@ -181,10 +181,10 @@ function AppLayout({
   const offline = !authSupported || !user;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="h-screen flex flex-col bg-slate-50">
       <Sidebar />
-      <div className="lg:pl-64">
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
+      <div className="flex-1 flex flex-col lg:pl-64 min-h-0">
+        <header className="flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2 lg:px-8">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div className="lg:ml-0">
@@ -247,11 +247,11 @@ function AppLayout({
           ) : null}
         </header>
         {offline ? (
-          <div className="border-b border-slate-200 bg-slate-100/80">
+          <div className="flex-shrink-0 border-b border-slate-200 bg-slate-100/80">
             <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
           </div>
         ) : null}
-        <main className="mx-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8 max-w-full">{children}</main>
+        <main className="flex-1 min-h-0 overflow-hidden mx-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8 max-w-full">{children}</main>
         <BottomBar
           onOpenTask={onOpenTask}
           onOpenProject={onOpenProject}
@@ -1961,17 +1961,6 @@ function SchedulePage({
     return chips;
   }, [filtersProps]);
 
-  const [viewportHeight, setViewportHeight] = useState(() =>
-    typeof window !== 'undefined' ? window.innerHeight : 1080
-  );
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handleResize = () => setViewportHeight(window.innerHeight);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   // 新しいGanttChartのためのデータ変換
   const newGanttTasks = useMemo((): GanttTask[] => {
     // プロジェクトごとの進捗率を計算
@@ -2097,18 +2086,8 @@ function SchedulePage({
     return sortedTasks;
   }, [filteredTasks, projectMap]);
 
-  const ganttChartHeight = useMemo(() => {
-    const baseHeight = 460;
-    const rowHeight = 40;
-    const headerBuffer = 150;
-    const taskCount = newGanttTasks.length;
-    const calculatedHeight = taskCount > 0 ? taskCount * rowHeight + headerBuffer : baseHeight;
-    const maxHeight = viewportHeight * 0.8;
-    return Math.max(baseHeight, Math.min(calculatedHeight, maxHeight));
-  }, [newGanttTasks.length, viewportHeight]);
-
   return (
-    <div className="flex flex-col gap-2">
+    <div className="h-full flex flex-col gap-2 min-h-0">
       {/* 極小ヘッダー - フィルター統合 */}
       <section className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm flex-shrink-0">
         <div className="flex flex-col gap-1.5">
@@ -2170,10 +2149,9 @@ function SchedulePage({
         </div>
       )}
 
-      {/* ガントチャート - タスク数に応じた動的高さ */}
+      {/* ガントチャート - 利用可能な高さいっぱいに表示 */}
       <section
-        className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
-        style={{ minHeight: 460, height: ganttChartHeight }}
+        className="flex-1 min-h-0 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
       >
         <NewGanttChart
           tasks={newGanttTasks}
