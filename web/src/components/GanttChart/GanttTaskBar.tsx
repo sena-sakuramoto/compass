@@ -54,8 +54,13 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
   // ピクセルから日数への変換
   const pixelsToDays = (pixels: number): number => {
-    const totalDays = differenceInDays(dateRange.end, dateRange.start);
-    return Math.round((pixels / containerWidth) * totalDays);
+    // 表示列数は ticks.length と一致させるため +1 日の inclusive 幅にする
+    const rangeStart = new Date(dateRange.start);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(dateRange.end);
+    rangeEnd.setHours(0, 0, 0, 0);
+    const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
+    return Math.round((pixels / containerWidth) * totalDaysInclusive);
   };
 
   // ドラッグ開始
@@ -152,15 +157,22 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     pendingEndDate.current = newEndDate;
 
     // プレビュー用の位置を計算
-    const totalDays = differenceInDays(dateRange.end, dateRange.start);
+    // 表示列数は ticks.length と一致させるため +1 日の inclusive 幅にする
+    const rangeStart = new Date(dateRange.start);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(dateRange.end);
+    rangeEnd.setHours(0, 0, 0, 0);
+    const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
+    const dayWidth = containerWidth / totalDaysInclusive;
+
     const startOffset = differenceInDays(newStartDate, dateRange.start);
     const duration = differenceInDays(newEndDate, newStartDate);
-    const dayWidth = containerWidth / totalDays;
 
     // 日の境界線を基準にバーを配置（utilsと同じロジック）
     // 開始日の0時（左境界）から終了日の24時（右境界）まで
     const left = startOffset * dayWidth;
-    const width = (duration + 1) * dayWidth;
+    // 右端の1px食い込み防止: -1 で次の列に踏み出さないようにする
+    const width = Math.max((duration + 1) * dayWidth - 1, 1);
 
     setPreviewPosition({ left, width, top: position.top });
   };

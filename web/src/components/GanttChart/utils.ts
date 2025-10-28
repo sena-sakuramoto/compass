@@ -91,21 +91,21 @@ export function calculateTaskBarPosition(
   const taskStart = startOfDay(task.startDate);
   const taskEnd = startOfDay(task.endDate);
   const rangeStart = startOfDay(dateRange.start);
+  const rangeEnd = startOfDay(dateRange.end);
 
-  const totalDays = differenceInDays(dateRange.end, dateRange.start);
+  // 表示列数は ticks.length と一致させるため +1 日の inclusive 幅にする
+  const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
+  const dayWidth = containerWidth / totalDaysInclusive;
+
   const startOffset = differenceInDays(taskStart, rangeStart);
   const duration = differenceInDays(taskEnd, taskStart);
-
-  const dayWidth = containerWidth / totalDays;
-
-  // タスクバーの余白（上下に少し空けるための垂直パディング）
-  const verticalPadding = 4; // 4pxの余白
 
   // 日の境界線を基準にバーを配置
   // 開始日の0時（左境界）から終了日の24時（右境界）まで
   // durationが0（同日開始・終了）の場合は1日分の幅
   const left = startOffset * dayWidth;
-  const width = (duration + 1) * dayWidth;
+  // 右端の1px食い込み防止: -1 で次の列に踏み出さないようにする
+  const width = Math.max((duration + 1) * dayWidth - 1, 1);
 
   const top = rowIndex * rowHeight;
 
@@ -116,6 +116,7 @@ export function calculateTaskBarPosition(
       startDate: taskStart.toISOString().split('T')[0],
       endDate: taskEnd.toISOString().split('T')[0],
       duration,
+      totalDaysInclusive,
       dayWidth,
       left,
       width,
@@ -132,10 +133,13 @@ export function pixelToDate(
   containerWidth: number,
   dateRange: { start: Date; end: Date }
 ): Date {
-  const totalDays = differenceInDays(dateRange.end, dateRange.start);
+  const rangeStart = startOfDay(dateRange.start);
+  const rangeEnd = startOfDay(dateRange.end);
+  // 表示列数は ticks.length と一致させるため +1 日の inclusive 幅にする
+  const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
   const ratio = pixelX / containerWidth;
-  const dayOffset = Math.round(ratio * totalDays);
-  return addDays(dateRange.start, dayOffset);
+  const dayOffset = Math.round(ratio * totalDaysInclusive);
+  return addDays(rangeStart, dayOffset);
 }
 
 // 日付から曜日を取得
@@ -159,17 +163,20 @@ export function calculateTodayPosition(
   containerWidth: number
 ): number | null {
   const today = startOfDay(new Date());
-  if (today < dateRange.start || today > dateRange.end) {
+  const rangeStart = startOfDay(dateRange.start);
+  const rangeEnd = startOfDay(dateRange.end);
+
+  if (today < rangeStart || today > rangeEnd) {
     return null;
   }
 
-  const totalDays = differenceInDays(dateRange.end, dateRange.start);
-  const daysFromStart = differenceInDays(today, dateRange.start);
-  const dayWidth = containerWidth / totalDays;
+  // 表示列数は ticks.length と一致させるため +1 日の inclusive 幅にする
+  const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
+  const daysFromStart = differenceInDays(today, rangeStart);
+  const dayWidth = containerWidth / totalDaysInclusive;
 
   // 本日の日付の左端（始まり）に配置
-  // タスクバーと同様に4pxのpaddingを考慮
-  return daysFromStart * dayWidth + 4;
+  return daysFromStart * dayWidth;
 }
 
 // 期限超過かどうかを判定
