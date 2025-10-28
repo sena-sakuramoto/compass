@@ -239,7 +239,8 @@ function sanitizeFieldNames(payload: Record<string, any>): Record<string, any> {
 export async function createProject(payload: ProjectInput, orgId?: string) {
   const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const projectId = payload.id ?? payload.ProjectID ?? (await generateProjectId());
+  // Always generate new ID to prevent accidental overwrites
+  const projectId = await generateProjectId();
   const docRef = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
   const sanitizedPayload = sanitizeFieldNames(payload);
   await docRef.set({
