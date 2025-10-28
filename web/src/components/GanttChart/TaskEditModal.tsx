@@ -148,6 +148,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                 inline={true}
                 monthsShown={1}
                 shouldCloseOnSelect={false}
+                calendarClassName="text-base"
               />
             </div>
           </div>
@@ -183,21 +184,6 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                 メール: {assigneeEmail}
               </p>
             )}
-          </div>
-
-          {/* 進捗率 */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              進捗率: {editedTask.progress}%
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={editedTask.progress}
-              onChange={(e) => setEditedTask({ ...editedTask, progress: parseInt(e.target.value) })}
-              className="w-full"
-            />
           </div>
 
           {/* ステータス */}

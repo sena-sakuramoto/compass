@@ -10,10 +10,10 @@ import {
   TaskInput,
   recordTaskCreator,
   canEditTask,
+  getUser,
 } from '../lib/firestore';
 import { enqueueNotificationSeed } from '../lib/jobs';
 import { listUserProjects } from '../lib/project-members';
-import { getUser } from '../lib/users';
 
 const router = Router();
 
@@ -38,14 +38,15 @@ router.get('/', async (req: any, res, next) => {
     }
 
     // 管理者は全タスクを取得
-    if (user.role === 'admin') {
+    const orgAccess = user.organizations?.[user.orgId];
+    if (orgAccess?.role === 'admin' || orgAccess?.role === 'owner') {
       const tasks = await listTasks({ ...params, orgId: user.orgId });
       res.json({ tasks });
       return;
     }
 
     // 一般ユーザーは参加しているプロジェクトのタスクのみ取得
-    const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
     const projectIds = userProjectMemberships.map(m => m.projectId);
 
     // プロジェクトIDでフィルタリング
@@ -100,19 +101,25 @@ const taskSchema = z.object({
   '依存タスク': z.array(z.string()).optional().nullable(),
   'カレンダーイベントID': z.string().optional().nullable(),
   '通知設定': notificationSchema,
+  マイルストーン: z.boolean().optional().nullable(),
 });
 
 router.post('/', async (req: any, res, next) => {
   try {
+    console.log('[POST /tasks] Request body:', JSON.stringify(req.body));
     const payload = taskSchema.parse(req.body) as TaskInput;
+    console.log('[POST /tasks] Parsed payload:', JSON.stringify(payload));
+    console.log('[POST /tasks] Payload has id?', 'id' in payload, 'TaskID' in payload);
+
     const user = await getUser(req.uid);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
 
     // 管理者以外はメンバーシップをチェック
-    if (user.role !== 'admin') {
-      const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+    const orgAccess = user.organizations?.[user.orgId];
+    if (orgAccess?.role !== 'admin' && orgAccess?.role !== 'owner') {
+      const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
       const projectIds = userProjectMemberships.map(m => m.projectId);
 
       if (!projectIds.includes(payload.projectId)) {
@@ -121,19 +128,23 @@ router.post('/', async (req: any, res, next) => {
     }
 
     const id = await createTask(payload, user.orgId);
+    console.log('[POST /tasks] Task created with ID:', id);
 
     // タスク作成者を記録
     await recordTaskCreator(id, user.email, user.orgId);
 
     res.status(201).json({ id });
   } catch (error) {
+    console.error('[POST /tasks] Error:', error);
     next(error);
   }
 });
 
 router.patch('/:id', async (req: any, res, next) => {
   try {
+    console.log('[PATCH /tasks/:id] Request body:', JSON.stringify(req.body));
     const payload = taskSchema.partial().parse(req.body) as Partial<TaskInput>;
+    console.log('[PATCH /tasks/:id] Parsed payload:', JSON.stringify(payload));
     const user = await getUser(req.uid);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
@@ -147,8 +158,9 @@ router.patch('/:id', async (req: any, res, next) => {
     }
 
     // 管理者以外はメンバーシップをチェック
-    if (user.role !== 'admin') {
-      const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+    const orgAccess = user.organizations?.[user.orgId];
+    if (orgAccess?.role !== 'admin' && orgAccess?.role !== 'owner') {
+      const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
       const projectIds = userProjectMemberships.map(m => m.projectId);
 
       if (!projectIds.includes(task.projectId)) {
@@ -156,10 +168,18 @@ router.patch('/:id', async (req: any, res, next) => {
       }
     }
 
-    // タスク編集権限チェック（自分が作成したタスクのみ編集可能）
-    const hasEditPermission = await canEditTask(req.params.id, user.email, user.orgId);
-    if (!hasEditPermission) {
-      return res.status(403).json({ error: 'Forbidden: You can only edit tasks you created' });
+    // タスク編集権限チェック
+    // 管理者とプロジェクトマネージャーは全てのタスクを編集可能
+    // それ以外は自分が作成したタスクのみ編集可能
+    // orgAccessは上で既に定義されている
+    // organizationsフィールドがない場合は後方互換性のため全員をadminとして扱う
+    const isAdminOrPM = !user.organizations || (orgAccess && (orgAccess.role === 'owner' || orgAccess.role === 'admin'));
+
+    if (!isAdminOrPM) {
+      const hasEditPermission = await canEditTask(req.params.id, user.email, user.orgId);
+      if (!hasEditPermission) {
+        return res.status(403).json({ error: 'Forbidden: You can only edit tasks you created' });
+      }
     }
 
     await updateTask(req.params.id, payload, user.orgId);
@@ -187,8 +207,9 @@ router.post('/:id/complete', async (req: any, res, next) => {
     }
 
     // 管理者以外はメンバーシップをチェック
-    if (user.role !== 'admin') {
-      const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+    const orgAccess = user.organizations?.[user.orgId];
+    if (orgAccess?.role !== 'admin' && orgAccess?.role !== 'owner') {
+      const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
       const projectIds = userProjectMemberships.map(m => m.projectId);
 
       if (!projectIds.includes(task.projectId)) {
@@ -228,8 +249,9 @@ router.post('/:id/move', async (req: any, res, next) => {
     }
 
     // 管理者以外はメンバーシップをチェック
-    if (user.role !== 'admin') {
-      const userProjectMemberships = await listUserProjects(user.orgId, user.id);
+    const orgAccess = user.organizations?.[user.orgId];
+    if (orgAccess?.role !== 'admin' && orgAccess?.role !== 'owner') {
+      const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
       const projectIds = userProjectMemberships.map(m => m.projectId);
 
       if (!projectIds.includes(task.projectId)) {
@@ -237,10 +259,19 @@ router.post('/:id/move', async (req: any, res, next) => {
       }
     }
 
-    // タスク編集権限チェック（自分が作成したタスクのみ移動可能）
-    const hasEditPermission = await canEditTask(req.params.id, user.email, user.orgId);
-    if (!hasEditPermission) {
-      return res.status(403).json({ error: 'Forbidden: You can only move tasks you created' });
+    // タスク編集権限チェック
+    // 管理者とプロジェクトマネージャーは全てのタスクを移動可能
+    // それ以外は自分が作成したタスクのみ移動可能
+    // orgAccessは上で既に定義されている
+    // organizationsフィールドがない場合は後方互換性のため全員をadminとして扱う
+    const isAdminOrPM = !user.organizations || (orgAccess && (orgAccess.role === 'owner' || orgAccess.role === 'admin'));
+
+    if (!isAdminOrPM) {
+      const hasEditPermission = await canEditTask(req.params.id, user.email, user.orgId);
+      if (!hasEditPermission) {
+        console.log(`[Task Move] User ${user.email} cannot edit task ${req.params.id}. orgAccess:`, orgAccess);
+        return res.status(403).json({ error: 'Forbidden: You can only move tasks you created' });
+      }
     }
 
     await moveTaskDates(req.params.id, payload, user.orgId);

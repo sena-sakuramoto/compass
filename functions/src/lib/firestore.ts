@@ -171,6 +171,16 @@ export async function listTasks(filters: TaskListFilters & { orgId?: string }) {
     });
   }
 
+  // デバッグ: マイルストーンフィールドを含むタスクをログ出力
+  const tasksWithMilestone = results.filter(t => t['マイルストーン'] !== undefined);
+  if (tasksWithMilestone.length > 0) {
+    console.log('[listTasks] Tasks with milestone field:', tasksWithMilestone.map(t => ({
+      id: t.id,
+      name: t.タスク名,
+      milestone: t['マイルストーン']
+    })));
+  }
+
   return results;
 }
 
@@ -188,18 +198,31 @@ async function generateProjectId() {
   return `P-${String(next).padStart(4, '0')}`;
 }
 
-async function generateTaskId() {
-  const snapshot = await orgCollection('tasks')
-    .orderBy(admin.firestore.FieldPath.documentId(), 'desc')
-    .limit(1)
-    .get();
-  let next = 1;
-  if (!snapshot.empty) {
-    const doc = snapshot.docs[0].id.replace(/^T/, '');
-    const parsed = parseInt(doc, 10);
-    if (!Number.isNaN(parsed)) next = parsed + 1;
-  }
-  return `T${String(next).padStart(3, '0')}`;
+async function generateTaskId(orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  // 全てのタスクを取得して、数値的に最大のIDを見つける
+  const snapshot = await db.collection('orgs').doc(targetOrgId).collection('tasks').get();
+  console.log('[generateTaskId] orgId:', targetOrgId, 'Total tasks found:', snapshot.size);
+  let maxNum = 0;
+
+  snapshot.docs.forEach(doc => {
+    const id = doc.id;
+    console.log('[generateTaskId] Checking task ID:', id);
+    if (id.startsWith('T')) {
+      const num = parseInt(id.replace(/^T/, ''), 10);
+      console.log('[generateTaskId] Parsed number:', num);
+      if (!Number.isNaN(num) && num > maxNum) {
+        maxNum = num;
+        console.log('[generateTaskId] New max:', maxNum);
+      }
+    }
+  });
+
+  const next = maxNum + 1;
+  console.log('[generateTaskId] Next task number:', next);
+  const result = `T${String(next).padStart(3, '0')}`;
+  console.log('[generateTaskId] Generated ID:', result);
+  return result;
 }
 
 // Sanitize field names: remove special characters that Firestore doesn't allow
@@ -260,14 +283,19 @@ export async function createPerson(payload: PersonInput, orgId?: string) {
 export async function createTask(payload: TaskInput, orgId?: string) {
   const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const taskId = payload.id ?? payload.TaskID ?? (await generateTaskId());
+  // 常に新しいタスクIDを生成（payloadのidは無視）
+  const taskId = await generateTaskId(targetOrgId);
   const docRef = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
   const notifications = normalizeNotificationSettings(payload['通知設定']);
   const dependencies = normalizeDependencies(payload['依存タスク']);
   const assigneeEmail = normalizeAssigneeEmail(payload.担当者メール);
   const derived = deriveTaskFields(payload);
+
+  // payloadからidとTaskIDを除外してから保存
+  const { id: _id, TaskID: _TaskID, ...cleanPayload } = payload as any;
+
   await docRef.set({
-    ...payload,
+    ...cleanPayload,
     '通知設定': notifications,
     '依存タスク': dependencies,
     担当者メール: assigneeEmail,
@@ -301,11 +329,22 @@ export async function updateTask(taskId: string, payload: Partial<TaskInput>, or
 
   const merged = { ...(snapshot.data() as TaskInput), ...normalizedPayload };
   const derived = deriveTaskFields(merged);
-  await ref.update({
+
+  const updateData = {
     ...normalizedPayload,
     ...derived,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  console.log('[updateTask] About to update with data:', {
+    taskId,
+    milestone_in_payload: payload['マイルストーン'],
+    milestone_in_normalized: normalizedPayload['マイルストーン'],
+    milestone_in_merged: merged['マイルストーン'],
+    milestone_in_updateData: updateData['マイルストーン']
   });
+
+  await ref.update(updateData);
 }
 
 export async function moveTaskDates(taskId: string, payload: { 予定開始日?: string | null; 期限?: string | null }, orgId?: string) {
@@ -497,6 +536,7 @@ export interface TaskInput {
   '依存タスク'?: string[] | null;
   'カレンダーイベントID'?: string | null;
   '通知設定'?: TaskNotificationSettings | null;
+  マイルストーン?: boolean | null;
 }
 
 export interface PersonInput {
@@ -536,6 +576,11 @@ import type { User, ProjectInvitation, ProjectInvitationInput, TaskCreator, User
  * ユーザー情報を取得
  */
 export async function getUser(uid: string): Promise<User | null> {
+  // uid が空の場合は null を返す
+  if (!uid || uid.trim() === '') {
+    console.error('getUser called with empty uid');
+    return null;
+  }
   const doc = await db.collection('users').doc(uid).get();
   if (!doc.exists) return null;
   const data = doc.data();

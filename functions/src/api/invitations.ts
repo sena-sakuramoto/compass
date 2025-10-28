@@ -27,6 +27,12 @@ router.get('/', async (req: any, res, next) => {
       return;
     }
 
+    // orgIdの存在チェック
+    if (!user.orgId) {
+      res.status(400).json({ error: 'User has no organization' });
+      return;
+    }
+
     // 管理者権限チェック
     const orgAccess = user.organizations?.[user.orgId];
     if (!orgAccess || (orgAccess.role !== 'owner' && orgAccess.role !== 'admin')) {
@@ -50,6 +56,12 @@ router.post('/', async (req: any, res, next) => {
     const user = await getUser(req.uid);
     if (!user) {
       res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    // orgIdの存在チェック
+    if (!user.orgId) {
+      res.status(400).json({ error: 'User has no organization' });
       return;
     }
 
@@ -116,6 +128,11 @@ router.get('/:id', async (req: any, res, next) => {
       return;
     }
 
+    if (!user.orgId) {
+      res.status(400).json({ error: 'User has no organization' });
+      return;
+    }
+
     const invitation = await getInvitation(req.params.id, user.orgId);
     if (!invitation) {
       res.status(404).json({ error: 'Invitation not found' });
@@ -147,6 +164,11 @@ router.post('/:id/accept', async (req: any, res, next) => {
     const user = await getUser(req.uid);
     if (!user) {
       res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    if (!user.orgId) {
+      res.status(400).json({ error: 'User has no organization' });
       return;
     }
 
@@ -194,6 +216,11 @@ router.post('/:id/decline', async (req: any, res, next) => {
       return;
     }
 
+    if (!user.orgId) {
+      res.status(400).json({ error: 'User has no organization' });
+      return;
+    }
+
     const invitation = await getInvitation(req.params.id, user.orgId);
     if (!invitation) {
       res.status(404).json({ error: 'Invitation not found' });
@@ -231,6 +258,11 @@ router.delete('/:id', async (req: any, res, next) => {
     const user = await getUser(req.uid);
     if (!user) {
       res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+
+    if (!user.orgId) {
+      res.status(400).json({ error: 'User has no organization' });
       return;
     }
 

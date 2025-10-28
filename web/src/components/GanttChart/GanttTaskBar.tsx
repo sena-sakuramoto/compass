@@ -60,7 +60,18 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
   // ドラッグ開始
   const handleMouseDown = (e: React.MouseEvent, mode: DragMode) => {
-    if (!interactive || (!onUpdate && !onCopy)) return;
+    console.log('[GanttTaskBar] handleMouseDown', {
+      interactive,
+      hasOnUpdate: !!onUpdate,
+      hasOnCopy: !!onCopy,
+      mode,
+      taskName: task.name
+    });
+
+    if (!interactive || (!onUpdate && !onCopy)) {
+      console.log('[GanttTaskBar] Drag disabled - interactive:', interactive, 'onUpdate:', !!onUpdate, 'onCopy:', !!onCopy);
+      return;
+    }
     e.stopPropagation();
 
     // Altキーが押されている場合はコピーモード
@@ -73,6 +84,8 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     dragStartX.current = e.clientX;
     originalStartDate.current = task.startDate;
     originalEndDate.current = task.endDate;
+
+    console.log('[GanttTaskBar] Drag started', { mode, taskName: task.name });
   };
 
   // ドラッグ中 - プレビューのみ更新、保存はしない
@@ -141,15 +154,13 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     // プレビュー用の位置を計算
     const totalDays = differenceInDays(dateRange.end, dateRange.start);
     const startOffset = differenceInDays(newStartDate, dateRange.start);
-    const duration = differenceInDays(newEndDate, newStartDate) + 1;
+    const duration = differenceInDays(newEndDate, newStartDate);
     const dayWidth = containerWidth / totalDays;
 
-    // タスクバーの余白
-    const padding = 4;
-
-    // 開始日の左端（少し余白を空ける）から終了日の右端までの範囲
-    const left = startOffset * dayWidth + padding;
-    const width = duration * dayWidth - padding * 2;
+    // 日の境界線を基準にバーを配置（utilsと同じロジック）
+    // 開始日の0時（左境界）から終了日の24時（右境界）まで
+    const left = startOffset * dayWidth;
+    const width = (duration + 1) * dayWidth;
 
     setPreviewPosition({ left, width, top: position.top });
   };
@@ -162,12 +173,24 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         pendingStartDate.current.getTime() !== originalStartDate.current.getTime() ||
         pendingEndDate.current.getTime() !== originalEndDate.current.getTime();
 
+      console.log('[GanttTaskBar] handleMouseUp', {
+        taskName: task.name,
+        hasChanged,
+        isCopyMode,
+        originalStart: originalStartDate.current.toISOString().split('T')[0],
+        originalEnd: originalEndDate.current.toISOString().split('T')[0],
+        newStart: pendingStartDate.current.toISOString().split('T')[0],
+        newEnd: pendingEndDate.current.toISOString().split('T')[0],
+      });
+
       if (hasChanged) {
         if (isCopyMode && onCopy) {
           // コピーモード：新しいタスクを作成
+          console.log('[GanttTaskBar] Calling onCopy');
           onCopy(task, pendingStartDate.current, pendingEndDate.current);
         } else if (onUpdate) {
           // 通常モード：既存のタスクを更新
+          console.log('[GanttTaskBar] Calling onUpdate');
           onUpdate(task, pendingStartDate.current, pendingEndDate.current);
         }
       }
@@ -196,7 +219,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDragging, dragMode]);
+  }, [isDragging, dragMode, handleMouseMove, handleMouseUp]);
 
   const handleClick = (e: React.MouseEvent) => {
     // ドラッグした場合はクリックイベントを無視
@@ -205,10 +228,10 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
       return;
     }
 
-    // 編集画面は表示しない（自動保存のみ）
-    // if (onClick) {
-    //   onClick(task);
-    // }
+    // クリックでタスクの編集画面を開く
+    if (onClick) {
+      onClick(task);
+    }
   };
 
   // ドラッグ中はプレビュー位置を使用、それ以外は通常の位置を使用
@@ -222,8 +245,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         width: `${Math.max(displayPosition.width, 4)}px`,
         top: `${barTop}px`,
         height: `${barHeight}px`,
-        zIndex: isDragging ? 1000 : 10,
-        pointerEvents: isDragging ? 'none' : 'auto'
+        zIndex: isDragging ? 1000 : 10
       }}
       onMouseEnter={() => !isDragging && setIsHovered(true)}
       onMouseLeave={() => !isDragging && setIsHovered(false)}

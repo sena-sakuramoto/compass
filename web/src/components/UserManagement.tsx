@@ -23,7 +23,9 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   }, []);
 
   async function loadData() {
-    await Promise.all([loadUsers(), loadInvitations()]);
+    // 招待機能を一時的に無効化
+    await loadUsers();
+    // await Promise.all([loadUsers(), loadInvitations()]);
   }
 
   async function loadUsers() {
@@ -46,6 +48,8 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
       setInvitations(data);
     } catch (err) {
       console.error('Failed to load invitations:', err);
+      // エラーの場合は空配列を設定して続行
+      setInvitations([]);
     }
   }
 
@@ -117,15 +121,17 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-slate-900">人員管理</h2>
+        {/* 招待機能を一時的に無効化
         <button
           onClick={() => setInvitationModalOpen(true)}
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700"
         >
           外部協力者を招待
         </button>
+        */}
       </div>
 
-      {/* タブ */}
+      {/* タブ - 招待機能を一時的に無効化 */}
       <div className="border-b border-slate-200">
         <nav className="flex gap-8">
           <button
@@ -138,6 +144,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
           >
             ユーザー ({users.length})
           </button>
+          {/* 招待タブを一時的に非表示
           <button
             onClick={() => setActiveTab('invitations')}
             className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
@@ -148,6 +155,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
           >
             招待 ({invitations.length})
           </button>
+          */}
         </nav>
       </div>
 

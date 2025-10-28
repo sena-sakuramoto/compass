@@ -15,6 +15,7 @@ interface Project {
   '所在地_現地'?: string;
   'フォルダURL'?: string;
   備考?: string;
+  施工費?: number;
 }
 
 interface ProjectEditDialogProps {
@@ -41,6 +42,7 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
     '所在地_現地': '',
     'フォルダURL': '',
     備考: '',
+    施工費: undefined,
   });
   const [saving, setSaving] = useState(false);
 
@@ -147,6 +149,19 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700">施工費（円）</label>
+              <input
+                type="number"
+                value={formData.施工費 || ''}
+                onChange={(e) => setFormData({ ...formData, 施工費: e.target.value ? Number(e.target.value) : undefined })}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                placeholder="例：10000000"
+                min="0"
+                step="1"
+              />
             </div>
 
             <div className="grid grid-cols-3 gap-4">

@@ -94,18 +94,34 @@ export function calculateTaskBarPosition(
 
   const totalDays = differenceInDays(dateRange.end, dateRange.start);
   const startOffset = differenceInDays(taskStart, rangeStart);
-  const duration = differenceInDays(taskEnd, taskStart) + 1;
+  const duration = differenceInDays(taskEnd, taskStart);
 
   const dayWidth = containerWidth / totalDays;
 
-  // タスクバーの余白（左右に少し空けるためのパディング）
-  const padding = 4; // 4pxの余白
+  // タスクバーの余白（上下に少し空けるための垂直パディング）
+  const verticalPadding = 4; // 4pxの余白
 
-  // 開始日の左端（少し余白を空ける）から終了日の右端までの範囲
-  const left = startOffset * dayWidth + padding;
-  const width = duration * dayWidth - padding * 2;
+  // 日の境界線を基準にバーを配置
+  // 開始日の0時（左境界）から終了日の24時（右境界）まで
+  // durationが0（同日開始・終了）の場合は1日分の幅
+  const left = startOffset * dayWidth;
+  const width = (duration + 1) * dayWidth;
 
   const top = rowIndex * rowHeight;
+
+  // デバッグログ
+  if (duration === 0) {
+    console.log('[calculateTaskBarPosition] 1-day task:', {
+      taskName: task.name,
+      startDate: taskStart.toISOString().split('T')[0],
+      endDate: taskEnd.toISOString().split('T')[0],
+      duration,
+      dayWidth,
+      left,
+      width,
+      widthInDays: width / dayWidth
+    });
+  }
 
   return { left, width, top };
 }

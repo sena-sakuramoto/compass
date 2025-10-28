@@ -72,6 +72,8 @@ export async function listPeople() {
 }
 
 export async function createTask(payload: Partial<Task>) {
+  console.log('[api.createTask] Payload being sent:', payload);
+  console.log('[api.createTask] Payload has id?', 'id' in payload, 'TaskID' in payload);
   return request<{ id: string }>('/tasks', {
     method: 'POST',
     body: JSON.stringify(payload),

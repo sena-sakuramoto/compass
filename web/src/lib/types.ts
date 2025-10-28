@@ -15,6 +15,7 @@ export interface Project {
   '所在地_現地'?: string;
   'フォルダURL'?: string;
   '備考'?: string;
+  施工費?: number;
   createdAt?: string;
   updatedAt?: string;
   progressAggregate?: number;

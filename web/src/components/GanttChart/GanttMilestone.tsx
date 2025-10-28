@@ -19,7 +19,7 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
 
   // ステータスに応じた色を取得
   const overdue = isOverdue(task);
-  const color = overdue ? '#dc2626' : getStatusColor(task.status);
+  const color = overdue ? '#dc2626' : '#f97316'; // オレンジ色
 
   // マイルストーンの高さとトップ位置
   const milestoneSize = 20; // ダイヤモンドのサイズ
@@ -45,15 +45,15 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onClick={handleClick}
     >
-      {/* 赤丸のマイルストーン */}
+      {/* オレンジのひし形のマイルストーン */}
       <div
-        className="w-full h-full rounded-full cursor-pointer transition-all duration-200"
+        className="w-full h-full cursor-pointer transition-all duration-200"
         style={{
-          transform: isHovered ? 'scale(1.2)' : 'scale(1)',
-          backgroundColor: overdue ? '#dc2626' : '#ef4444', // 赤色
+          transform: isHovered ? 'rotate(45deg) scale(1.2)' : 'rotate(45deg) scale(1)',
+          backgroundColor: overdue ? '#dc2626' : '#f97316', // オレンジ色 (期限超過は赤)
           boxShadow: isHovered
-            ? '0 4px 12px rgba(239, 68, 68, 0.4)'
-            : '0 2px 4px rgba(239, 68, 68, 0.3)',
+            ? '0 4px 12px rgba(249, 115, 22, 0.4)'
+            : '0 2px 4px rgba(249, 115, 22, 0.3)',
           border: '2px solid white'
         }}
       />
@@ -73,13 +73,14 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
         <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 min-w-[220px] rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none">
           <div className="flex items-center gap-2">
             <div
-              className="w-3 h-3 rounded-full"
+              className="w-3 h-3"
               style={{
-                backgroundColor: overdue ? '#dc2626' : '#ef4444',
+                transform: 'rotate(45deg)',
+                backgroundColor: overdue ? '#dc2626' : '#f97316',
                 border: '1px solid white'
               }}
             />
-            <div className="text-sm font-semibold text-slate-800">重要ポイント</div>
+            <div className="text-sm font-semibold text-orange-800">◆ マイルストーン</div>
           </div>
           <div className="mt-2 text-sm font-medium text-slate-800">{task.name}</div>
           <div className="mt-1 text-[11px] text-slate-500">

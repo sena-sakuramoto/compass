@@ -17,13 +17,14 @@ export interface TaskTableRow {
 interface TaskTableProps {
   rows: TaskTableRow[];
   onToggle(id: string, checked: boolean): void;
+  onRowClick?(id: string): void;
   onSeedReminders?(id: string): Promise<void> | void;
   onCalendarSync?(id: string): Promise<void> | void;
   seedBusyIds?: ReadonlySet<string>;
   calendarBusyIds?: ReadonlySet<string>;
 }
 
-export function TaskTable({ rows, onToggle, onSeedReminders, onCalendarSync, seedBusyIds, calendarBusyIds }: TaskTableProps) {
+export function TaskTable({ rows, onToggle, onRowClick, onSeedReminders, onCalendarSync, seedBusyIds, calendarBusyIds }: TaskTableProps) {
   const showActions = Boolean(onSeedReminders || onCalendarSync);
   return (
     <div className="overflow-auto rounded-2xl border border-slate-200">
@@ -46,10 +47,25 @@ export function TaskTable({ rows, onToggle, onSeedReminders, onCalendarSync, see
           {rows.map((row) => {
             const pct = Math.round(computeProgress(row.progress, row.status) * 100);
             return (
-              <tr key={row.id} className="border-t border-slate-100">
+              <tr
+                key={row.id}
+                className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors"
+                onClick={(e) => {
+                  // チェックボックスやボタンをクリックした場合は行クリックイベントを発火しない
+                  if (
+                    e.target instanceof HTMLInputElement ||
+                    e.target instanceof HTMLButtonElement ||
+                    (e.target as HTMLElement).closest('button')
+                  ) {
+                    return;
+                  }
+                  onRowClick?.(row.id);
+                }}
+              >
                 <td className="p-3">
                   <input
                     type="checkbox"
+                    checked={row.status === '完了'}
                     onChange={(e) => onToggle(row.id, e.currentTarget.checked)}
                     aria-label="完了にする"
                   />

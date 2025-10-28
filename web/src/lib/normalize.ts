@@ -83,6 +83,8 @@ function normalizeTask(raw: any, index: number): Task {
     '依存タスク': dependencies,
     'カレンダーイベントID': calendarEventId,
     '通知設定': notifications,
+    マイルストーン: raw['マイルストーン'] ?? raw['milestone'],
+    milestone: raw['マイルストーン'] ?? raw['milestone'],
     start,
     end,
     duration_days: calculateDuration(start, end),

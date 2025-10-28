@@ -1,6 +1,6 @@
 // プロジェクト招待API クライアント
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'https://api-g3xwwspyla-an.a.run.app';
+const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
 function getIdToken() {
   return localStorage.getItem('apdw_id_token') ?? undefined;
@@ -36,7 +36,7 @@ export interface CreateInvitationInput {
  */
 export async function listInvitations(): Promise<ProjectInvitation[]> {
   const token = getIdToken();
-  const response = await fetch(`${API_BASE}/api/invitations`, {
+  const response = await fetch(`${BASE_URL}/invitations`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -56,7 +56,7 @@ export async function listInvitations(): Promise<ProjectInvitation[]> {
  */
 export async function createInvitation(input: CreateInvitationInput): Promise<string> {
   const token = getIdToken();
-  const response = await fetch(`${API_BASE}/api/invitations`, {
+  const response = await fetch(`${BASE_URL}/invitations`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -79,7 +79,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<st
  */
 export async function getInvitation(invitationId: string): Promise<ProjectInvitation> {
   const token = getIdToken();
-  const response = await fetch(`${API_BASE}/api/invitations/${invitationId}`, {
+  const response = await fetch(`${BASE_URL}/invitations/${invitationId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -99,7 +99,7 @@ export async function getInvitation(invitationId: string): Promise<ProjectInvita
  */
 export async function acceptInvitation(invitationId: string): Promise<void> {
   const token = getIdToken();
-  const response = await fetch(`${API_BASE}/api/invitations/${invitationId}/accept`, {
+  const response = await fetch(`${BASE_URL}/invitations/${invitationId}/accept`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -117,7 +117,7 @@ export async function acceptInvitation(invitationId: string): Promise<void> {
  */
 export async function declineInvitation(invitationId: string): Promise<void> {
   const token = getIdToken();
-  const response = await fetch(`${API_BASE}/api/invitations/${invitationId}/decline`, {
+  const response = await fetch(`${BASE_URL}/invitations/${invitationId}/decline`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -135,7 +135,7 @@ export async function declineInvitation(invitationId: string): Promise<void> {
  */
 export async function deleteInvitation(invitationId: string): Promise<void> {
   const token = getIdToken();
-  const response = await fetch(`${API_BASE}/api/invitations/${invitationId}`, {
+  const response = await fetch(`${BASE_URL}/invitations/${invitationId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${token}`,

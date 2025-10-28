@@ -12,6 +12,9 @@ import {
   CheckCircle2,
   TrendingUp,
   LogIn,
+  LogOut,
+  X,
+  Menu,
 } from 'lucide-react';
 import {
   listProjects,
@@ -49,6 +52,13 @@ import { UserManagement } from './components/UserManagement';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
+import { format } from 'date-fns';
+import { ja } from 'date-fns/locale';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
+
+// 日本語ロケールを登録
+registerLocale('ja', ja);
 import {
   ResponsiveContainer as WorkloadResponsiveContainer,
   BarChart as WorkloadBarChart,
@@ -486,69 +496,132 @@ function BottomBar({
   authError?: string | null;
   canEdit: boolean;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-3 py-3 shadow md:hidden">
-      <div className="mx-auto max-w-md space-y-3">
-        {authSupported && (
-          <div className="flex justify-center">
-            {user ? (
+    <>
+      {/* 右上のログアウトボタン（モバイル） */}
+      {authSupported && user && (
+        <div className="fixed top-4 right-4 z-40 md:hidden">
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-full bg-white border-2 border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 shadow-lg hover:bg-slate-50 transition-colors"
+            onClick={onSignOut}
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="text-xs">ログアウト</span>
+          </button>
+        </div>
+      )}
+
+      {/* 開閉可能な追加ボタンメニュー（モバイル） */}
+      <div className="md:hidden">
+        {/* オーバーレイ */}
+        {isOpen && (
+          <div
+            className="fixed inset-0 z-30 bg-black/20"
+            onClick={() => setIsOpen(false)}
+          />
+        )}
+
+        {/* 追加ボタンメニュー */}
+        <div
+          className={`fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white shadow-2xl transition-transform duration-300 ${
+            isOpen ? 'translate-y-0' : 'translate-y-full'
+          }`}
+        >
+          <div className="px-4 py-4 space-y-4">
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800">新規追加</h3>
               <button
                 type="button"
-                className="flex items-center gap-1 rounded-2xl border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
-                onClick={onSignOut}
+                onClick={() => setIsOpen(false)}
+                className="p-2 rounded-full hover:bg-slate-100 transition-colors"
               >
-                ログアウト
+                <X className="h-5 w-5 text-slate-600" />
               </button>
-            ) : (
+            </div>
+
+            {/* サインインボタン */}
+            {authSupported && !user && (
               <button
                 type="button"
-                className="flex items-center gap-1 rounded-2xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
                 onClick={onSignIn}
                 disabled={!authReady}
               >
+                <LogIn className="h-5 w-5" />
                 Googleでサインイン
               </button>
             )}
-          </div>
-        )}
 
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            type="button"
-            className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-slate-900 px-3 py-3 text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onOpenTask}
-            disabled={!canEdit}
-          >
-            <Plus className="h-5 w-5" />
-            <span className="text-xs font-medium">タスク</span>
-          </button>
-          <button
-            type="button"
-            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onOpenProject}
-            disabled={!canEdit}
-          >
-            <Plus className="h-5 w-5" />
-            <span className="text-xs font-medium">プロジェクト</span>
-          </button>
-          <button
-            type="button"
-            className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onOpenPerson}
-            disabled={!canEdit}
-          >
-            <Plus className="h-5 w-5" />
-            <span className="text-xs font-medium">担当者</span>
-          </button>
+            {/* 追加ボタン */}
+            <div className="grid grid-cols-3 gap-3">
+              <button
+                type="button"
+                className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-6 text-white shadow-sm transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => {
+                  onOpenTask();
+                  setIsOpen(false);
+                }}
+                disabled={!canEdit}
+              >
+                <Plus className="h-6 w-6" />
+                <span className="text-sm font-medium">タスク</span>
+              </button>
+              <button
+                type="button"
+                className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-slate-300 bg-white px-4 py-6 text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => {
+                  onOpenProject();
+                  setIsOpen(false);
+                }}
+                disabled={!canEdit}
+              >
+                <Plus className="h-6 w-6" />
+                <span className="text-sm font-medium">プロジェクト</span>
+              </button>
+              <button
+                type="button"
+                className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-slate-300 bg-white px-4 py-6 text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => {
+                  onOpenPerson();
+                  setIsOpen(false);
+                }}
+                disabled={!canEdit}
+              >
+                <Plus className="h-6 w-6" />
+                <span className="text-sm font-medium">担当者</span>
+              </button>
+            </div>
+
+            {/* メッセージ */}
+            {!canEdit && (
+              <p className="text-center text-xs text-slate-500">
+                編集はローカル表示のみです。サインインすると同期されます。
+              </p>
+            )}
+            {authError && user && (
+              <p className="text-center text-xs text-rose-600">{authError}</p>
+            )}
+          </div>
         </div>
-        {!canEdit ? (
-          <p className="text-center text-[11px] text-slate-500">編集はローカル表示のみです。サインインすると同期されます。</p>
-        ) : null}
-        {authError && user ? (
-          <p className="text-center text-[11px] text-rose-600">{authError}</p>
-        ) : null}
+
+        {/* フローティング開閉ボタン */}
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="fixed bottom-6 right-6 z-40 flex items-center justify-center w-16 h-16 rounded-full bg-slate-900 text-white shadow-2xl hover:bg-slate-800 transition-all hover:scale-110"
+        >
+          {isOpen ? (
+            <X className="h-7 w-7" />
+          ) : (
+            <Plus className="h-7 w-7" />
+          )}
+        </button>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -578,28 +651,31 @@ function Modal({ open, onOpenChange, children, title }: ModalProps & { title: st
 interface TaskModalProps extends ModalProps {
   projects: Project[];
   people: Person[];
+  editingTask?: Task | null;
   onSubmit(payload: {
     projectId: string;
     タスク名: string;
     担当者?: string;
     予定開始日?: string;
     期限?: string;
+    マイルストーン?: boolean;
     優先度: string;
     ステータス: string;
     ['工数見積(h)']?: number;
     担当者メール?: string;
     '通知設定'?: TaskNotificationSettings;
   }): Promise<void>;
+  onUpdate?(taskId: string, updates: Partial<Task>): Promise<void>;
   onNotify?(message: ToastInput): void;
 }
 
-function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }: TaskModalProps) {
+function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit, onUpdate, onNotify }: TaskModalProps) {
   const [project, setProject] = useState('');
   const [assignee, setAssignee] = useState('');
   const [assigneeEmail, setAssigneeEmail] = useState('');
   const [name, setName] = useState('');
-  const [start, setStart] = useState('');
-  const [due, setDue] = useState('');
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
   const [durationDays, setDurationDays] = useState<number>(1);
   const [priority, setPriority] = useState('中');
   const [status, setStatus] = useState('未着手');
@@ -608,23 +684,73 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }:
   const [notifyDayBefore, setNotifyDayBefore] = useState(true);
   const [notifyDue, setNotifyDue] = useState(true);
   const [notifyOverdue, setNotifyOverdue] = useState(true);
+  const [isMilestone, setIsMilestone] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setProject('');
-    setAssignee('');
-    setAssigneeEmail('');
-    setName('');
-    setStart('');
-    setDue('');
-    setPriority('中');
-    setStatus('未着手');
-    setEstimate(4);
-    setNotifyStart(true);
-    setNotifyDayBefore(true);
-    setNotifyDue(true);
-    setNotifyOverdue(true);
-  }, [open]);
+
+    if (editingTask) {
+      // 編集モード: タスクデータをフォームにセット
+      setProject(editingTask.projectId);
+      setAssignee(editingTask.担当者 || editingTask.assignee || '');
+      setAssigneeEmail(editingTask.担当者メール || '');
+      setName(editingTask.タスク名);
+
+      // 日付の設定
+      const startDateValue = editingTask.予定開始日 || editingTask.start;
+      const endDateValue = editingTask.期限 || editingTask.end;
+      setStartDate(startDateValue ? new Date(startDateValue) : null);
+      setEndDate(endDateValue ? new Date(endDateValue) : null);
+
+      // 期間の計算
+      if (startDateValue && endDateValue) {
+        const start = new Date(startDateValue);
+        const end = new Date(endDateValue);
+        const diffTime = end.getTime() - start.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        setDurationDays(diffDays > 0 ? diffDays : 1);
+      }
+
+      setPriority(editingTask.優先度 || '中');
+      setStatus(editingTask.ステータス || '未着手');
+      setEstimate(editingTask['工数見積(h)'] || 4);
+
+      // 通知設定
+      const notif = editingTask['通知設定'];
+      setNotifyStart(notif?.開始日 ?? true);
+      setNotifyDayBefore(notif?.期限前日 ?? true);
+      setNotifyDue(notif?.期限当日 ?? true);
+      setNotifyOverdue(notif?.超過 ?? true);
+
+      // マイルストーン
+      const milestoneValue = editingTask['マイルストーン'] === true || editingTask['milestone'] === true;
+      console.log('[TaskModal] Loading milestone value:', {
+        'マイルストーン': editingTask['マイルストーン'],
+        'milestone': editingTask['milestone'],
+        'computed': milestoneValue,
+        'taskId': editingTask.id,
+        'taskName': editingTask.タスク名
+      });
+      setIsMilestone(milestoneValue);
+    } else {
+      // 新規作成モード: フォームをクリア
+      setProject('');
+      setAssignee('');
+      setAssigneeEmail('');
+      setName('');
+      setStartDate(null);
+      setEndDate(null);
+      setPriority('中');
+      setStatus('未着手');
+      setEstimate(4);
+      setNotifyStart(true);
+      setNotifyDayBefore(true);
+      setNotifyDue(true);
+      setNotifyOverdue(true);
+      setIsMilestone(false);
+      setDurationDays(1);
+    }
+  }, [open, editingTask]);
 
   useEffect(() => {
     if (!assignee) {
@@ -635,53 +761,59 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }:
     setAssigneeEmail(person?.メール ?? '');
   }, [assignee, people]);
 
-  // 開始日と期間から終了日を計算
-  const handleStartChange = (newStart: string) => {
-    setStart(newStart);
-    if (newStart && durationDays > 0) {
-      const startDate = new Date(newStart);
-      const endDate = new Date(startDate);
-      endDate.setDate(startDate.getDate() + durationDays - 1);
-      setDue(formatDate(endDate) || '');
+  // マイルストーン用の日付変更ハンドラ
+  const handleMilestoneDateChange = (date: Date | null) => {
+    setStartDate(date);
+    setEndDate(date);
+  };
+
+  // 通常タスク用の日付範囲変更ハンドラ
+  const handleRangeDateChange = (dates: [Date | null, Date | null]) => {
+    const [start, end] = dates;
+    setStartDate(start);
+    setEndDate(end);
+
+    // 期間を計算
+    if (start && end) {
+      const diffTime = end.getTime() - start.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      setDurationDays(diffDays > 0 ? diffDays : 1);
+
+      // 1日以上の範囲が選択された場合、マイルストーンを解除
+      if (start.getTime() !== end.getTime() && isMilestone) {
+        setIsMilestone(false);
+      }
     }
   };
+
+  // マイルストーンチェックボックスが有効かどうかを判定
+  const isMilestoneCheckboxEnabled = startDate && endDate && startDate.getTime() === endDate.getTime();
 
   // 期間変更時に終了日を再計算
   const handleDurationChange = (days: number) => {
     setDurationDays(days);
-    if (start && days > 0) {
-      const startDate = new Date(start);
-      const endDate = new Date(startDate);
-      endDate.setDate(startDate.getDate() + days - 1);
-      setDue(formatDate(endDate) || '');
-    }
-  };
-
-  // 終了日変更時に期間を再計算
-  const handleDueChange = (newDue: string) => {
-    setDue(newDue);
-    if (start && newDue) {
-      const startDate = new Date(start);
-      const dueDate = new Date(newDue);
-      const diffTime = dueDate.getTime() - startDate.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-      setDurationDays(diffDays > 0 ? diffDays : 1);
+    if (startDate && days > 0) {
+      const newEndDate = new Date(startDate);
+      newEndDate.setDate(startDate.getDate() + days - 1);
+      setEndDate(newEndDate);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('[TaskModal] handleSubmit - isMilestone state:', isMilestone);
     try {
       const payload = {
         projectId: project,
         タスク名: name,
         担当者: assignee,
-        予定開始日: start,
-        期限: due,
+        予定開始日: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
+        期限: endDate ? format(endDate, 'yyyy-MM-dd') : undefined,
         優先度: priority,
         ステータス: status,
         ['工数見積(h)']: estimate,
         担当者メール: assigneeEmail || undefined,
+        マイルストーン: isMilestone,
         '通知設定': {
           開始日: notifyStart,
           期限前日: notifyDayBefore,
@@ -694,22 +826,32 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }:
         担当者?: string;
         予定開始日?: string;
         期限?: string;
+        マイルストーン?: boolean;
         優先度: string;
         ステータス: string;
         ['工数見積(h)']?: number;
         担当者メール?: string;
         '通知設定'?: TaskNotificationSettings;
       };
-      await onSubmit(payload);
+
+      if (editingTask && onUpdate) {
+        // 編集モード
+        console.log('[TaskModal] Updating task with payload:', payload);
+        await onUpdate(editingTask.id, payload);
+      } else {
+        // 新規作成モード
+        console.log('[TaskModal] Creating task with payload:', payload);
+        await onSubmit(payload);
+      }
       onOpenChange(false);
     } catch (err) {
       console.error(err);
-      onNotify?.({ tone: 'error', title: 'タスクの追加に失敗しました' });
+      onNotify?.({ tone: 'error', title: editingTask ? 'タスクの更新に失敗しました' : 'タスクの追加に失敗しました' });
     }
   };
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="タスク追加">
+    <Modal open={open} onOpenChange={onOpenChange} title={editingTask ? "タスク編集" : "タスク追加"}>
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div>
           <label className="mb-1 block text-xs text-slate-500">プロジェクト</label>
@@ -762,103 +904,76 @@ function TaskModal({ open, onOpenChange, projects, people, onSubmit, onNotify }:
             required
           />
         </div>
-        <div className="space-y-4">
-          <div className="text-sm font-semibold text-slate-700">作業スケジュール</div>
 
-          {/* ビジュアルタイムライン */}
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-2xl p-4 border border-blue-100">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex flex-col items-center flex-1">
-                <div className="text-xs font-medium text-blue-600 mb-1">開始</div>
-                <div className="w-3 h-3 rounded-full bg-blue-500 shadow-lg shadow-blue-200"></div>
-                <div className="text-xs font-bold text-slate-700 mt-1">
-                  {start ? new Date(start).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }) : '未設定'}
-                </div>
-              </div>
+        {/* マイルストーンチェックボックス */}
+        <div className={`flex items-center gap-2 p-3 rounded-xl border ${
+          isMilestoneCheckboxEnabled
+            ? 'bg-red-50 border-red-200'
+            : 'bg-gray-50 border-gray-200'
+        }`}>
+          <input
+            type="checkbox"
+            id="milestone"
+            checked={isMilestone}
+            disabled={!isMilestoneCheckboxEnabled}
+            onChange={(e) => {
+              console.log('[TaskModal] Milestone checkbox changed to:', e.target.checked);
+              setIsMilestone(e.target.checked);
+              // チェックされたら、既に開始日が入力されている場合は終了日を同じにする
+              if (e.target.checked && startDate) {
+                setEndDate(startDate);
+              }
+            }}
+            className={`w-4 h-4 rounded focus:ring-red-500 ${
+              isMilestoneCheckboxEnabled
+                ? 'text-red-600 cursor-pointer'
+                : 'text-gray-400 cursor-not-allowed'
+            }`}
+          />
+          <label
+            htmlFor="milestone"
+            className={`text-sm font-medium ${
+              isMilestoneCheckboxEnabled
+                ? 'text-red-900 cursor-pointer'
+                : 'text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            ◆ マイルストーン（現場立ち合い・引渡し前確認など重要な1日の予定）
+            {!isMilestoneCheckboxEnabled && (
+              <span className="block text-xs mt-1">※ 1日だけの予定を選択するとマイルストーンに設定できます</span>
+            )}
+          </label>
+        </div>
 
-              <div className="flex-1 flex flex-col items-center px-4">
-                <div className="w-full h-1 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full mb-2"></div>
-                <div className="bg-white rounded-full px-4 py-1.5 shadow-sm border border-slate-200">
-                  <span className="text-lg font-bold text-slate-800">{durationDays}</span>
-                  <span className="text-xs text-slate-500 ml-1">日間</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col items-center flex-1">
-                <div className="text-xs font-medium text-purple-600 mb-1">終了</div>
-                <div className="w-3 h-3 rounded-full bg-purple-500 shadow-lg shadow-purple-200"></div>
-                <div className="text-xs font-bold text-slate-700 mt-1">
-                  {due ? new Date(due).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }) : '未設定'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 入力フィールド */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="bg-white rounded-xl border-2 border-blue-200 p-3 hover:border-blue-300 transition-colors">
-              <label className="block text-xs font-semibold text-blue-700 mb-2">📅 開始日</label>
-              <input
-                type="date"
-                className="w-full text-sm font-medium border-0 focus:outline-none focus:ring-0 p-0"
-                value={start}
-                onChange={(e) => handleStartChange(e.target.value)}
-              />
-            </div>
-
-            <div className="bg-white rounded-xl border-2 border-green-200 p-3 hover:border-green-300 transition-colors">
-              <label className="block text-xs font-semibold text-green-700 mb-2">⏱️ 期間</label>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleDurationChange(Math.max(1, durationDays - 1))}
-                  className="w-7 h-7 rounded-lg bg-green-100 hover:bg-green-200 text-green-700 font-bold flex items-center justify-center transition-colors"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  min="1"
-                  className="flex-1 text-center text-sm font-bold border-0 focus:outline-none focus:ring-0 p-0"
-                  value={durationDays}
-                  onChange={(e) => handleDurationChange(parseInt(e.target.value) || 1)}
-                />
-                <span className="text-xs text-slate-500">日</span>
-                <button
-                  type="button"
-                  onClick={() => handleDurationChange(durationDays + 1)}
-                  className="w-7 h-7 rounded-lg bg-green-100 hover:bg-green-200 text-green-700 font-bold flex items-center justify-center transition-colors"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl border-2 border-purple-200 p-3 hover:border-purple-300 transition-colors">
-              <label className="block text-xs font-semibold text-purple-700 mb-2">🏁 期限</label>
-              <input
-                type="date"
-                className="w-full text-sm font-medium border-0 focus:outline-none focus:ring-0 p-0"
-                value={due}
-                onChange={(e) => handleDueChange(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* クイック期間選択 */}
-          <div className="flex flex-wrap gap-2">
-            <div className="text-xs text-slate-500 w-full mb-1">クイック設定:</div>
-            {[1, 3, 5, 7, 14, 30].map((days) => (
-              <button
-                key={days}
-                type="button"
-                onClick={() => start && handleDurationChange(days)}
-                className="px-3 py-1 text-xs font-medium rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
-              >
-                {days}日
-              </button>
-            ))}
-          </div>
+        {/* 日付選択 */}
+        <div className="bg-white rounded-xl border-2 border-blue-200 p-4 hover:border-blue-300 transition-colors">
+          <label className="block text-sm font-semibold text-slate-700 mb-3">
+            {isMilestone ? '◆ 実施日' : '作業期間'}
+          </label>
+          {isMilestone ? (
+            <DatePicker
+              selected={startDate}
+              onChange={handleMilestoneDateChange}
+              locale="ja"
+              dateFormat="yyyy年MM月dd日"
+              className="w-full text-sm font-medium border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholderText="実施日を選択"
+              inline
+            />
+          ) : (
+            <DatePicker
+              selected={startDate}
+              onChange={handleRangeDateChange}
+              startDate={startDate}
+              endDate={endDate}
+              selectsRange
+              locale="ja"
+              dateFormat="yyyy年MM月dd日"
+              className="w-full text-sm font-medium border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholderText="開始日と終了日を選択"
+              inline
+            />
+          )}
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div>
@@ -1553,6 +1668,7 @@ function TasksPage({
   onOpenTask,
   onOpenProject,
   onOpenPerson,
+  onEditTask,
   onSeedReminders,
   onCalendarSync,
   canEdit,
@@ -1566,6 +1682,7 @@ function TasksPage({
   onOpenTask(): void;
   onOpenProject(): void;
   onOpenPerson(): void;
+  onEditTask(task: Task): void;
   onSeedReminders?(taskId: string): Promise<void>;
   onCalendarSync?(taskId: string): Promise<void>;
   canEdit: boolean;
@@ -1690,6 +1807,10 @@ function TasksPage({
           onToggle={(id, checked) => {
             const task = filteredTasks.find((t) => t.id === id);
             if (task) onComplete(task, checked);
+          }}
+          onRowClick={(id) => {
+            const task = filteredTasks.find((t) => t.id === id);
+            if (task) onEditTask(task);
           }}
           onSeedReminders={onSeedReminders ? (id) => handleSeedReminders(id) : undefined}
           onCalendarSync={onCalendarSync ? (id) => handleCalendarSync(id) : undefined}
@@ -2990,7 +3111,10 @@ function App() {
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <AppLayout
         onOpenTask={() => setTaskModalOpen(true)}
-        onOpenProject={() => setProjectModalOpen(true)}
+        onOpenProject={() => {
+          setEditingProject(null);
+          setProjectModalOpen(true);
+        }}
         onOpenPerson={() => setPersonModalOpen(true)}
         user={user}
         authSupported={authSupported}
@@ -3021,7 +3145,10 @@ function App() {
                 onTaskAssigneeChange={handleTaskAssigneeChange}
                 onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
-                onOpenProject={() => setProjectModalOpen(true)}
+                onOpenProject={() => {
+                  setEditingProject(null);
+                  setProjectModalOpen(true);
+                }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
                 pushToast={pushToast}
@@ -3039,7 +3166,10 @@ function App() {
                 filteredTasks={filteredTasks}
                 filtersProps={filtersProps}
                 onOpenTask={() => setTaskModalOpen(true)}
-                onOpenProject={() => setProjectModalOpen(true)}
+                onOpenProject={() => {
+                  setEditingProject(null);
+                  setProjectModalOpen(true);
+                }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditProject={setEditingProject}
                 sortKey={projectSort}
@@ -3060,8 +3190,12 @@ function App() {
                 onComplete={handleComplete}
                 onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
-                onOpenProject={() => setProjectModalOpen(true)}
+                onOpenProject={() => {
+                  setEditingProject(null);
+                  setProjectModalOpen(true);
+                }}
                 onOpenPerson={() => setPersonModalOpen(true)}
+                onEditTask={(task) => setEditingTask(task)}
                 onSeedReminders={canSync ? handleSeedReminders : undefined}
                 onCalendarSync={canSync ? handleCalendarSync : undefined}
                 canEdit={canEdit}
@@ -3082,7 +3216,10 @@ function App() {
                 onTaskAssigneeChange={handleTaskAssigneeChange}
                 onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
-                onOpenProject={() => setProjectModalOpen(true)}
+                onOpenProject={() => {
+                  setEditingProject(null);
+                  setProjectModalOpen(true);
+                }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
                 pushToast={pushToast}
@@ -3102,6 +3239,16 @@ function App() {
         projects={state.projects}
         people={state.people}
         onSubmit={handleCreateTask}
+        onNotify={pushToast}
+      />
+      <TaskModal
+        open={Boolean(editingTask)}
+        onOpenChange={(open) => !open && setEditingTask(null)}
+        projects={state.projects}
+        people={state.people}
+        editingTask={editingTask}
+        onSubmit={handleCreateTask}
+        onUpdate={handleTaskUpdate}
         onNotify={pushToast}
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
