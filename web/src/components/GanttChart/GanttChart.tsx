@@ -127,12 +127,60 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
 
   const handleZoomIn = () => {
-    // ズームイン処理：ズームレベルを上げる
+    // ズームイン処理：今日を中心に範囲を縮小
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const currentRangeMs = dateRange.end.getTime() - dateRange.start.getTime();
+    const newRangeMs = Math.max(
+      7 * 24 * 60 * 60 * 1000, // 最小7日
+      currentRangeMs / 1.2
+    );
+
+    // todayが範囲外の場合は範囲に含める
+    if (today < dateRange.start || today > dateRange.end) {
+      const halfRange = newRangeMs / 2;
+      const newStart = new Date(today.getTime() - halfRange);
+      const newEnd = new Date(today.getTime() + halfRange);
+      setDateRange({ start: newStart, end: newEnd });
+      return;
+    }
+
+    // todayを中心に新しい範囲を計算
+    const halfRange = newRangeMs / 2;
+    const newStart = new Date(today.getTime() - halfRange);
+    const newEnd = new Date(today.getTime() + halfRange);
+
+    setDateRange({ start: newStart, end: newEnd });
     setZoomLevel(prev => Math.min(prev * 1.2, 3.0));
   };
 
   const handleZoomOut = () => {
-    // ズームアウト処理：ズームレベルを下げる
+    // ズームアウト処理：今日を中心に範囲を拡大
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const currentRangeMs = dateRange.end.getTime() - dateRange.start.getTime();
+    const newRangeMs = Math.min(
+      365 * 24 * 60 * 60 * 1000, // 最大365日
+      currentRangeMs * 1.2
+    );
+
+    // todayが範囲外の場合は範囲に含める
+    if (today < dateRange.start || today > dateRange.end) {
+      const halfRange = newRangeMs / 2;
+      const newStart = new Date(today.getTime() - halfRange);
+      const newEnd = new Date(today.getTime() + halfRange);
+      setDateRange({ start: newStart, end: newEnd });
+      return;
+    }
+
+    // todayを中心に新しい範囲を計算
+    const halfRange = newRangeMs / 2;
+    const newStart = new Date(today.getTime() - halfRange);
+    const newEnd = new Date(today.getTime() + halfRange);
+
+    setDateRange({ start: newStart, end: newEnd });
     setZoomLevel(prev => Math.max(prev / 1.2, 0.3));
   };
 

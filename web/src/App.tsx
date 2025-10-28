@@ -2054,12 +2054,29 @@ function SchedulePage({
       projectGroups.get(task.projectId)!.push(task);
     });
 
-    // 各プロジェクト内のタスクを開始日順にソート
+    // 各プロジェクト内のタスクを開始日順にソート（安定化：開始日→終了日→タスク名→ID）
     projectGroups.forEach((projectTasks) => {
-      projectTasks.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
+      projectTasks.sort((a, b) => {
+        // 開始日で比較
+        const startDiff = a.startDate.getTime() - b.startDate.getTime();
+        if (startDiff !== 0) return startDiff;
+
+        // 終了日で比較
+        const endDiff = a.endDate.getTime() - b.endDate.getTime();
+        if (endDiff !== 0) return endDiff;
+
+        // タスク名で比較
+        const nameA = a.name || '';
+        const nameB = b.name || '';
+        const nameDiff = nameA.localeCompare(nameB);
+        if (nameDiff !== 0) return nameDiff;
+
+        // IDで比較
+        return a.id.localeCompare(b.id);
+      });
     });
 
-    // プロジェクトを竣工予定日順にソート
+    // プロジェクトを竣工予定日順にソート（安定化：竣工予定日→プロジェクト名→ID）
     const sortedProjects = Array.from(projectGroups.keys()).sort((a, b) => {
       const projectA = projectMap[a];
       const projectB = projectMap[b];
@@ -2067,14 +2084,22 @@ function SchedulePage({
       const completionDateA = projectA?.竣工予定日 ? parseDate(projectA.竣工予定日) : null;
       const completionDateB = projectB?.竣工予定日 ? parseDate(projectB.竣工予定日) : null;
 
-      if (completionDateA && completionDateB) {
-        return completionDateA.getTime() - completionDateB.getTime();
-      } else if (completionDateA) {
-        return -1;
-      } else if (completionDateB) {
-        return 1;
+      // 竣工予定日で比較（日付なしは最後）
+      const dateA = completionDateA ? completionDateA.getTime() : Number.MAX_SAFE_INTEGER;
+      const dateB = completionDateB ? completionDateB.getTime() : Number.MAX_SAFE_INTEGER;
+
+      if (dateA !== dateB) {
+        return dateA - dateB;
       }
-      return 0;
+
+      // プロジェクト名で比較
+      const nameA = projectA?.物件名 || '';
+      const nameB = projectB?.物件名 || '';
+      const nameDiff = nameA.localeCompare(nameB);
+      if (nameDiff !== 0) return nameDiff;
+
+      // IDで比較
+      return a.localeCompare(b);
     });
 
     // プロジェクト順に結合
