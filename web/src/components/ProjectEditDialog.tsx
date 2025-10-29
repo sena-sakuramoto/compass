@@ -58,15 +58,9 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
     e.preventDefault();
     setSaving(true);
     try {
-      // Ensure required fields are present
-      const projectToSave: Project = {
-        ...formData,
-        id: formData.id || '',
-        物件名: formData.物件名 || '新規プロジェクト',
-        ステータス: formData.ステータス || '未着手',
-        優先度: formData.優先度 || '中',
-      } as Project;
-      await onSave(projectToSave);
+      // Pass formData directly to parent handler
+      // Parent will handle mode-based branching and id stripping for create mode
+      await onSave(formData as Project);
       onClose();
     } catch (error) {
       console.error('プロジェクトの保存に失敗しました:', error);

@@ -2509,6 +2509,7 @@ function App() {
   const [personModalOpen, setPersonModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [projectDialogMode, setProjectDialogMode] = useState<'create' | 'edit'>('create');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
@@ -2927,26 +2928,25 @@ function App() {
     }
   };
 
-  const handleSaveProject = async (project: Project) => {
-    // Ensure required fields have defaults
-    const payload: Partial<Project> = {
-      ...project,
-      物件名: project.物件名 || '新規プロジェクト',
-      ステータス: project.ステータス || '未着手',
-      優先度: project.優先度 || '中',
+  const handleSaveProject = async (values: Partial<Project>) => {
+    // サーバ必須の初期値を補完
+    const payloadBase: Partial<Project> = {
+      物件名: values.物件名 || '新規プロジェクト',
+      ステータス: values.ステータス || '未着手',
+      優先度: values.優先度 || '中',
+      ...values,
     };
 
-    // Branch on whether project has an ID
-    if (project.id) {
-      // Update existing project (PATCH)
-      await handleUpdateProject(project.id, payload);
-    } else {
-      // Create new project (POST)
+    if (projectDialogMode === 'create') {
+      // 新規は絶対に id を送らない
+      const { id: _id, ProjectID: _pid, ...clean } = payloadBase as any;
+      console.debug('[Project] mode=create → POST /api/projects', clean);
+
       if (!canSync) {
         const id = generateLocalId('project');
         const now = todayString();
         const newProject: Project = {
-          ...payload as Project,
+          ...clean as Project,
           id,
           createdAt: now,
           updatedAt: now,
@@ -2958,16 +2958,47 @@ function App() {
         pushToast({ tone: 'success', title: 'プロジェクトを追加しました（ローカル保存）' });
       } else {
         try {
-          await createProject(payload);
+          await createProject(clean);
           pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
-          window.dispatchEvent(new CustomEvent('snapshot:reload'));
+          // 再取得して描画
+          const list = await listProjects();
+          setState((prev) => ({ ...prev, projects: list.projects }));
         } catch (error) {
           console.error(error);
           pushToast({ tone: 'error', title: 'プロジェクトの追加に失敗しました' });
           throw error; // Re-throw to prevent dialog from closing
         }
       }
+    } else {
+      // 編集モード
+      console.debug('[Project] mode=edit → PATCH /api/projects/:id', editingProject?.id);
+      if (!editingProject?.id) throw new Error('Missing id for edit');
+
+      if (!canSync) {
+        setState((prev) => ({
+          ...prev,
+          projects: prev.projects.map((project) =>
+            project.id === editingProject.id
+              ? { ...project, ...payloadBase, updatedAt: todayString() }
+              : project
+          ),
+        }));
+        pushToast({ tone: 'success', title: 'プロジェクトを更新しました（ローカル保存）' });
+      } else {
+        try {
+          await updateProject(editingProject.id, payloadBase);
+          pushToast({ tone: 'success', title: 'プロジェクトを更新しました' });
+          // 再取得して描画
+          const list = await listProjects();
+          setState((prev) => ({ ...prev, projects: list.projects }));
+        } catch (error) {
+          console.error(error);
+          pushToast({ tone: 'error', title: 'プロジェクトの更新に失敗しました' });
+          throw error;
+        }
+      }
     }
+
     setProjectDialogOpen(false);
     setEditingProject(null);
   };
@@ -3195,6 +3226,7 @@ function App() {
                 onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
+                  setProjectDialogMode('create');
                   setEditingProject(null);
                   setProjectDialogOpen(true);
                 }}
@@ -3216,11 +3248,13 @@ function App() {
                 filtersProps={filtersProps}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
+                  setProjectDialogMode('create');
                   setEditingProject(null);
                   setProjectDialogOpen(true);
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditProject={(project) => {
+                  setProjectDialogMode('edit');
                   setEditingProject(project);
                   setProjectDialogOpen(true);
                 }}
@@ -3243,6 +3277,7 @@ function App() {
                 onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
+                  setProjectDialogMode('create');
                   setEditingProject(null);
                   setProjectDialogOpen(true);
                 }}
@@ -3269,6 +3304,7 @@ function App() {
                 onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
+                  setProjectDialogMode('create');
                   setEditingProject(null);
                   setProjectDialogOpen(true);
                 }}

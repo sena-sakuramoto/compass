@@ -83,9 +83,12 @@ export async function createTask(payload: Partial<Task>) {
 export async function createProject(payload: Partial<Project>) {
   // Strip id and ProjectID to ensure server always generates new ID
   const { id: _id, ProjectID: _pid, ...clean } = payload as any;
+  const body = JSON.stringify(clean);
+  console.debug('API createProject POST /projects', clean);
   return request<{ id: string }>('/projects', {
     method: 'POST',
-    body: JSON.stringify(clean),
+    headers: { 'Content-Type': 'application/json' },
+    body,
   });
 }
 
