@@ -2508,6 +2508,7 @@ function App() {
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [personModalOpen, setPersonModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
@@ -2926,6 +2927,51 @@ function App() {
     }
   };
 
+  const handleSaveProject = async (project: Project) => {
+    // Ensure required fields have defaults
+    const payload: Partial<Project> = {
+      ...project,
+      物件名: project.物件名 || '新規プロジェクト',
+      ステータス: project.ステータス || '未着手',
+      優先度: project.優先度 || '中',
+    };
+
+    // Branch on whether project has an ID
+    if (project.id) {
+      // Update existing project (PATCH)
+      await handleUpdateProject(project.id, payload);
+    } else {
+      // Create new project (POST)
+      if (!canSync) {
+        const id = generateLocalId('project');
+        const now = todayString();
+        const newProject: Project = {
+          ...payload as Project,
+          id,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setState((prev) => ({
+          ...prev,
+          projects: [...prev.projects, newProject],
+        }));
+        pushToast({ tone: 'success', title: 'プロジェクトを追加しました（ローカル保存）' });
+      } else {
+        try {
+          await createProject(payload);
+          pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
+          window.dispatchEvent(new CustomEvent('snapshot:reload'));
+        } catch (error) {
+          console.error(error);
+          pushToast({ tone: 'error', title: 'プロジェクトの追加に失敗しました' });
+          throw error; // Re-throw to prevent dialog from closing
+        }
+      }
+    }
+    setProjectDialogOpen(false);
+    setEditingProject(null);
+  };
+
   const handleUpdatePerson = async (personId: string, payload: Partial<Person>) => {
     if (!canSync) {
       setState((prev) => ({
@@ -3116,7 +3162,7 @@ function App() {
         onOpenTask={() => setTaskModalOpen(true)}
         onOpenProject={() => {
           setEditingProject(null);
-          setProjectModalOpen(true);
+          setProjectDialogOpen(true);
         }}
         onOpenPerson={() => setPersonModalOpen(true)}
         user={user}
@@ -3150,7 +3196,7 @@ function App() {
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
                   setEditingProject(null);
-                  setProjectModalOpen(true);
+                  setProjectDialogOpen(true);
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
@@ -3171,10 +3217,13 @@ function App() {
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
                   setEditingProject(null);
-                  setProjectModalOpen(true);
+                  setProjectDialogOpen(true);
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}
-                onEditProject={setEditingProject}
+                onEditProject={(project) => {
+                  setEditingProject(project);
+                  setProjectDialogOpen(true);
+                }}
                 sortKey={projectSort}
                 onSortChange={setProjectSort}
                 canEdit={canEdit}
@@ -3195,7 +3244,7 @@ function App() {
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
                   setEditingProject(null);
-                  setProjectModalOpen(true);
+                  setProjectDialogOpen(true);
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditTask={(task) => setEditingTask(task)}
@@ -3221,7 +3270,7 @@ function App() {
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
                   setEditingProject(null);
-                  setProjectModalOpen(true);
+                  setProjectDialogOpen(true);
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
@@ -3256,11 +3305,16 @@ function App() {
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
       <PersonModal open={personModalOpen} onOpenChange={setPersonModalOpen} onSubmit={handleCreatePerson} onNotify={pushToast} />
-      <ProjectEditDialog
-        project={editingProject}
-        onClose={() => setEditingProject(null)}
-        onSave={(project) => handleUpdateProject(project.id, project)}
-      />
+      {projectDialogOpen && (
+        <ProjectEditDialog
+          project={editingProject}
+          onClose={() => {
+            setProjectDialogOpen(false);
+            setEditingProject(null);
+          }}
+          onSave={handleSaveProject}
+        />
+      )}
       <PersonEditDialog
         person={editingPerson}
         onClose={() => setEditingPerson(null)}

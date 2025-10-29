@@ -1,22 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-
-interface Project {
-  id: string;
-  物件名: string;
-  クライアント?: string;
-  LS担当者?: string;
-  自社PM?: string;
-  ステータス: string;
-  優先度?: string;
-  開始日?: string;
-  予定完了日?: string;
-  '所在地/現地'?: string;
-  '所在地_現地'?: string;
-  'フォルダURL'?: string;
-  備考?: string;
-  施工費?: number;
-}
+import type { Project } from '../lib/types';
 
 interface ProjectEditDialogProps {
   project: Project | null;
@@ -28,7 +12,7 @@ const STATUS_OPTIONS = ['未着手', '進行中', '確認待ち', '保留', '完
 const PRIORITY_OPTIONS = ['高', '中', '低'];
 
 export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialogProps) {
-  const [formData, setFormData] = useState<Project>({
+  const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
     クライアント: '',
@@ -49,16 +33,40 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
   useEffect(() => {
     if (project) {
       setFormData(project);
+    } else {
+      // Reset to default values for new project
+      setFormData({
+        id: '',
+        物件名: '',
+        クライアント: '',
+        LS担当者: '',
+        自社PM: '',
+        ステータス: '未着手',
+        優先度: '中',
+        開始日: '',
+        予定完了日: '',
+        '所在地/現地': '',
+        '所在地_現地': '',
+        'フォルダURL': '',
+        備考: '',
+        施工費: undefined,
+      });
     }
   }, [project]);
-
-  if (!project) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await onSave(formData);
+      // Ensure required fields are present
+      const projectToSave: Project = {
+        ...formData,
+        id: formData.id || '',
+        物件名: formData.物件名 || '新規プロジェクト',
+        ステータス: formData.ステータス || '未着手',
+        優先度: formData.優先度 || '中',
+      } as Project;
+      await onSave(projectToSave);
       onClose();
     } catch (error) {
       console.error('プロジェクトの保存に失敗しました:', error);
@@ -72,7 +80,9 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">プロジェクト編集</h2>
+          <h2 className="text-lg font-semibold text-slate-900">
+            {project ? 'プロジェクト編集' : 'プロジェクト作成'}
+          </h2>
           <button
             type="button"
             onClick={onClose}

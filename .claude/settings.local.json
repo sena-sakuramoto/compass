@@ -39,7 +39,8 @@
       "Bash(firebase login:ci:*)",
       "Bash(set GOOGLE_APPLICATION_CREDENTIALS=)",
       "Bash(set FIRESTORE_EMULATOR_HOST=)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []
