@@ -1333,6 +1333,30 @@ function FullScreenLoader({ message }: { message: string }) {
   );
 }
 
+function SignInRequired({ onSignIn, authError }: { onSignIn(): void; authError?: string | null }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-900 px-6 text-slate-100">
+      <div className="w-full max-w-md space-y-6 text-center">
+        <div className="space-y-3">
+          <h1 className="text-2xl font-bold">Project Compass を利用するにはサインインが必要です</h1>
+          <p className="text-sm text-slate-300">
+            Google アカウントでサインインすると、プロジェクトとタスクがリアルタイムで同期されます。
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onSignIn}
+          className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow hover:bg-slate-100 transition"
+        >
+          サインインして開始
+        </button>
+        {authError ? <p className="text-xs text-rose-300">{authError}</p> : null}
+        <p className="text-xs text-slate-400">認証に問題がある場合は管理者にお問い合わせください。</p>
+      </div>
+    </div>
+  );
+}
+
 function AuthConfigMissingScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-700">
@@ -2852,13 +2876,27 @@ function App() {
       pushToast({ tone: 'success', title: 'プロジェクトを追加しました（ローカル保存）' });
       return;
     }
+
+    // サーバー同期モードの場合は認証チェック
+    if (!user) {
+      console.error('[Project] No authenticated user found');
+      pushToast({
+        tone: 'error',
+        title: 'ログインが必要です',
+        description: 'プロジェクトを保存するには、先にログインしてください。',
+      });
+      return;
+    }
+
     try {
+      console.debug('[Project] Authenticated user:', { uid: user.uid, email: user.email });
       await createProject(payload as unknown as Partial<Project>);
       pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
-      console.error(error);
-      pushToast({ tone: 'error', title: 'プロジェクトの追加に失敗しました' });
+      console.error('[Project] Failed to create project:', error);
+      const errorMessage = error instanceof Error ? error.message : 'プロジェクトの追加に失敗しました';
+      pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
     }
   };
 
@@ -2957,15 +2995,28 @@ function App() {
         }));
         pushToast({ tone: 'success', title: 'プロジェクトを追加しました（ローカル保存）' });
       } else {
+        // サーバー同期モードの場合は認証チェック
+        if (!user) {
+          console.error('[Project] No authenticated user found');
+          pushToast({
+            tone: 'error',
+            title: 'ログインが必要です',
+            description: 'プロジェクトを保存するには、先にログインしてください。',
+          });
+          throw new Error('認証が必要です');
+        }
+
         try {
+          console.debug('[Project] Authenticated user:', { uid: user.uid, email: user.email });
           await createProject(clean);
           pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
           // 再取得して描画
           const list = await listProjects();
           setState((prev) => ({ ...prev, projects: list.projects }));
         } catch (error) {
-          console.error(error);
-          pushToast({ tone: 'error', title: 'プロジェクトの追加に失敗しました' });
+          console.error('[Project] Failed to create project:', error);
+          const errorMessage = error instanceof Error ? error.message : 'プロジェクトの追加に失敗しました';
+          pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
           throw error; // Re-throw to prevent dialog from closing
         }
       }
@@ -3182,6 +3233,15 @@ function App() {
       <>
         <FullScreenLoader message="サインイン状態を確認しています..." />
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </>
+    );
+  }
+
+  if (authReady && authSupported && !user) {
+    return (
+      <>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        <SignInRequired onSignIn={signIn} authError={authError} />
       </>
     );
   }

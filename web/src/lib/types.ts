@@ -76,6 +76,15 @@ export interface Person {
   updatedAt?: string;
 }
 
+export interface ManageableUserSummary {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+  職種?: string | null;
+  部署?: string | null;
+}
+
 export interface SnapshotPayload {
   generated_at?: string;
   projects: Project[];

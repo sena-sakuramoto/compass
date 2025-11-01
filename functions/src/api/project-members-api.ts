@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import { getAuth } from 'firebase-admin/auth';
 import {
   addProjectMember,
   getProjectMember,
@@ -11,8 +10,9 @@ import {
 } from '../lib/project-members';
 import { ProjectMemberInput } from '../lib/auth-types';
 import { canManageProjectMembers } from '../lib/access-control';
-import { getUser } from '../lib/users';
+import { getUser, listUsers } from '../lib/users';
 import { getProject } from '../lib/firestore';
+import { resolveAuthHeader, verifyToken } from '../lib/auth';
 
 const router = Router();
 
@@ -21,24 +21,38 @@ const router = Router();
  */
 async function authenticate(req: any, res: any, next: any) {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const { header, sources } = resolveAuthHeader(req);
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : header;
+
+    console.log('[ProjectMembers][Auth]', {
+      path: req.path,
+      method: req.method,
+      authorization: !!sources.authorization,
+      forwarded: !!sources.forwarded,
+      original: !!sources.original,
+    });
+
+    if (!token) {
+      console.warn('[ProjectMembers][Auth] No token extracted');
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
-    const token = authHeader.split('Bearer ')[1];
-    const decodedToken = await getAuth().verifyIdToken(token);
-    
+
+    const decodedToken = await verifyToken(token);
+    if (!decodedToken) {
+      console.warn('[ProjectMembers][Auth] Token verification failed');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const user = await getUser(decodedToken.uid);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
-    
+
     req.user = user;
     req.uid = decodedToken.uid;
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error('[ProjectMembers][Auth] Authentication error:', error);
     res.status(401).json({ error: 'Unauthorized' });
   }
 }
@@ -67,6 +81,60 @@ router.get('/projects/:projectId/members', authenticate, async (req: any, res) =
     res.json(members);
   } catch (error) {
     console.error('Error listing project members:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/projects/:projectId/manageable-users
+ * 招待候補となる社内メンバー一覧を取得
+ */
+router.get('/projects/:projectId/manageable-users', authenticate, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+
+    const project = await getProject(req.user.orgId, projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
+    if (!canManage) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const [members, users] = await Promise.all([
+      listProjectMembers(req.user.orgId, projectId),
+      listUsers({ orgId: req.user.orgId, isActive: true }),
+    ]);
+
+    const memberUserIds = new Set(members.map(member => member.userId));
+    const memberEmails = new Set(
+      members
+        .map(member => member.email?.toLowerCase())
+        .filter(Boolean) as string[]
+    );
+
+    const candidates = users
+      .filter(user => {
+        if (!user.isActive) return false;
+        if (memberUserIds.has(user.id)) return false;
+        if (user.email && memberEmails.has(user.email.toLowerCase())) return false;
+        return true;
+      })
+      .map(user => ({
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName || user.email,
+        role: user.role,
+        職種: user.職種 ?? null,
+        部署: user.部署 ?? null,
+      }))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'));
+
+    res.json({ users: candidates });
+  } catch (error) {
+    console.error('Error listing manageable users:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -104,7 +172,9 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
     res.status(201).json(member);
   } catch (error) {
     console.error('Error adding project member:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error',
+    });
   }
 });
 

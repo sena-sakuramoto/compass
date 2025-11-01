@@ -1,6 +1,36 @@
-import type { Project, Task, Person } from './types';
+import type { Project, Task, Person, ManageableUserSummary } from './types';
+import { getAuth } from 'firebase/auth';
+import { getFirebaseApp } from './firebaseClient';
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
+
+export function buildAuthHeaders(token?: string): Record<string, string> {
+  if (!token) return {};
+  const value = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
+  return { Authorization: value };
+}
+
+function mergeHeaders(base: Record<string, string>, extra?: HeadersInit): HeadersInit {
+  if (!extra) return base;
+
+  const result: Record<string, string> = { ...base };
+
+  if (extra instanceof Headers) {
+    extra.forEach((value, key) => {
+      result[key] = value;
+    });
+    return result;
+  }
+
+  if (Array.isArray(extra)) {
+    for (const [key, value] of extra) {
+      result[key] = value as string;
+    }
+    return result;
+  }
+
+  return { ...result, ...(extra as Record<string, string>) };
+}
 
 function getIdToken() {
   return localStorage.getItem('apdw_id_token') ?? undefined;
@@ -14,22 +44,76 @@ export function setIdToken(token?: string) {
   }
 }
 
+/**
+ * Firebase Auth から最新の ID トークンを取得
+ * トークンをリフレッシュして常に有効なものを返す
+ */
+async function getFreshIdToken(): Promise<string | undefined> {
+  try {
+    const app = getFirebaseApp();
+    if (!app) {
+      console.log('[api] Firebase app not initialized');
+      return getIdToken();
+    }
+    const auth = getAuth(app);
+    const user = auth.currentUser;
+    console.log('[api] Current user:', user?.email || 'NOT LOGGED IN');
+    if (user) {
+      // forceRefresh: true で常に最新のトークンを取得
+      const token = await user.getIdToken(true);
+      console.log('[api] ✅ Fresh ID token obtained from Firebase Auth');
+      console.log('[api] Token preview:', token.substring(0, 30) + '...');
+      return token;
+    } else {
+      console.log('[api] ❌ No authenticated user found');
+      return undefined;
+    }
+  } catch (error) {
+    console.error('[api] ❌ Failed to get fresh ID token:', error);
+    // フォールバック: localStorage から取得
+    return getIdToken();
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getIdToken();
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-    credentials: 'include',
-    ...options,
+  // Firebase Auth から最新のトークンを取得
+  console.log(`[api] 🔵 Starting ${options.method || 'GET'} ${path}`);
+  const token = await getFreshIdToken();
+
+  console.log(`[api] ${options.method || 'GET'} ${path}`, {
+    hasToken: !!token,
+    tokenPreview: token ? `${token.substring(0, 20)}...` : 'none',
   });
+
+  const { headers: optionHeaders, credentials: optionCredentials, ...restOptions } = options;
+  const authHeaders = buildAuthHeaders(token);
+  const headers = mergeHeaders({ 'Content-Type': 'application/json', ...authHeaders }, optionHeaders);
+
+  const fetchOptions: RequestInit = {
+    ...restOptions,
+    headers,
+    credentials: optionCredentials ?? 'include',
+  };
+
+  const res = await fetch(`${BASE_URL}${path}`, fetchOptions);
 
   if (!res.ok) {
     const text = await res.text();
+    console.error(`[api] ${options.method || 'GET'} ${path} failed:`, {
+      status: res.status,
+      statusText: res.statusText,
+      response: text,
+      hasAuthHeader: !!token,
+    });
+
+    if (res.status === 401) {
+      throw new Error(`認証エラー (401): ログインしていないか、トークンが無効です。\n${text || res.statusText}`);
+    }
+
     throw new Error(text || res.statusText);
   }
+
+  console.debug(`[api] ${options.method || 'GET'} ${path} succeeded (${res.status})`);
 
   if (res.status === 204) return undefined as unknown as T;
   const contentType = res.headers.get('content-type');
@@ -90,6 +174,11 @@ export async function createProject(payload: Partial<Project>) {
     headers: { 'Content-Type': 'application/json' },
     body,
   });
+}
+
+export async function listManageableProjectUsers(projectId: string) {
+  const { users } = await request<{ users: ManageableUserSummary[] }>(`/projects/${projectId}/manageable-users`);
+  return users;
 }
 
 export async function updateProject(projectId: string, payload: Partial<Project>) {
@@ -161,13 +250,12 @@ export async function syncTaskCalendar(taskId: string, mode: 'push' | 'sync' = '
 export async function importExcel(file: File) {
   const formData = new FormData();
   formData.append('file', file);
-  const token = getIdToken();
+  const token = await getFreshIdToken();
+  const headers = buildAuthHeaders(token);
   const res = await fetch(`${BASE_URL}/import`, {
     method: 'POST',
     body: formData,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers,
     credentials: 'include',
   });
   if (!res.ok) throw new Error(await res.text());
@@ -175,9 +263,9 @@ export async function importExcel(file: File) {
 }
 
 export async function exportExcel(): Promise<Blob> {
-  const token = getIdToken();
+  const token = await getFreshIdToken();
   const res = await fetch(`${BASE_URL}/export`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: token ? buildAuthHeaders(token) : undefined,
     credentials: 'include',
   });
   if (!res.ok) throw new Error(await res.text());
@@ -185,10 +273,10 @@ export async function exportExcel(): Promise<Blob> {
 }
 
 export async function exportSnapshot() {
-  const token = getIdToken();
+  const token = await getFreshIdToken();
   const res = await fetch(`${BASE_URL}/snapshot`, {
     credentials: 'include',
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: token ? buildAuthHeaders(token) : undefined,
   });
   if (!res.ok) throw new Error(await res.text());
   return (await res.json()) as { projects: Project[]; tasks: Task[]; people: Person[] };

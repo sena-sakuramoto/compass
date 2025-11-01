@@ -24,14 +24,15 @@ export interface BaseJobInput<TPayload extends Record<string, unknown>> {
   payload: TPayload;
   state?: JobState;
   priority?: number;
+  id?: string;
 }
 
 export async function enqueueJob<TPayload extends Record<string, unknown>>(job: BaseJobInput<TPayload>) {
-  const ref = jobsCollection().doc();
+  const collection = jobsCollection();
   const dueAtTimestamp = job.dueAt ? admin.firestore.Timestamp.fromDate(job.dueAt) : admin.firestore.Timestamp.now();
   const now = admin.firestore.FieldValue.serverTimestamp();
 
-  await ref.set({
+  const data = {
     type: job.type,
     payload: job.payload,
     dueAt: dueAtTimestamp,
@@ -40,20 +41,93 @@ export async function enqueueJob<TPayload extends Record<string, unknown>>(job: 
     attempts: 0,
     createdAt: now,
     updatedAt: now,
-  });
+  };
 
+  if (job.id) {
+    const ref = collection.doc(job.id);
+    const existing = await ref.get();
+    if (existing.exists) {
+      return ref.id;
+    }
+    await ref.create(data);
+    return ref.id;
+  }
+
+  const ref = collection.doc();
+  await ref.set(data);
   return ref.id;
 }
 
-export async function enqueueNotificationSeed(input: { taskId: string; reason: 'manual' | 'creation'; userId?: string }) {
-  const dueAt = new Date();
+type NotificationReason = 'manual' | 'creation' | 'due_date';
+
+interface NotificationSeedInput {
+  taskId: string;
+  reason: NotificationReason;
+  userId?: string;
+  sendDate?: string;
+  dueAt?: Date;
+  jobId?: string;
+}
+
+export async function enqueueNotificationSeed(input: NotificationSeedInput) {
+  const dueAt = input.dueAt ?? new Date();
   await enqueueJob({
+    id: input.jobId,
     type: 'task.notification.seed',
     dueAt,
     payload: {
       taskId: input.taskId,
       reason: input.reason,
       userId: input.userId ?? null,
+      sendDate: input.sendDate ?? null,
+    },
+  });
+}
+
+export interface DigestTaskSummary {
+  taskId: string;
+  taskName: string;
+  projectId: string;
+  status?: string | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+}
+
+export interface DigestJobPayload extends Record<string, unknown> {
+  recipient: string;
+  date: string;
+  dueToday: DigestTaskSummary[];
+  startingToday: DigestTaskSummary[];
+  overdue: DigestTaskSummary[];
+}
+
+export async function enqueueDigestNotification(input: {
+  recipient: string;
+  date: string;
+  dueToday: DigestTaskSummary[];
+  startingToday: DigestTaskSummary[];
+  overdue: DigestTaskSummary[];
+}) {
+  const hasContent = input.dueToday.length || input.startingToday.length || input.overdue.length;
+  if (!hasContent) return;
+
+  const normalizedRecipientId = input.recipient
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const jobId = `digest-${normalizedRecipientId || 'unknown'}-${input.date}`;
+
+  await enqueueJob<DigestJobPayload>({
+    id: jobId,
+    type: 'task.notification.digest',
+    dueAt: new Date(),
+    payload: {
+      recipient: input.recipient,
+      date: input.date,
+      dueToday: input.dueToday,
+      startingToday: input.startingToday,
+      overdue: input.overdue,
     },
   });
 }

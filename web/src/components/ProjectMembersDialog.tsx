@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle } from 'lucide-react';
-import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole } from '../lib/auth-types';
-import { Project } from '../lib/types';
+import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS } from '../lib/auth-types';
+import { Project, ManageableUserSummary } from '../lib/types';
+import { buildAuthHeaders, listManageableProjectUsers } from '../lib/api';
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
@@ -20,18 +21,58 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [manageableUsers, setManageableUsers] = useState<ManageableUserSummary[]>([]);
+  const [manageableLoading, setManageableLoading] = useState(false);
+  const [manageableLoaded, setManageableLoaded] = useState(false);
+  const [manageableError, setManageableError] = useState<string | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState('');
 
   useEffect(() => {
     loadMembers();
   }, [project.id]);
 
+  useEffect(() => {
+    if (showInviteForm) {
+      loadManageableUsers().catch(() => {
+        /* errors handled inside */
+      });
+    }
+  }, [showInviteForm]);
+
+  const loadManageableUsers = async (force = false): Promise<void> => {
+    if (manageableLoading) return;
+    if (!force && manageableLoaded) return;
+    try {
+      setManageableLoading(true);
+      setManageableError(null);
+
+      const users = await listManageableProjectUsers(project.id);
+      setManageableUsers(users);
+      setManageableLoaded(true);
+
+      if (selectedCandidateId && !users.some(user => user.id === selectedCandidateId)) {
+        setSelectedCandidateId('');
+      }
+    } catch (err) {
+      console.error('Error loading manageable users:', err);
+      if (err instanceof Error && err.message.toLowerCase().includes('forbidden')) {
+        setManageableError('このプロジェクトのメンバーを管理する権限がありません。');
+      } else {
+        setManageableError('招待候補の取得に失敗しました。');
+      }
+      setManageableUsers([]);
+      setManageableLoaded(true);
+    } finally {
+      setManageableLoading(false);
+    }
+  };
+
   const loadMembers = async () => {
     try {
       setLoading(true);
+      const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
-        headers: {
-          'Authorization': `Bearer ${await getAuthToken()}`,
-        },
+        headers: buildAuthHeaders(token),
       });
       
       if (!response.ok) throw new Error('Failed to load members');
@@ -46,6 +87,15 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     }
   };
 
+  const handleCandidateSelect = (candidate: ManageableUserSummary) => {
+    if (selectedCandidateId === candidate.id) {
+      setSelectedCandidateId('');
+    } else {
+      setSelectedCandidateId(candidate.id);
+      setInviteEmail(candidate.email);
+    }
+  };
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -57,18 +107,19 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     try {
       setSubmitting(true);
       setError(null);
-      
+
       const input: ProjectMemberInput = {
         email: inviteEmail,
         role: inviteRole,
         message: inviteMessage || undefined,
       };
-      
+
+      const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await getAuthToken()}`,
+          ...buildAuthHeaders(token),
         },
         body: JSON.stringify(input),
       });
@@ -77,12 +128,15 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to invite member');
       }
-      
+
+      await loadMembers();
+      await loadManageableUsers(true);
+
       setSuccess('メンバーを招待しました');
       setInviteEmail('');
       setInviteMessage('');
+      setSelectedCandidateId('');
       setShowInviteForm(false);
-      loadMembers();
     } catch (err: any) {
       console.error('Error inviting member:', err);
       setError(err.message || 'メンバーの招待に失敗しました');
@@ -95,17 +149,17 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     if (!confirm('このメンバーをプロジェクトから削除しますか？')) return;
     
     try {
+      const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${await getAuthToken()}`,
-        },
+        headers: buildAuthHeaders(token),
       });
       
       if (!response.ok) throw new Error('Failed to remove member');
-      
+
+      await loadMembers();
+      await loadManageableUsers(true);
       setSuccess('メンバーを削除しました');
-      loadMembers();
     } catch (err) {
       console.error('Error removing member:', err);
       setError('メンバーの削除に失敗しました');
@@ -114,11 +168,12 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
   const handleUpdateRole = async (userId: string, newRole: ProjectRole) => {
     try {
+      const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await getAuthToken()}`,
+          ...buildAuthHeaders(token),
         },
         body: JSON.stringify({ role: newRole }),
       });
@@ -231,6 +286,67 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
               
               <div className="space-y-4">
                 <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-sm font-medium text-gray-700">
+                      社内メンバーから選択
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => loadManageableUsers(true)}
+                      disabled={manageableLoading}
+                      className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                    >
+                      再読み込み
+                    </button>
+                  </div>
+                  {manageableError ? (
+                    <p className="text-sm text-red-600">{manageableError}</p>
+                  ) : manageableLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      <span>読み込み中...</span>
+                    </div>
+                  ) : manageableUsers.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      招待可能な社内メンバーが見つかりません。メールアドレスを直接入力してください。
+                    </p>
+                  ) : (
+                    <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-52 overflow-y-auto bg-white">
+                      {manageableUsers.map(user => {
+                        const isSelected = selectedCandidateId === user.id;
+                        return (
+                          <button
+                            key={user.id}
+                            type="button"
+                            onClick={() => handleCandidateSelect(user)}
+                            className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-gray-50'}`}
+                          >
+                            <div className="flex items-center justify-between gap-4">
+                              <div>
+                                <p className="font-medium text-gray-900 truncate">{user.displayName}</p>
+                                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                              </div>
+                              <div className="text-xs text-gray-500 text-right min-w-[120px]">
+                                <span>{ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}</span>
+                                {(user.部署 || user.職種) && (
+                                  <p className="mt-0.5 text-gray-400 truncate">
+                                    {[user.部署, user.職種].filter(Boolean).join(' / ')}
+                                  </p>
+                                )}
+                                {isSelected && <span className="block text-blue-600 font-semibold">選択中</span>}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <p className="mt-2 text-xs text-gray-500">
+                    候補を選択するとメールアドレス欄に自動入力されます。外部ユーザーを招待する場合はメールアドレスを直接入力してください。
+                  </p>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     メールアドレス *
                   </label>
@@ -239,7 +355,16 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                     <input
                       type="email"
                       value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setInviteEmail(value);
+                        if (selectedCandidateId) {
+                          const selected = manageableUsers.find(user => user.id === selectedCandidateId);
+                          if (!selected || selected.email !== value) {
+                            setSelectedCandidateId('');
+                          }
+                        }
+                      }}
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="user@example.com"
                       required
@@ -292,6 +417,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       setShowInviteForm(false);
                       setInviteEmail('');
                       setInviteMessage('');
+                      setSelectedCandidateId('');
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   >

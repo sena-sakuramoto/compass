@@ -5,8 +5,9 @@ import {
   markJobFailed,
   markJobInProgress,
   JobDoc,
+  DigestJobPayload,
 } from './jobs';
-import { sendTaskNotification } from './notifications';
+import { sendTaskNotification, sendTaskDigest } from './notifications';
 import { syncTaskToCalendar } from './calendarSync';
 
 const MAX_JOBS_PER_RUN = parseInt(process.env.JOB_RUNNER_BATCH ?? '10', 10);
@@ -14,8 +15,9 @@ const tasksCollection = () => db.collection('orgs').doc(ORG_ID).collection('task
 
 interface NotificationSeedPayload extends Record<string, unknown> {
   taskId: string;
-  reason: 'manual' | 'creation';
+  reason: 'manual' | 'creation' | 'due_date';
   userId?: string | null;
+  sendDate?: string | null;
 }
 
 interface CalendarSyncPayload extends Record<string, unknown> {
@@ -31,8 +33,16 @@ async function handleNotificationSeed(job: JobDoc<NotificationSeedPayload>) {
   }
   const task = snapshot.data() as TaskDoc;
   task.id = snapshot.id;
-  await sendTaskNotification(task, { reason: job.payload.reason, to: task.担当者メール ?? null });
-  console.info('[job] seed notifications completed', { taskId: task.id, reason: job.payload.reason });
+  await sendTaskNotification(task, {
+    reason: job.payload.reason,
+    to: task.担当者メール ?? null,
+    sendDate: job.payload.sendDate ?? null,
+  });
+  console.info('[job] seed notifications completed', {
+    taskId: task.id,
+    reason: job.payload.reason,
+    sendDate: job.payload.sendDate ?? null,
+  });
 }
 
 async function handleCalendarSync(job: JobDoc<CalendarSyncPayload>) {
@@ -46,12 +56,33 @@ async function handleCalendarSync(job: JobDoc<CalendarSyncPayload>) {
   console.info('[job] calendar sync completed', { taskId: task.id, mode: job.payload.mode });
 }
 
+async function handleDigest(job: JobDoc<DigestJobPayload>) {
+  await sendTaskDigest({
+    recipient: job.payload.recipient,
+    date: job.payload.date,
+    dueToday: job.payload.dueToday,
+    startingToday: job.payload.startingToday,
+    overdue: job.payload.overdue,
+  });
+  console.info('[job] digest notification sent', {
+    recipient: job.payload.recipient,
+    date: job.payload.date,
+    dueToday: job.payload.dueToday.length,
+    startingToday: job.payload.startingToday.length,
+    overdue: job.payload.overdue.length,
+  });
+}
+
 function isNotificationJob(job: JobDoc): job is JobDoc<NotificationSeedPayload> {
   return job.type === 'task.notification.seed';
 }
 
 function isCalendarJob(job: JobDoc): job is JobDoc<CalendarSyncPayload> {
   return job.type === 'task.calendar.sync';
+}
+
+function isDigestJob(job: JobDoc): job is JobDoc<DigestJobPayload> {
+  return job.type === 'task.notification.digest';
 }
 
 async function runJob(job: JobDoc) {
@@ -61,6 +92,8 @@ async function runJob(job: JobDoc) {
       await handleNotificationSeed(job);
     } else if (isCalendarJob(job)) {
       await handleCalendarSync(job);
+    } else if (isDigestJob(job)) {
+      await handleDigest(job);
     } else {
       console.warn('[job] 未対応のジョブタイプ', job.type);
     }
