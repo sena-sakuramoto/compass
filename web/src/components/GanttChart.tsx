@@ -87,15 +87,35 @@ function GanttXAxisTick({ x, y, payload, minDate }: { x: number; y: number; payl
   const weekdayIndex = date.getDay();
   const weekday = WEEKDAYS[weekdayIndex];
   const isWeekend = weekdayIndex === 0 || weekdayIndex === 6;
-  const primaryColor = isWeekend ? '#f43f5e' : '#475569';
-  const secondaryColor = isWeekend ? '#fb7185' : '#94a3b8';
+
+  // 本日かどうかを判定
+  const today = new Date();
+  const isToday =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+
+  const primaryColor = isToday ? '#ffffff' : isWeekend ? '#f43f5e' : '#475569';
+  const secondaryColor = isToday ? '#ffffff' : isWeekend ? '#fb7185' : '#94a3b8';
+
   return (
     <g transform={`translate(${x},${y})`}>
-      <text x={0} y={-4} textAnchor="middle" fontSize={11} fontWeight={600} fill={primaryColor}>
+      {isToday && (
+        <rect
+          x={-20}
+          y={-22}
+          width={40}
+          height={32}
+          rx={6}
+          fill="#10b981"
+          opacity={1}
+        />
+      )}
+      <text x={0} y={-4} textAnchor="middle" fontSize={11} fontWeight={isToday ? 700 : 600} fill={primaryColor}>
         {`${month}/${day}`}
       </text>
-      <text x={0} y={10} textAnchor="middle" fontSize={10} fill={secondaryColor}>
-        {weekday}
+      <text x={0} y={10} textAnchor="middle" fontSize={10} fontWeight={isToday ? 600 : 400} fill={secondaryColor}>
+        {isToday ? '今日' : weekday}
       </text>
     </g>
   );

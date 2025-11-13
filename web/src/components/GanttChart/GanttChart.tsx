@@ -127,7 +127,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
 
   const handleZoomIn = () => {
-    // ズームイン処理：今日を中心に範囲を縮小
+    // ズームイン処理：今日を基準に範囲を縮小（未来重視：前25%、後75%）
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -139,24 +139,26 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
     // todayが範囲外の場合は範囲に含める
     if (today < dateRange.start || today > dateRange.end) {
-      const halfRange = newRangeMs / 2;
-      const newStart = new Date(today.getTime() - halfRange);
-      const newEnd = new Date(today.getTime() + halfRange);
+      const pastRange = newRangeMs * 0.17;
+      const futureRange = newRangeMs * 0.83;
+      const newStart = new Date(today.getTime() - pastRange);
+      const newEnd = new Date(today.getTime() + futureRange);
       setDateRange({ start: newStart, end: newEnd });
       return;
     }
 
-    // todayを中心に新しい範囲を計算
-    const halfRange = newRangeMs / 2;
-    const newStart = new Date(today.getTime() - halfRange);
-    const newEnd = new Date(today.getTime() + halfRange);
+    // todayを基準に新しい範囲を計算（前17%、後83%）
+    const pastRange = newRangeMs * 0.17;
+    const futureRange = newRangeMs * 0.83;
+    const newStart = new Date(today.getTime() - pastRange);
+    const newEnd = new Date(today.getTime() + futureRange);
 
     setDateRange({ start: newStart, end: newEnd });
     setZoomLevel(prev => Math.min(prev * 1.2, 3.0));
   };
 
   const handleZoomOut = () => {
-    // ズームアウト処理：今日を中心に範囲を拡大
+    // ズームアウト処理：今日を基準に範囲を拡大（未来重視：前17%、後83%）
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -168,17 +170,19 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
     // todayが範囲外の場合は範囲に含める
     if (today < dateRange.start || today > dateRange.end) {
-      const halfRange = newRangeMs / 2;
-      const newStart = new Date(today.getTime() - halfRange);
-      const newEnd = new Date(today.getTime() + halfRange);
+      const pastRange = newRangeMs * 0.17;
+      const futureRange = newRangeMs * 0.83;
+      const newStart = new Date(today.getTime() - pastRange);
+      const newEnd = new Date(today.getTime() + futureRange);
       setDateRange({ start: newStart, end: newEnd });
       return;
     }
 
-    // todayを中心に新しい範囲を計算
-    const halfRange = newRangeMs / 2;
-    const newStart = new Date(today.getTime() - halfRange);
-    const newEnd = new Date(today.getTime() + halfRange);
+    // todayを基準に新しい範囲を計算（前17%、後83%）
+    const pastRange = newRangeMs * 0.17;
+    const futureRange = newRangeMs * 0.83;
+    const newStart = new Date(today.getTime() - pastRange);
+    const newEnd = new Date(today.getTime() + futureRange);
 
     setDateRange({ start: newStart, end: newEnd });
     setZoomLevel(prev => Math.max(prev / 1.2, 0.3));

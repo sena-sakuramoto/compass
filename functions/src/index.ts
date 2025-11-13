@@ -1,5 +1,6 @@
 // Project creation fix deployed
 import { onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import express from 'express';
 import cors from 'cors';
 import projectsRouter from './api/projects';
@@ -14,6 +15,7 @@ import usersRouter from './api/users-api';
 import projectMembersRouter from './api/project-members-api';
 import invitationsRouter from './api/invitations';
 import { processPendingJobs } from './lib/jobProcessor';
+import { runDailyTaskReminders } from './scheduled/taskReminders';
 
 const app = express();
 
@@ -38,6 +40,8 @@ app.use(
       }
     },
     credentials: true,
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Requested-With'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   })
 );
 app.use(express.json({ limit: '10mb' }));
@@ -81,6 +85,9 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 });
 
 const REGION = process.env.COMPASS_FUNCTION_REGION ?? 'asia-northeast1';
+const REMINDER_CRON = process.env.TASK_REMINDER_CRON ?? '0 9 * * *';
+const REMINDER_TIMEZONE = process.env.TASK_REMINDER_TIMEZONE ?? 'Asia/Tokyo';
+const REMINDER_ENABLED = process.env.TASK_REMINDER_ENABLED ?? 'true';
 
 export const api = onRequest({
   region: REGION,
@@ -99,4 +106,16 @@ export const jobRunner = onRequest({
     console.error('[jobRunner] failed', error);
     res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
   }
+});
+
+export const taskReminderScheduler = onSchedule({
+  region: REGION,
+  schedule: REMINDER_CRON,
+  timeZone: REMINDER_TIMEZONE,
+}, async () => {
+  if (REMINDER_ENABLED.toLowerCase() === 'false') {
+    console.log('[TaskReminders] Skipped (TASK_REMINDER_ENABLED=false)');
+    return;
+  }
+  await runDailyTaskReminders();
 });

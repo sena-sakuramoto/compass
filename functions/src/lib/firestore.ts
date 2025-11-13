@@ -6,6 +6,7 @@ if (!admin.apps.length) {
 }
 
 export const db = admin.firestore();
+db.settings({ ignoreUndefinedProperties: true });
 export const ORG_ID = process.env.ORG_ID ?? 'demo';
 
 type FirestoreTimestamp = admin.firestore.Timestamp;
@@ -184,8 +185,10 @@ export async function listTasks(filters: TaskListFilters & { orgId?: string }) {
   return results;
 }
 
-async function generateProjectId() {
-  const snapshot = await orgCollection('projects')
+async function generateProjectId(orgId: string) {
+  const snapshot = await db.collection('orgs')
+    .doc(orgId)
+    .collection('projects')
     .orderBy(admin.firestore.FieldPath.documentId(), 'desc')
     .limit(1)
     .get();
@@ -240,7 +243,7 @@ export async function createProject(payload: ProjectInput, orgId?: string) {
   const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
   // Always generate new ID to prevent accidental overwrites
-  const projectId = await generateProjectId();
+  const projectId = await generateProjectId(targetOrgId);
   const docRef = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
   const sanitizedPayload = sanitizeFieldNames(payload);
   await docRef.set({

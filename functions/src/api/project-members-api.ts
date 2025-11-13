@@ -13,6 +13,7 @@ import { canManageProjectMembers } from '../lib/access-control';
 import { getUser, listUsers } from '../lib/users';
 import { getProject } from '../lib/firestore';
 import { resolveAuthHeader, verifyToken } from '../lib/auth';
+import { validateEmail, validateProjectRole } from '../lib/validation';
 
 const router = Router();
 
@@ -148,6 +149,21 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
     const { projectId } = req.params;
     const input: ProjectMemberInput = req.body;
 
+    // バリデーション: メールアドレス
+    const emailError = validateEmail(input.email);
+    if (emailError) {
+      return res.status(400).json({ error: emailError });
+    }
+
+    // バリデーション: ロール
+    const roleError = validateProjectRole(input.role);
+    if (roleError) {
+      return res.status(400).json({ error: roleError });
+    }
+
+    // メールアドレスを正規化
+    const normalizedEmail = input.email.trim().toLowerCase();
+
     // プロジェクトを取得
     const project = await getProject(req.user.orgId, projectId);
     if (!project) {
@@ -157,14 +173,32 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
     // 権限チェック
     const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
     if (!canManage) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
     }
 
+    // 自分自身を招待しようとしていないかチェック
+    if (normalizedEmail === req.user.email.toLowerCase()) {
+      return res.status(400).json({ error: 'Cannot invite yourself to the project' });
+    }
+
+    // 既存メンバーのチェック
+    const existingMembers = await listProjectMembers(req.user.orgId, projectId);
+    const isDuplicate = existingMembers.some(
+      (member) => member.email.toLowerCase() === normalizedEmail
+    );
+
+    if (isDuplicate) {
+      return res.status(400).json({
+        error: 'This user is already a member or has been invited to this project',
+      });
+    }
+
+    // 正規化されたメールアドレスでメンバーを追加
     const member = await addProjectMember(
       req.user.orgId,
       projectId,
       (project as any).物件名 || projectId,
-      input,
+      { ...input, email: normalizedEmail },
       req.uid,
       req.user.displayName || req.user.email
     );
@@ -186,21 +220,45 @@ router.patch('/projects/:projectId/members/:userId', authenticate, async (req: a
   try {
     const { projectId, userId } = req.params;
     const updates = req.body;
-    
+
+    // バリデーション: ロールが指定されている場合
+    if (updates.role) {
+      const roleError = validateProjectRole(updates.role);
+      if (roleError) {
+        return res.status(400).json({ error: roleError });
+      }
+    }
+
+    // バリデーション: ステータスが指定されている場合
+    if (updates.status) {
+      const validStatuses = ['invited', 'active', 'inactive'];
+      if (!validStatuses.includes(updates.status)) {
+        return res.status(400).json({
+          error: `Invalid status. Valid statuses: ${validStatuses.join(', ')}`,
+        });
+      }
+    }
+
     // プロジェクトを取得
     const project = await getProject(req.user.orgId, projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
+    // メンバーが存在するか確認
+    const existingMember = await getProjectMember(req.user.orgId, projectId, userId);
+    if (!existingMember) {
+      return res.status(404).json({ error: 'Member not found in this project' });
+    }
+
     // 権限チェック
     const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
     if (!canManage) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
     }
-    
+
     await updateProjectMember(req.user.orgId, projectId, userId, updates);
-    
+
     const updatedMember = await getProjectMember(req.user.orgId, projectId, userId);
     res.json(updatedMember);
   } catch (error) {
@@ -216,21 +274,34 @@ router.patch('/projects/:projectId/members/:userId', authenticate, async (req: a
 router.delete('/projects/:projectId/members/:userId', authenticate, async (req: any, res) => {
   try {
     const { projectId, userId } = req.params;
-    
+
     // プロジェクトを取得
     const project = await getProject(req.user.orgId, projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
+    // メンバーが存在するか確認
+    const existingMember = await getProjectMember(req.user.orgId, projectId, userId);
+    if (!existingMember) {
+      return res.status(404).json({ error: 'Member not found in this project' });
+    }
+
     // 権限チェック
     const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
     if (!canManage) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
     }
-    
+
+    // プロジェクトオーナーを削除しようとしていないかチェック
+    if (existingMember.role === 'owner') {
+      return res.status(400).json({
+        error: 'Cannot remove the project owner. Transfer ownership first.',
+      });
+    }
+
     await removeProjectMember(req.user.orgId, projectId, userId);
-    
+
     res.status(204).send();
   } catch (error) {
     console.error('Error removing project member:', error);
@@ -245,14 +316,33 @@ router.delete('/projects/:projectId/members/:userId', authenticate, async (req: 
 router.post('/projects/:projectId/members/:userId/accept', authenticate, async (req: any, res) => {
   try {
     const { projectId, userId } = req.params;
-    
+
     // 自分自身の招待のみ承認可能
     if (req.uid !== userId) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return res.status(403).json({ error: 'Forbidden: You can only accept your own invitations' });
     }
-    
+
+    // プロジェクトが存在するか確認
+    const project = await getProject(req.user.orgId, projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // 招待が存在するか確認
+    const member = await getProjectMember(req.user.orgId, projectId, userId);
+    if (!member) {
+      return res.status(404).json({ error: 'Invitation not found' });
+    }
+
+    // ステータスが'invited'であることを確認
+    if (member.status !== 'invited') {
+      return res.status(400).json({
+        error: `Cannot accept invitation with status: ${member.status}`,
+      });
+    }
+
     await acceptProjectInvitation(req.user.orgId, projectId, userId);
-    
+
     const updatedMember = await getProjectMember(req.user.orgId, projectId, userId);
     res.json(updatedMember);
   } catch (error) {

@@ -12,6 +12,7 @@ import {
 } from '../lib/users';
 import { UserInput } from '../lib/auth-types';
 import { canManageUsers } from '../lib/access-control';
+import { resolveAuthHeader, verifyToken } from '../lib/auth';
 
 const router = Router();
 
@@ -20,24 +21,38 @@ const router = Router();
  */
 async function authenticate(req: any, res: any, next: any) {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const { header, sources } = resolveAuthHeader(req);
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : header;
+
+    console.log('[Users][Auth]', {
+      path: req.path,
+      method: req.method,
+      authorization: !!sources.authorization,
+      forwarded: !!sources.forwarded,
+      original: !!sources.original,
+    });
+
+    if (!token) {
+      console.warn('[Users][Auth] No token extracted');
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    
-    const token = authHeader.split('Bearer ')[1];
-    const decodedToken = await getAuth().verifyIdToken(token);
-    
+
+    const decodedToken = await verifyToken(token);
+    if (!decodedToken) {
+      console.warn('[Users][Auth] Token verification failed');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const user = await getUser(decodedToken.uid);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
-    
+
     req.user = user;
     req.uid = decodedToken.uid;
     next();
   } catch (error) {
-    console.error('Authentication error:', error);
+    console.error('[Users][Auth] Authentication error:', error);
     res.status(401).json({ error: 'Unauthorized' });
   }
 }

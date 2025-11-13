@@ -61,6 +61,32 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const dragStartX = useRef<number>(0);
 
+  // 個別タスクのドラッグ時に選択中の全タスクも一緒に移動
+  const handleTaskUpdateWithBatch = (task: GanttTask, newStartDate: Date, newEndDate: Date) => {
+    if (!onTaskUpdate) return;
+
+    // ドラッグされたタスクが選択中の場合、選択中の全タスクを移動
+    if (selectedTaskIds.has(task.id) && selectedTaskIds.size > 1) {
+      const deltaDays = Math.round((newStartDate.getTime() - task.startDate.getTime()) / (1000 * 60 * 60 * 24));
+
+      // 選択中の全タスクを移動
+      tasks.forEach(t => {
+        if (selectedTaskIds.has(t.id)) {
+          const taskDeltaDays = Math.round((newStartDate.getTime() - task.startDate.getTime()) / (1000 * 60 * 60 * 24));
+          const taskNewStartDate = new Date(t.startDate);
+          taskNewStartDate.setDate(taskNewStartDate.getDate() + taskDeltaDays);
+          const taskNewEndDate = new Date(t.endDate);
+          taskNewEndDate.setDate(taskNewEndDate.getDate() + taskDeltaDays);
+
+          onTaskUpdate(t, taskNewStartDate, taskNewEndDate);
+        }
+      });
+    } else {
+      // 選択されていない、または単独選択の場合は通常の移動
+      onTaskUpdate(task, newStartDate, newEndDate);
+    }
+  };
+
   // スクロール位置を同期
   useEffect(() => {
     if (scrollRef.current) {
@@ -74,13 +100,24 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
   };
 
-  // Alt+スクロールでズーム（useEffectでネイティブリスナーを追加）
+  // Alt+スクロールでズーム、Shift+スクロールで横スクロール
   useEffect(() => {
     const element = scrollRef.current;
-    if (!element || !onZoom) return;
+    if (!element) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (e.altKey) {
+      // Shift+スクロールで横スクロール
+      if (e.shiftKey) {
+        e.preventDefault();
+        element.scrollLeft += e.deltaY;
+        if (onScroll) {
+          onScroll(element.scrollLeft, element.scrollTop);
+        }
+        return;
+      }
+
+      // Alt+スクロールでズーム
+      if (e.altKey && onZoom) {
         e.preventDefault();
         if (e.deltaY < 0) {
           onZoom('in');
@@ -95,7 +132,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     return () => {
       element.removeEventListener('wheel', handleWheel);
     };
-  }, [onZoom]);
+  }, [onZoom, onScroll]);
 
   // 範囲選択開始
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -395,20 +432,25 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
             {/* 今日の縦線 */}
             {todayPosition !== null && (
               <>
-                {/* 背景のハイライト */}
+                {/* 背景のハイライト - 薄い赤 */}
                 <div
-                  className="absolute top-0 bottom-0 bg-blue-50/30 pointer-events-none"
+                  className="absolute top-0 bottom-0 bg-red-50 pointer-events-none"
                   style={{
                     left: `${todayPosition}px`,
-                    width: `${containerWidth / ticks.length}px`
+                    width: `${containerWidth / ticks.length}px`,
                   }}
                 />
-                {/* 今日の線 */}
+                {/* 今日の線 - シンプルで目立つ赤い線 */}
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-blue-500 pointer-events-none z-20"
-                  style={{ left: `${todayPosition}px` }}
+                  className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-20"
+                  style={{
+                    left: `${todayPosition}px`,
+                  }}
                 >
-                  <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-blue-500" />
+                  {/* トップの小さいマーカー */}
+                  <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-2">
+                    <div className="w-3 h-3 bg-red-500 rounded-full shadow-md" />
+                  </div>
                 </div>
               </>
             )}
@@ -475,7 +517,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                   dateRange={dateRange}
                   containerWidth={containerWidth}
                   onClick={onTaskClick}
-                  onUpdate={onTaskUpdate}
+                  onUpdate={handleTaskUpdateWithBatch}
                   onCopy={onTaskCopy}
                   interactive={interactive}
                 />

@@ -18,18 +18,26 @@ export function calculateDateRange(
   tasks: GanttTask[],
   previousRange?: { start: Date; end: Date }
 ): { start: Date; end: Date } {
-  if (tasks.length === 0) {
-    const today = new Date();
-    return { start: startOfDay(today), end: endOfDay(addDays(today, 30)) };
+  const today = startOfDay(new Date());
+
+  // 工程表なので未来重視：今日から前20日、後100日（約1/6の位置）
+  let newStart = addDays(today, -20);
+  let newEnd = addDays(today, 100);
+
+  // タスクがある場合、範囲外のタスクも含めるように拡張
+  if (tasks.length > 0) {
+    const dates = tasks.flatMap(task => [task.startDate, task.endDate]);
+    const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
+    const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
+
+    // タスクが範囲外にある場合のみ、範囲を拡張
+    if (minDate < newStart) {
+      newStart = startOfDay(addDays(minDate, -7)); // タスク最小日の7日前
+    }
+    if (maxDate > newEnd) {
+      newEnd = endOfDay(addDays(maxDate, 7)); // タスク最大日の7日後
+    }
   }
-
-  const dates = tasks.flatMap(task => [task.startDate, task.endDate]);
-  const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
-  const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
-
-  // 前後に余裕を持たせる
-  const newStart = startOfDay(addDays(minDate, -7));
-  const newEnd = endOfDay(addDays(maxDate, 7));
 
   // 既存の範囲がある場合は、それを拡張するだけ（縮小しない）
   if (previousRange) {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ProjectPermissions } from './auth-types';
 import { useFirebaseAuth } from './firebaseClient';
+import { buildAuthHeaders } from './api';
 
 /**
  * プロジェクトの権限を取得するフック
@@ -28,9 +29,7 @@ export function useProjectPermissions(projectId: string | null): {
 
         const token = await user.getIdToken();
         const response = await fetch(`/api/projects/${projectId}/members/${user.uid}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
+          headers: buildAuthHeaders(token),
         });
 
         if (!response.ok) {

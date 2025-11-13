@@ -88,6 +88,7 @@ export interface DigestTaskSummary {
   taskId: string;
   taskName: string;
   projectId: string;
+  projectName?: string | null;
   status?: string | null;
   startDate?: string | null;
   dueDate?: string | null;
@@ -95,20 +96,26 @@ export interface DigestTaskSummary {
 
 export interface DigestJobPayload extends Record<string, unknown> {
   recipient: string;
+  recipientName?: string | null;
+  orgName?: string | null;
   date: string;
   dueToday: DigestTaskSummary[];
+  dueTomorrow: DigestTaskSummary[];
   startingToday: DigestTaskSummary[];
   overdue: DigestTaskSummary[];
 }
 
 export async function enqueueDigestNotification(input: {
   recipient: string;
+  recipientName?: string | null;
+  orgName?: string | null;
   date: string;
   dueToday: DigestTaskSummary[];
+  dueTomorrow: DigestTaskSummary[];
   startingToday: DigestTaskSummary[];
   overdue: DigestTaskSummary[];
 }) {
-  const hasContent = input.dueToday.length || input.startingToday.length || input.overdue.length;
+  const hasContent = input.dueToday.length || input.dueTomorrow.length || input.startingToday.length || input.overdue.length;
   if (!hasContent) return;
 
   const normalizedRecipientId = input.recipient
@@ -124,8 +131,11 @@ export async function enqueueDigestNotification(input: {
     dueAt: new Date(),
     payload: {
       recipient: input.recipient,
+      recipientName: input.recipientName,
+      orgName: input.orgName,
       date: input.date,
       dueToday: input.dueToday,
+      dueTomorrow: input.dueTomorrow,
       startingToday: input.startingToday,
       overdue: input.overdue,
     },

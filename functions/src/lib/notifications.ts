@@ -48,6 +48,12 @@ function encodeMessage(message: string) {
     .replace(/=+$/, '');
 }
 
+function encodeSubject(subject: string): string {
+  // RFC 2047: =?charset?encoding?encoded-text?=
+  const encoded = Buffer.from(subject, 'utf-8').toString('base64');
+  return `=?UTF-8?B?${encoded}?=`;
+}
+
 export async function sendTaskNotification(
   task: TaskDoc,
   payload: { reason: NotificationReason; to?: string | null; sendDate?: string | null }
@@ -69,7 +75,7 @@ export async function sendTaskNotification(
     `From: ${sender}`,
     `To: ${recipient}`,
     'Content-Type: text/plain; charset="UTF-8"',
-    `Subject: ${subject}`,
+    `Subject: ${encodeSubject(subject)}`,
     '',
     body,
   ].join('\n');
@@ -81,25 +87,61 @@ export async function sendTaskNotification(
   } as gmail_v1.Params$Resource$Users$Messages$Send);
 }
 
+interface ProjectGroup {
+  projectId: string;
+  projectName: string;
+  tasks: DigestTaskSummary[];
+}
+
+function groupTasksByProject(tasks: DigestTaskSummary[]): ProjectGroup[] {
+  const groups = new Map<string, ProjectGroup>();
+
+  for (const task of tasks) {
+    const projectId = task.projectId || '(未設定)';
+    if (!groups.has(projectId)) {
+      groups.set(projectId, {
+        projectId,
+        projectName: projectId,
+        tasks: []
+      });
+    }
+    groups.get(projectId)!.tasks.push(task);
+  }
+
+  return Array.from(groups.values());
+}
+
 function buildDigestSection(title: string, tasks: DigestTaskSummary[]): string {
   if (!tasks.length) return '';
+
+  const projectGroups = groupTasksByProject(tasks);
   const lines = [title];
-  for (const task of tasks) {
-    const start = task.startDate ? `開始: ${task.startDate}` : null;
-    const due = task.dueDate ? `期限: ${task.dueDate}` : null;
-    const info = [start, due].filter(Boolean).join(' / ');
-    const status = task.status ? `ステータス: ${task.status}` : null;
-    const suffix = [info, status].filter(Boolean).join(' | ');
-    lines.push(`- [${task.projectId}] ${task.taskName}${suffix ? ` (${suffix})` : ''}`);
+
+  for (const group of projectGroups) {
+    // Use projectName from task data instead of projectId
+    const displayName = group.tasks[0]?.projectName || group.projectId;
+    lines.push(`  【${displayName}】`);
+    for (const task of group.tasks) {
+      const start = task.startDate ? `開始: ${task.startDate}` : null;
+      const due = task.dueDate ? `期限: ${task.dueDate}` : null;
+      const info = [start, due].filter(Boolean).join(' / ');
+      const status = task.status ? `ステータス: ${task.status}` : null;
+      const suffix = [info, status].filter(Boolean).join(' | ');
+      lines.push(`    - ${task.taskName}${suffix ? ` (${suffix})` : ''}`);
+    }
   }
+
   lines.push('');
   return lines.join('\n');
 }
 
 export async function sendTaskDigest(input: {
   recipient: string;
+  recipientName?: string | null;
+  orgName?: string | null;
   date: string;
   dueToday: DigestTaskSummary[];
+  dueTomorrow: DigestTaskSummary[];
   startingToday: DigestTaskSummary[];
   overdue: DigestTaskSummary[];
 }) {
@@ -109,10 +151,12 @@ export async function sendTaskDigest(input: {
   }
 
   const gmail = await getGmailClient();
-  const subject = `[Project Compass] タスクダイジェスト (${input.date})`;
+
+  const subject = `[Project Compass] 本日のタスク (${input.date})`;
 
   const sections = [
-    buildDigestSection('◆ 本日が期限のタスク', input.dueToday),
+    buildDigestSection('■■■【要対応】本日が期限のタスク■■■', input.dueToday),
+    buildDigestSection('◆ 明日が期限のタスク', input.dueTomorrow),
     buildDigestSection('◆ 本日開始のタスク', input.startingToday),
     buildDigestSection('◆ 未完了の期限超過タスク', input.overdue),
   ].filter(Boolean);
@@ -121,8 +165,13 @@ export async function sendTaskDigest(input: {
     return;
   }
 
+  const displayName = input.recipientName || input.recipient;
+  const greeting = input.orgName
+    ? `${input.orgName} ${displayName} 様`
+    : `${displayName} 様`;
+
   const bodyLines = [
-    `${input.recipient} 様`,
+    greeting,
     '',
     '本日のタスク状況をお知らせします。',
     '',
@@ -134,7 +183,7 @@ export async function sendTaskDigest(input: {
     `From: ${sender}`,
     `To: ${input.recipient}`,
     'Content-Type: text/plain; charset="UTF-8"',
-    `Subject: ${subject}`,
+    `Subject: ${encodeSubject(subject)}`,
     '',
     bodyLines.join('\n'),
   ].join('\n');

@@ -89,6 +89,13 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
             const day = tick.date.getDate();
             const weekday = format(tick.date, 'EEE', { locale: ja });
 
+            // 今日かどうかを判定
+            const today = new Date();
+            const isToday =
+              tick.date.getFullYear() === today.getFullYear() &&
+              tick.date.getMonth() === today.getMonth() &&
+              tick.date.getDate() === today.getDate();
+
             return (
               <div
                 key={index}
@@ -99,18 +106,26 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
                   height: '100%'
                 }}
               >
+                {/* 今日の背景 */}
+                {isToday && (
+                  <div
+                    className="absolute inset-0 rounded-md bg-emerald-500 -mx-1"
+                    style={{ top: '4px', bottom: '4px' }}
+                  />
+                )}
+
                 {/* 日付 */}
                 <div
-                  className={`text-[11px] font-semibold ${
-                    isWeekend ? 'text-rose-500' : 'text-slate-600'
+                  className={`relative text-[11px] font-semibold ${
+                    isToday ? 'text-white' : isWeekend ? 'text-rose-500' : 'text-slate-600'
                   }`}
                 >
                   {day}
                 </div>
                 {/* 曜日 */}
                 <div
-                  className={`text-[10px] ${
-                    isWeekend ? 'text-rose-400' : 'text-slate-400'
+                  className={`relative text-[10px] ${
+                    isToday ? 'text-white' : isWeekend ? 'text-rose-400' : 'text-slate-400'
                   }`}
                 >
                   {weekday}

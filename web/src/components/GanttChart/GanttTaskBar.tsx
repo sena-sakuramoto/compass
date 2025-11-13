@@ -79,8 +79,8 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     }
     e.stopPropagation();
 
-    // Altキーが押されている場合はコピーモード
-    const copyMode = e.altKey && mode === 'move' && !!onCopy;
+    // Ctrlキーが押されている場合はコピーモード
+    const copyMode = e.ctrlKey && mode === 'move' && !!onCopy;
     setIsCopyMode(copyMode);
 
     setIsDragging(true);

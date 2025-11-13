@@ -19,6 +19,15 @@ export async function addProjectMember(
 ): Promise<ProjectMember> {
   const now = Timestamp.now();
 
+  // 入力バリデーション
+  if (!input.email || !input.role) {
+    throw new Error('Email and role are required');
+  }
+
+  if (!orgId || !projectId || !invitedBy) {
+    throw new Error('Organization ID, project ID, and inviter ID are required');
+  }
+
   // メールアドレスからユーザーを検索
   const user = await getUserByEmail(input.email);
 
@@ -146,11 +155,26 @@ export async function updateProjectMember(
   userId: string,
   updates: Partial<Pick<ProjectMember, 'role' | 'permissions' | 'status'>>
 ): Promise<void> {
+  // 入力バリデーション
+  if (!orgId || !projectId || !userId) {
+    throw new Error('Organization ID, project ID, and user ID are required');
+  }
+
+  if (!updates || Object.keys(updates).length === 0) {
+    throw new Error('No updates provided');
+  }
+
   const memberRef = db
     .collection('orgs').doc(orgId)
     .collection('projects').doc(projectId)
     .collection('members').doc(userId);
-  
+
+  // メンバーが存在するか確認
+  const memberDoc = await memberRef.get();
+  if (!memberDoc.exists) {
+    throw new Error('Member not found');
+  }
+
   // ロールが変更された場合、権限も更新
   if (updates.role) {
     const currentMember = await getProjectMember(orgId, projectId, userId);
@@ -158,7 +182,7 @@ export async function updateProjectMember(
       updates.permissions = getProjectRolePermissions(updates.role);
     }
   }
-  
+
   await memberRef.update(updates);
 }
 
@@ -170,12 +194,24 @@ export async function removeProjectMember(
   projectId: string,
   userId: string
 ): Promise<void> {
-  await db
+  // 入力バリデーション
+  if (!orgId || !projectId || !userId) {
+    throw new Error('Organization ID, project ID, and user ID are required');
+  }
+
+  // メンバーが存在するか確認
+  const memberRef = db
     .collection('orgs').doc(orgId)
     .collection('projects').doc(projectId)
-    .collection('members').doc(userId)
-    .delete();
-  
+    .collection('members').doc(userId);
+
+  const memberDoc = await memberRef.get();
+  if (!memberDoc.exists) {
+    throw new Error('Member not found');
+  }
+
+  await memberRef.delete();
+
   // プロジェクトのメンバー数を更新
   await updateProjectMemberCount(orgId, projectId);
 }
@@ -188,6 +224,22 @@ export async function acceptProjectInvitation(
   projectId: string,
   userId: string
 ): Promise<void> {
+  // 入力バリデーション
+  if (!orgId || !projectId || !userId) {
+    throw new Error('Organization ID, project ID, and user ID are required');
+  }
+
+  // メンバーが存在するか確認
+  const member = await getProjectMember(orgId, projectId, userId);
+  if (!member) {
+    throw new Error('Invitation not found');
+  }
+
+  // 招待状態であることを確認
+  if (member.status !== 'invited') {
+    throw new Error(`Cannot accept invitation with status: ${member.status}`);
+  }
+
   const now = Timestamp.now();
   await db
     .collection('orgs').doc(orgId)
@@ -197,6 +249,9 @@ export async function acceptProjectInvitation(
       status: 'active',
       joinedAt: now,
     });
+
+  // プロジェクトのメンバー数を更新
+  await updateProjectMemberCount(orgId, projectId);
 }
 
 /**

@@ -3,6 +3,13 @@
 export type TaskStatus = 'not_started' | 'in_progress' | 'on_hold' | 'completed' | 'overdue';
 export type ViewMode = 'day' | 'week' | 'month';
 
+export interface TaskNotificationSettings {
+  開始日: boolean;
+  期限前日: boolean;
+  期限当日: boolean;
+  超過: boolean;
+}
+
 export interface GanttTask {
   id: string;
   name: string;
@@ -18,6 +25,8 @@ export interface GanttTask {
   milestone?: boolean;
   description?: string;
   estimatedHours?: number;
+  priority?: string; // 優先度
+  notificationSettings?: TaskNotificationSettings;
 }
 
 export interface GanttViewState {

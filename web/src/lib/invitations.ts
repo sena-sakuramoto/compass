@@ -1,4 +1,5 @@
 // プロジェクト招待API クライアント
+import { buildAuthHeaders } from './api';
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
@@ -37,9 +38,7 @@ export interface CreateInvitationInput {
 export async function listInvitations(): Promise<ProjectInvitation[]> {
   const token = getIdToken();
   const response = await fetch(`${BASE_URL}/invitations`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   if (!response.ok) {
@@ -60,7 +59,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<st
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...buildAuthHeaders(token),
     },
     body: JSON.stringify(input),
   });
@@ -80,9 +79,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<st
 export async function getInvitation(invitationId: string): Promise<ProjectInvitation> {
   const token = getIdToken();
   const response = await fetch(`${BASE_URL}/invitations/${invitationId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   if (!response.ok) {
@@ -101,9 +98,7 @@ export async function acceptInvitation(invitationId: string): Promise<void> {
   const token = getIdToken();
   const response = await fetch(`${BASE_URL}/invitations/${invitationId}/accept`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   if (!response.ok) {
@@ -119,9 +114,7 @@ export async function declineInvitation(invitationId: string): Promise<void> {
   const token = getIdToken();
   const response = await fetch(`${BASE_URL}/invitations/${invitationId}/decline`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   if (!response.ok) {
@@ -137,9 +130,7 @@ export async function deleteInvitation(invitationId: string): Promise<void> {
   const token = getIdToken();
   const response = await fetch(`${BASE_URL}/invitations/${invitationId}`, {
     method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers: buildAuthHeaders(token),
   });
 
   if (!response.ok) {

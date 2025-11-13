@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bell, Check, X, Mail } from 'lucide-react';
 import { useFirebaseAuth } from '../lib/firebaseClient';
+import { buildAuthHeaders } from '../lib/api';
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
@@ -34,8 +35,8 @@ export function InvitationNotifications() {
       const token = await user.getIdToken(true); // Force refresh
       const response = await fetch(`${BASE_URL}/users/${user.uid}/invitations`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          ...buildAuthHeaders(token),
         },
       });
 
@@ -58,8 +59,8 @@ export function InvitationNotifications() {
       const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${user.uid}/accept`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          ...buildAuthHeaders(token),
         },
       });
 
@@ -82,8 +83,8 @@ export function InvitationNotifications() {
       const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${user.uid}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          ...buildAuthHeaders(token),
         },
       });
 

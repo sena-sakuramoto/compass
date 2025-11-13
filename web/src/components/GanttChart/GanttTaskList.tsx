@@ -1,6 +1,6 @@
 // タスク一覧コンポーネント（左側固定）
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import type { GanttTask } from './types';
 
 interface GanttTaskListProps {
@@ -20,6 +20,37 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   scrollTop = 0,
   projectMap = {}
 }) => {
+  // ローカル完了状態管理（即座にUIを更新するため）
+  const [localCompletedStates, setLocalCompletedStates] = useState<Record<string, boolean>>({});
+  // ハイライト表示用のstate
+  const [highlightedTaskIds, setHighlightedTaskIds] = useState<Set<string>>(new Set());
+
+  // tasksが変更されたら、ローカル状態をリセット
+  useEffect(() => {
+    const newStates: Record<string, boolean> = {};
+    tasks.forEach(task => {
+      newStates[task.id] = task.status === 'completed';
+    });
+    setLocalCompletedStates(newStates);
+  }, [tasks]);
+
+  // タスクマップを作成
+  const taskMap = new Map<string, GanttTask>();
+  tasks.forEach(task => taskMap.set(task.id, task));
+
+  // このタスクが依存しているタスクで未完了のものをチェックする関数
+  const hasIncompleteDependencies = (task: GanttTask): GanttTask[] => {
+    // このタスクが依存しているタスクを探す
+    if (!task.dependencies || task.dependencies.length === 0) return [];
+    return task.dependencies
+      .map(depId => taskMap.get(depId))
+      .filter(t => {
+        if (!t) return false;
+        // localCompletedStatesがあればそれを使用、なければサーバー状態を使用
+        const isCompleted = localCompletedStates[t.id] ?? (t.status === 'completed');
+        return !isCompleted; // 未完了のタスクのみを含める
+      }) as GanttTask[];
+  };
   // プロジェクトごとにグループ化
   const projectGroups: { projectId: string; projectName: string; projectStatus?: string; tasks: GanttTask[] }[] = [];
   let currentProjectId: string | null = null;
@@ -70,28 +101,76 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
 
             {/* プロジェクト内のタスク */}
             {group.tasks.map((task, index) => {
-          const isCompleted = task.status === 'completed';
+          // ローカル状態を優先的に使用
+          const isCompleted = localCompletedStates[task.id] ?? (task.status === 'completed');
+          const incompleteDeps = hasIncompleteDependencies(task);
+          const cannotComplete = !isCompleted && incompleteDeps.length > 0;
+          const isHighlighted = highlightedTaskIds.has(task.id);
 
           return (
             <div
               key={task.id}
-              className={`flex items-center px-4 border-b border-slate-100 hover:bg-slate-50 transition-colors ${
+              id={`task-row-${task.id}`}
+              className={`flex items-center px-4 border-b border-slate-100 transition-all ${
                 isCompleted ? 'opacity-60' : ''
+              } ${
+                isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:bg-slate-50'
               }`}
               style={{ height: `${rowHeight}px` }}
             >
               {/* チェックボックス */}
-              <div className="w-8">
+              <div className="w-8 relative group">
                 <input
                   type="checkbox"
                   checked={isCompleted}
+                  disabled={cannotComplete}
                   onChange={(e) => {
                     e.stopPropagation();
-                    onTaskToggleComplete?.(task);
+                    if (cannotComplete) return;
+                    // まずローカル状態を即座に更新（UI反映）
+                    const newCompleted = !isCompleted;
+                    setLocalCompletedStates(prev => ({
+                      ...prev,
+                      [task.id]: newCompleted
+                    }));
+                    // その後、非同期で保存処理
+                    setTimeout(() => {
+                      onTaskToggleComplete?.(task);
+                    }, 0);
                   }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (cannotComplete) {
+                      // 依存タスクをハイライト表示
+                      const depIds = new Set(incompleteDeps.map(d => d.id));
+                      setHighlightedTaskIds(depIds);
+
+                      // 最初の依存タスクにスクロール
+                      if (incompleteDeps[0]) {
+                        const element = document.getElementById(`task-row-${incompleteDeps[0].id}`);
+                        element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+
+                      // 3秒後にハイライト解除
+                      setTimeout(() => {
+                        setHighlightedTaskIds(new Set());
+                      }, 3000);
+                    }
+                  }}
+                  className={`w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 ${
+                    cannotComplete ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'
+                  }`}
                 />
+                {/* ツールチップ */}
+                {cannotComplete && (
+                  <div className="hidden group-hover:block absolute left-6 top-0 z-50 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-900 shadow-lg whitespace-nowrap">
+                    <div className="font-semibold mb-1">先に完了が必要：</div>
+                    {incompleteDeps.map(dep => (
+                      <div key={dep.id}>・{dep.name}</div>
+                    ))}
+                    <div className="text-[10px] text-amber-700 mt-1">クリックで該当タスクへ移動</div>
+                  </div>
+                )}
               </div>
 
               {/* タスク名 */}

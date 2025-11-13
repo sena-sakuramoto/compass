@@ -66,3 +66,8 @@ body {
 button {
   @apply transition;
 }
+
+/* Recharts tooltip z-index fix */
+.recharts-tooltip-wrapper {
+  z-index: 9999 !important;
+}

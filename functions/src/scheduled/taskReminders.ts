@@ -5,10 +5,11 @@ import type { TaskNotificationSettings } from '../lib/types';
 
 type RawTask = FirebaseFirestore.DocumentData & { id: string };
 
-type DigestCategory = 'dueToday' | 'startingToday' | 'overdue';
+type DigestCategory = 'dueToday' | 'dueTomorrow' | 'startingToday' | 'overdue';
 
 interface DigestBuckets {
   dueToday: DigestTaskSummary[];
+  dueTomorrow: DigestTaskSummary[];
   startingToday: DigestTaskSummary[];
   overdue: DigestTaskSummary[];
 }
@@ -17,6 +18,15 @@ function getTokyoDateString(date = new Date()): string {
   const tzOffsetMinutes = 9 * 60; // JST (UTC+9)
   const utc = date.getTime() + date.getTimezoneOffset() * 60_000;
   const tokyoTime = new Date(utc + tzOffsetMinutes * 60_000);
+  return tokyoTime.toISOString().slice(0, 10);
+}
+
+function getTomorrowTokyoDateString(): string {
+  const tzOffsetMinutes = 9 * 60; // JST (UTC+9)
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const tokyoTime = new Date(utc + tzOffsetMinutes * 60_000);
+  tokyoTime.setDate(tokyoTime.getDate() + 1);
   return tokyoTime.toISOString().slice(0, 10);
 }
 
@@ -86,6 +96,8 @@ function shouldNotify(category: DigestCategory, settings?: TaskNotificationSetti
   switch (category) {
     case 'dueToday':
       return settings.期限当日 ?? true;
+    case 'dueTomorrow':
+      return settings.期限前日 ?? true;
     case 'startingToday':
       return settings.開始日 ?? true;
     case 'overdue':
@@ -104,7 +116,7 @@ function isTaskCompleted(status: unknown): boolean {
 
 function ensureBucket(map: Map<string, DigestBuckets>, recipient: string): DigestBuckets {
   if (!map.has(recipient)) {
-    map.set(recipient, { dueToday: [], startingToday: [], overdue: [] });
+    map.set(recipient, { dueToday: [], dueTomorrow: [], startingToday: [], overdue: [] });
   }
   return map.get(recipient)!;
 }
@@ -127,6 +139,7 @@ function addTaskToDigest(
 
 export async function runDailyTaskReminders() {
   const today = getTokyoDateString();
+  const tomorrow = getTomorrowTokyoDateString();
   const orgIds = getTargetOrgIds();
   const evaluatedTaskIds = new Set<string>();
   let enqueued = 0;
@@ -135,10 +148,17 @@ export async function runDailyTaskReminders() {
     const bucketsMap = new Map<string, DigestBuckets>();
     const seen: Record<DigestCategory, Set<string>> = {
       dueToday: new Set(),
+      dueTomorrow: new Set(),
       startingToday: new Set(),
       overdue: new Set(),
     };
     const tasksRef = db.collection('orgs').doc(orgId).collection('tasks');
+    const projectsRef = db.collection('orgs').doc(orgId).collection('projects');
+    const usersRef = db.collection('users');
+
+    // Cache for project names and user info
+    const projectNames = new Map<string, string>();
+    const userInfoCache = new Map<string, { displayName: string; orgName: string }>();
 
     const processSnapshot = async (
       snapshot: FirebaseFirestore.QuerySnapshot,
@@ -171,10 +191,29 @@ export async function runDailyTaskReminders() {
 
         const dueDate = getTaskDueDate(task);
         const startDate = getTaskStartDate(task);
+        const projectId = String(task.projectId ?? task['ProjectID'] ?? '');
+
+        // Get project name if not cached
+        if (projectId && !projectNames.has(projectId)) {
+          try {
+            const projectDoc = await projectsRef.doc(projectId).get();
+            if (projectDoc.exists) {
+              const projectData = projectDoc.data();
+              projectNames.set(projectId, projectData?.物件名 || projectId);
+            } else {
+              projectNames.set(projectId, projectId);
+            }
+          } catch (error) {
+            console.error('[TaskReminders] Failed to fetch project name', { projectId, error });
+            projectNames.set(projectId, projectId);
+          }
+        }
+
         const summary: DigestTaskSummary = {
           taskId: task.id,
           taskName: String(task.タスク名 ?? task.taskName ?? '(無題タスク)'),
-          projectId: String(task.projectId ?? task['ProjectID'] ?? ''),
+          projectId,
+          projectName: projectNames.get(projectId) || projectId,
           status: task.ステータス ?? task.status ?? null,
           startDate,
           dueDate,
@@ -186,6 +225,8 @@ export async function runDailyTaskReminders() {
     try {
       await processSnapshot(await tasksRef.where('期限', '==', today).get(), 'dueToday');
       await processSnapshot(await tasksRef.where('end', '==', today).get(), 'dueToday');
+      await processSnapshot(await tasksRef.where('期限', '==', tomorrow).get(), 'dueTomorrow');
+      await processSnapshot(await tasksRef.where('end', '==', tomorrow).get(), 'dueTomorrow');
       await processSnapshot(await tasksRef.where('予定開始日', '==', today).get(), 'startingToday');
       await processSnapshot(await tasksRef.where('start', '==', today).get(), 'startingToday');
       await processSnapshot(
@@ -211,11 +252,49 @@ export async function runDailyTaskReminders() {
       continue;
     }
 
+    // Get organization name
+    let orgName = orgId;
+    try {
+      const orgDoc = await db.collection('orgs').doc(orgId).get();
+      if (orgDoc.exists) {
+        orgName = orgDoc.data()?.name || orgId;
+      }
+    } catch (error) {
+      console.error('[TaskReminders] Failed to fetch org name', { orgId, error });
+    }
+
     for (const [recipient, digest] of bucketsMap) {
+      // Get user info
+      let recipientName = recipient;
+      if (!userInfoCache.has(recipient)) {
+        try {
+          const userSnapshot = await usersRef
+            .where('email', '==', recipient)
+            .where('orgId', '==', orgId)
+            .limit(1)
+            .get();
+          if (!userSnapshot.empty) {
+            const userData = userSnapshot.docs[0].data();
+            recipientName = userData.displayName || recipient;
+            userInfoCache.set(recipient, { displayName: recipientName, orgName });
+          } else {
+            userInfoCache.set(recipient, { displayName: recipient, orgName });
+          }
+        } catch (error) {
+          console.error('[TaskReminders] Failed to fetch user info', { recipient, error });
+          userInfoCache.set(recipient, { displayName: recipient, orgName });
+        }
+      }
+
+      const userInfo = userInfoCache.get(recipient)!;
+
       await enqueueDigestNotification({
         recipient,
+        recipientName: userInfo.displayName,
+        orgName: userInfo.orgName,
         date: today,
         dueToday: digest.dueToday,
+        dueTomorrow: digest.dueTomorrow,
         startingToday: digest.startingToday,
         overdue: digest.overdue,
       });

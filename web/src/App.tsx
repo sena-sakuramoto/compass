@@ -118,6 +118,66 @@ function useSnapshot() {
     };
   });
 
+  // Undo/Redo用の履歴管理
+  const [history, setHistory] = useState<CompassState[]>([state]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const isUndoingRef = useRef(false);
+
+  // 状態を変更し、履歴に追加
+  const setStateWithHistory = useCallback((newState: CompassState | ((prev: CompassState) => CompassState)) => {
+    if (isUndoingRef.current) {
+      // undo/redo中は履歴に追加しない
+      setState(newState);
+      return;
+    }
+
+    setState((prevState) => {
+      const nextState = typeof newState === 'function' ? newState(prevState) : newState;
+
+      // 履歴に追加（現在位置より後の履歴は削除）
+      setHistory((prevHistory) => {
+        // 現在位置より後を削除して新しい状態を追加
+        const newHistory = prevHistory.slice(0, historyIndex + 1);
+        newHistory.push(nextState);
+        // 履歴は最大50件まで保持
+        if (newHistory.length > 50) {
+          newHistory.shift();
+        } else {
+          setHistoryIndex(newHistory.length - 1);
+        }
+        return newHistory;
+      });
+
+      return nextState;
+    });
+  }, [historyIndex]);
+
+  // Undo
+  const undo = useCallback(() => {
+    if (historyIndex <= 0) return;
+
+    isUndoingRef.current = true;
+    const previousState = history[historyIndex - 1];
+    if (previousState) {
+      setState(previousState);
+      setHistoryIndex((prev) => prev - 1);
+    }
+    isUndoingRef.current = false;
+  }, [history, historyIndex]);
+
+  // Redo
+  const redo = useCallback(() => {
+    if (historyIndex >= history.length - 1) return;
+
+    isUndoingRef.current = true;
+    const nextState = history[historyIndex + 1];
+    if (nextState) {
+      setState(nextState);
+      setHistoryIndex((prev) => prev + 1);
+    }
+    isUndoingRef.current = false;
+  }, [history, historyIndex]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     localStorage.setItem(
@@ -131,7 +191,10 @@ function useSnapshot() {
     );
   }, [state]);
 
-  return [state, setState] as const;
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  return [state, setStateWithHistory, undo, redo, canUndo, canRedo] as const;
 }
 
 function AppLayout({
@@ -768,19 +831,40 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
   };
 
   // 通常タスク用の日付範囲変更ハンドラ
-  const handleRangeDateChange = (dates: [Date | null, Date | null]) => {
-    const [start, end] = dates;
-    setStartDate(start);
-    setEndDate(end);
+  const handleRangeDateChange = (date: Date | null) => {
+    if (!date) {
+      setStartDate(null);
+      setEndDate(null);
+      return;
+    }
 
-    // 期間を計算
-    if (start && end) {
-      const diffTime = end.getTime() - start.getTime();
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-      setDurationDays(diffDays > 0 ? diffDays : 1);
+    // 開始日が未設定、または既に範囲が確定している場合は新しい開始日として設定
+    if (!startDate || (startDate && endDate)) {
+      setStartDate(date);
+      setEndDate(null);
+    } else {
+      // 開始日が設定済みで終了日が未設定の場合
+      if (startDate.getTime() === date.getTime()) {
+        // 同じ日をクリック → 単日タスク
+        setEndDate(date);
+        setDurationDays(1);
+      } else if (date < startDate) {
+        // クリックした日が開始日より前 → 開始日と終了日を入れ替え
+        setEndDate(startDate);
+        setStartDate(date);
+        const diffTime = startDate.getTime() - date.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        setDurationDays(diffDays);
+      } else {
+        // クリックした日が開始日より後 → 範囲選択
+        setEndDate(date);
+        const diffTime = date.getTime() - startDate.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        setDurationDays(diffDays);
+      }
 
-      // 1日以上の範囲が選択された場合、マイルストーンを解除
-      if (start.getTime() !== end.getTime() && isMilestone) {
+      // マイルストーン解除判定
+      if (startDate.getTime() !== date.getTime() && isMilestone) {
         setIsMilestone(false);
       }
     }
@@ -852,53 +936,54 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
 
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={editingTask ? "タスク編集" : "タスク追加"}>
-      <form className="space-y-4" onSubmit={handleSubmit}>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">プロジェクト</label>
-          <select
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={project}
-            onChange={(e) => setProject(e.target.value)}
-            required
-          >
-            <option value="">選択</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.物件名 || p.id}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">担当者</label>
-          <select
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={assignee}
-            onChange={(e) => setAssignee(e.target.value)}
-          >
-            <option value="">選択</option>
-            {people.map((person) => (
-              <option key={person.氏名} value={person.氏名}>
-                {person.氏名}
-              </option>
-            ))}
-          </select>
+      <form className="space-y-3" onSubmit={handleSubmit}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">プロジェクト</label>
+            <select
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+              value={project}
+              onChange={(e) => setProject(e.target.value)}
+              required
+            >
+              <option value="">選択</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.物件名 || p.id}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">担当者</label>
+            <select
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+            >
+              <option value="">選択</option>
+              {people.map((person) => (
+                <option key={person.氏名} value={person.氏名}>
+                  {person.氏名}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         <div>
           <label className="mb-1 block text-xs text-slate-500">通知送信先メール</label>
           <input
             type="email"
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
             value={assigneeEmail}
             onChange={(e) => setAssigneeEmail(e.target.value)}
             placeholder="担当者メールアドレス"
           />
-          <p className="mt-1 text-[11px] text-slate-500">担当者のプロフィールにメールが登録されている場合、自動で補完します。</p>
         </div>
         <div>
           <label className="mb-1 block text-xs text-slate-500">タスク名</label>
           <input
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
@@ -906,7 +991,7 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
         </div>
 
         {/* マイルストーンチェックボックス */}
-        <div className={`flex items-center gap-2 p-3 rounded-xl border ${
+        <div className={`flex items-center gap-2 p-2 rounded-lg border ${
           isMilestoneCheckboxEnabled
             ? 'bg-red-50 border-red-200'
             : 'bg-gray-50 border-gray-200'
@@ -924,7 +1009,7 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
                 setEndDate(startDate);
               }
             }}
-            className={`w-4 h-4 rounded focus:ring-red-500 ${
+            className={`w-4 h-4 rounded focus:ring-red-500 flex-shrink-0 ${
               isMilestoneCheckboxEnabled
                 ? 'text-red-600 cursor-pointer'
                 : 'text-gray-400 cursor-not-allowed'
@@ -932,22 +1017,22 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
           />
           <label
             htmlFor="milestone"
-            className={`text-sm font-medium ${
+            className={`text-xs ${
               isMilestoneCheckboxEnabled
                 ? 'text-red-900 cursor-pointer'
                 : 'text-gray-400 cursor-not-allowed'
             }`}
           >
-            ◆ マイルストーン（現場立ち合い・引渡し前確認など重要な1日の予定）
+            ◆ マイルストーン（重要な1日の予定）
             {!isMilestoneCheckboxEnabled && (
-              <span className="block text-xs mt-1">※ 1日だけの予定を選択するとマイルストーンに設定できます</span>
+              <span className="block text-[10px] mt-0.5 text-gray-500">※ 1日だけの予定を選択すると設定可</span>
             )}
           </label>
         </div>
 
         {/* 日付選択 */}
-        <div className="bg-white rounded-xl border-2 border-blue-200 p-4 hover:border-blue-300 transition-colors">
-          <label className="block text-sm font-semibold text-slate-700 mb-3">
+        <div className="bg-blue-50 rounded-xl border border-blue-200 p-3">
+          <label className="block text-xs font-semibold text-slate-700 mb-2">
             {isMilestone ? '◆ 実施日' : '作業期間'}
           </label>
           {isMilestone ? (
@@ -956,30 +1041,45 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
               onChange={handleMilestoneDateChange}
               locale="ja"
               dateFormat="yyyy年MM月dd日"
-              className="w-full text-sm font-medium border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholderText="実施日を選択"
-              inline
             />
           ) : (
-            <DatePicker
-              selected={startDate}
-              onChange={handleRangeDateChange}
-              startDate={startDate}
-              endDate={endDate}
-              selectsRange
-              locale="ja"
-              dateFormat="yyyy年MM月dd日"
-              className="w-full text-sm font-medium border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholderText="開始日と終了日を選択"
-              inline
-            />
+            <div>
+              <DatePicker
+                onChange={handleRangeDateChange}
+                highlightDates={[
+                  ...(startDate ? [startDate] : []),
+                  ...(startDate && endDate ?
+                    Array.from({ length: Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1 }, (_, i) => {
+                      const d = new Date(startDate);
+                      d.setDate(startDate.getDate() + i);
+                      return d;
+                    }) : []
+                  )
+                ]}
+                inline
+                locale="ja"
+                className="w-full"
+              />
+              <div className="mt-2 text-xs text-slate-600 text-center bg-blue-50 rounded-lg py-2 px-3">
+                {!startDate && '📅 開始日を選択してください'}
+                {startDate && !endDate && '📅 終了日を選択してください（同じ日をもう一度クリックで単日タスク）'}
+                {startDate && endDate && (
+                  <span className="font-semibold text-blue-600">
+                    {startDate.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })} 〜 {endDate.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })}
+                    {startDate.getTime() === endDate.getTime() && ' (単日)'}
+                  </span>
+                )}
+              </div>
+            </div>
           )}
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs text-slate-500">優先度</label>
             <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
             >
@@ -991,7 +1091,7 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
           <div>
             <label className="mb-1 block text-xs text-slate-500">ステータス</label>
             <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
               value={status}
               onChange={(e) => setStatus(e.target.value)}
             >
@@ -1003,43 +1103,45 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
             </select>
           </div>
         </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">工数見積(h)</label>
-          <input
-            type="number"
-            min="0"
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={estimate}
-            onChange={(e) => setEstimate(Number(e.target.value || 0))}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">工数見積(h)</label>
+            <input
+              type="number"
+              min="0"
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+              value={estimate}
+              onChange={(e) => setEstimate(Number(e.target.value || 0))}
+            />
+          </div>
         </div>
         <div>
-          <p className="mb-1 text-xs font-semibold text-slate-500">メール通知タイミング</p>
-          <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-600">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={notifyStart} onChange={(e) => setNotifyStart(e.target.checked)} />
-              <span>開始日 朝 9:00 に通知</span>
+          <p className="mb-1 text-xs font-semibold text-slate-500">メール通知</p>
+          <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={notifyStart} onChange={(e) => setNotifyStart(e.target.checked)} className="w-3.5 h-3.5" />
+              <span>開始日</span>
             </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={notifyDayBefore} onChange={(e) => setNotifyDayBefore(e.target.checked)} />
-              <span>期限前日 朝 9:00 に通知</span>
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={notifyDayBefore} onChange={(e) => setNotifyDayBefore(e.target.checked)} className="w-3.5 h-3.5" />
+              <span>期限前日</span>
             </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={notifyDue} onChange={(e) => setNotifyDue(e.target.checked)} />
-              <span>期限当日 朝 9:00 に通知</span>
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={notifyDue} onChange={(e) => setNotifyDue(e.target.checked)} className="w-3.5 h-3.5" />
+              <span>期限当日</span>
             </label>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={notifyOverdue} onChange={(e) => setNotifyOverdue(e.target.checked)} />
-              <span>期限超過時に再通知</span>
+            <label className="flex items-center gap-1.5">
+              <input type="checkbox" checked={notifyOverdue} onChange={(e) => setNotifyOverdue(e.target.checked)} className="w-3.5 h-3.5" />
+              <span>期限超過</span>
             </label>
           </div>
         </div>
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className="rounded-2xl border px-3 py-2" onClick={() => onOpenChange(false)}>
+          <button type="button" className="rounded-2xl border px-4 py-1.5 text-sm" onClick={() => onOpenChange(false)}>
             キャンセル
           </button>
-          <button type="submit" className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
-            追加
+          <button type="submit" className="rounded-2xl bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white">
+            {editingTask ? '保存' : '追加'}
           </button>
         </div>
       </form>
@@ -2065,6 +2167,14 @@ function SchedulePage({
           projectName: project?.物件名 || '（プロジェクト名なし）',
           dependencies: task['依存タスク'] || [],
           milestone: isMilestone,
+          priority: task.優先度 || '中',
+          estimatedHours: task['工数見積(h)'] || 0,
+          notificationSettings: task['通知設定'] || {
+            開始日: false,
+            期限前日: false,
+            期限当日: false,
+            超過: false,
+          },
         };
       })
       .filter((task): task is GanttTask => task !== null);
@@ -2215,6 +2325,7 @@ function SchedulePage({
             // チェックボックスで完了状態をトグル
             const isCompleted = task.status === 'completed';
             const newStatus = isCompleted ? '進行中' : '完了';
+
             if (onTaskUpdate) {
               onTaskUpdate(task.id, { ステータス: newStatus });
             }
@@ -2223,11 +2334,16 @@ function SchedulePage({
             const startStr = formatDate(newStartDate);
             const endStr = formatDate(newEndDate);
             if (!startStr || !endStr) return;
-            onTaskDateChange?.(task.id, {
-              start: startStr,
-              end: endStr,
-              kind: 'move',
-            });
+
+            // onTaskUpdateを使用して確実に保存
+            if (onTaskUpdate) {
+              onTaskUpdate(task.id, {
+                予定開始日: startStr,
+                期限: endStr,
+                start: startStr,
+                end: endStr,
+              });
+            }
           }}
             onTaskCopy={(task, newStartDate, newEndDate) => {
               // タスクコピー処理
@@ -2280,15 +2396,29 @@ function SchedulePage({
               else if (updatedTask.status === 'on_hold') statusJa = '保留';
               else if (updatedTask.status === 'overdue') statusJa = '進行中'; // 期限超過は進行中として保存
 
+              const formattedStartDate = formatDate(updatedTask.startDate);
+              const formattedEndDate = formatDate(updatedTask.endDate);
+
               const updates: Partial<Task> = {
                 タスク名: updatedTask.name,
-                予定開始日: formatDate(updatedTask.startDate),
-                期限: formatDate(updatedTask.endDate),
+                予定開始日: formattedStartDate,
+                期限: formattedEndDate,
+                start: formattedStartDate, // startフィールドも更新
+                end: formattedEndDate, // endフィールドも更新
                 担当者: updatedTask.assignee,
                 担当者メール: updatedTask.assigneeEmail || '', // 担当者メールも保存
                 ステータス: statusJa,
                 進捗率: updatedTask.progress,
                 '依存タスク': updatedTask.dependencies || [],
+                マイルストーン: updatedTask.milestone || false,
+                優先度: updatedTask.priority || '中',
+                '工数見積(h)': updatedTask.estimatedHours || 0,
+                '通知設定': updatedTask.notificationSettings || {
+                  開始日: false,
+                  期限前日: false,
+                  期限当日: false,
+                  超過: false,
+                },
               };
 
               console.log('Updates to apply:', updates);
@@ -2359,6 +2489,11 @@ function buildGantt(items: GanttItemInput[], options: BuildGanttOptions = {}) {
     const paddingDays = Math.max(7, Math.ceil(spanMs / DAY_MS / 20));
     minDate = new Date(minDate.getTime() - paddingDays * DAY_MS);
     maxDate = new Date(maxDate.getTime() + paddingDays * DAY_MS);
+  } else {
+    // autoモード: 本日を中心に前後60日間表示
+    const startWindow = new Date(today.getTime() - 60 * DAY_MS);
+    const endWindow = new Date(today.getTime() + 60 * DAY_MS);
+    clampToWindow(startWindow, endWindow);
   }
 
   const spanDays = Math.max(1, Math.ceil((maxDate.getTime() - minDate.getTime()) / DAY_MS));
@@ -2527,7 +2662,7 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
 }
 
 function App() {
-  const [state, setState] = useSnapshot();
+  const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [personModalOpen, setPersonModalOpen] = useState(false);
@@ -2582,6 +2717,39 @@ function App() {
   const generateLocalId = useCallback((prefix: string) => {
     return `local-${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   }, []);
+
+  // Undo/Redoキーボードショートカット
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Z または Cmd+Z でUndo
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        if (canUndo) {
+          undo();
+          pushToast({ tone: 'info', title: '元に戻しました' });
+        }
+      }
+      // Ctrl+Shift+Z または Cmd+Shift+Z でRedo
+      else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        if (canRedo) {
+          redo();
+          pushToast({ tone: 'info', title: 'やり直しました' });
+        }
+      }
+      // Ctrl+Y または Cmd+Y でもRedo（Windowsの慣習）
+      else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        if (canRedo) {
+          redo();
+          pushToast({ tone: 'info', title: 'やり直しました' });
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo, canUndo, canRedo, pushToast]);
 
   const [projectFilter, setProjectFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('all');
@@ -2768,25 +2936,31 @@ function App() {
   };
 
   const handleTaskUpdate = async (taskId: string, updates: Partial<Task>) => {
+    // 楽観的更新：まずUIを即座に更新
+    setState((current) => ({
+      ...current,
+      tasks: current.tasks.map((task) =>
+        task.id === taskId
+          ? { ...task, ...updates, updatedAt: todayString() }
+          : task
+      ),
+    }));
+
     if (!canSync) {
-      setState((current) => ({
-        ...current,
-        tasks: current.tasks.map((task) =>
-          task.id === taskId
-            ? { ...task, ...updates, updatedAt: todayString() }
-            : task
-        ),
-      }));
       pushToast({ tone: 'success', title: 'タスクを更新しました（ローカル保存）' });
       return;
     }
+
+    // バックグラウンドでAPIに保存
     try {
       await updateTask(taskId, updates);
-      pushToast({ tone: 'success', title: 'タスクを更新しました' });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      // 成功時は何もしない（UIは既に更新済み）
+      // pushToast({ tone: 'success', title: 'タスクを更新しました' }); // トーストは表示しない
     } catch (err) {
       console.error('Task update error:', err);
       pushToast({ tone: 'error', title: 'タスクの更新に失敗しました', description: String(err) });
+      // エラー時はリロードして正しい状態に戻す
+      window.dispatchEvent(new CustomEvent('snapshot:reload'));
     }
   };
 
@@ -3140,7 +3314,12 @@ function App() {
         }
 
         // APIモード：先にAPIを呼び出し、成功したらリロード
-        await moveTaskDates(taskId, { 予定開始日: payload.start, 期限: payload.end });
+        await moveTaskDates(taskId, {
+          予定開始日: payload.start,
+          期限: payload.end,
+          start: payload.start,
+          end: payload.end
+        });
         pushToast({ tone: 'success', title: 'スケジュールを更新しました' });
 
         // リロードイベントを発火（useSnapshotがデータを再取得する）
@@ -3270,7 +3449,15 @@ function App() {
         onImportExcel={handleImportExcelSafe}
         onNotify={pushToast}
       >
-        {loading ? <div className="pb-6 text-sm text-slate-500">同期中...</div> : null}
+        {loading ? (
+          <div className="fixed bottom-4 left-4 lg:left-[17rem] z-50 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg shadow-lg text-sm text-blue-700 flex items-center gap-2">
+            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            同期中...
+          </div>
+        ) : null}
         <Routes>
           <Route
             path="/"

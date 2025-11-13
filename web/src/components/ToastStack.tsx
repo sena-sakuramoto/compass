@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 
 export type ToastTone = 'success' | 'error' | 'info';
 
@@ -40,14 +41,14 @@ function toneClasses(tone: ToastTone) {
 export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
   if (!toasts.length) return null;
 
-  return (
-    <div className="pointer-events-none fixed top-4 right-4 z-[70] flex w-full max-w-xs flex-col gap-3 sm:max-w-sm">
+  const toastContainer = (
+    <div className="pointer-events-none fixed top-4 right-4 z-[9999] flex max-w-xs flex-col gap-3 sm:max-w-sm" style={{ position: 'fixed' }}>
       {toasts.map((toast) => {
         const tone = toneClasses(toast.tone);
         return (
           <div
             key={toast.id}
-            className={`pointer-events-auto rounded-2xl border px-4 py-3 shadow-lg transition ${tone.container}`}
+            className={`pointer-events-auto rounded-2xl border px-4 py-3 shadow-lg transition-all duration-300 ease-in-out animate-in slide-in-from-right-5 fade-in ${tone.container}`}
           >
             <div className="flex items-start gap-3">
               <span className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${tone.badge}`} />
@@ -70,4 +71,6 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
       })}
     </div>
   );
+
+  return createPortal(toastContainer, document.body);
 }

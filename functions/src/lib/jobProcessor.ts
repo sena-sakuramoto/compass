@@ -59,8 +59,11 @@ async function handleCalendarSync(job: JobDoc<CalendarSyncPayload>) {
 async function handleDigest(job: JobDoc<DigestJobPayload>) {
   await sendTaskDigest({
     recipient: job.payload.recipient,
+    recipientName: job.payload.recipientName,
+    orgName: job.payload.orgName,
     date: job.payload.date,
     dueToday: job.payload.dueToday,
+    dueTomorrow: job.payload.dueTomorrow,
     startingToday: job.payload.startingToday,
     overdue: job.payload.overdue,
   });
@@ -68,6 +71,7 @@ async function handleDigest(job: JobDoc<DigestJobPayload>) {
     recipient: job.payload.recipient,
     date: job.payload.date,
     dueToday: job.payload.dueToday.length,
+    dueTomorrow: job.payload.dueTomorrow.length,
     startingToday: job.payload.startingToday.length,
     overdue: job.payload.overdue.length,
   });

@@ -4,10 +4,17 @@
     "runtime": "nodejs20"
   },
   "hosting": {
+    "site": "compass-31e9e",
     "public": "web/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
-      { "source": "/api/**", "function": "api" },
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "api",
+          "region": "asia-northeast1"
+        }
+      },
       { "source": "**", "destination": "/index.html" }
     ]
   },

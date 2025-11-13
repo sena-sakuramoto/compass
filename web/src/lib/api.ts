@@ -59,9 +59,9 @@ async function getFreshIdToken(): Promise<string | undefined> {
     const user = auth.currentUser;
     console.log('[api] Current user:', user?.email || 'NOT LOGGED IN');
     if (user) {
-      // forceRefresh: true で常に最新のトークンを取得
-      const token = await user.getIdToken(true);
-      console.log('[api] ✅ Fresh ID token obtained from Firebase Auth');
+      // forceRefresh: false でキャッシュされたトークンを使用（クォータ節約）
+      const token = await user.getIdToken(false);
+      console.log('[api] ✅ ID token obtained from Firebase Auth');
       console.log('[api] Token preview:', token.substring(0, 30) + '...');
       return token;
     } else {
@@ -216,7 +216,7 @@ export async function updateTask(taskId: string, payload: Partial<Task>) {
   });
 }
 
-export async function moveTaskDates(taskId: string, payload: { 予定開始日?: string | null; 期限?: string | null }) {
+export async function moveTaskDates(taskId: string, payload: { 予定開始日?: string | null; 期限?: string | null; start?: string | null; end?: string | null }) {
   return request<{ ok: true }>(`/tasks/${taskId}/move`, {
     method: 'POST',
     body: JSON.stringify(payload),

@@ -58,7 +58,7 @@ async function ensureUserDocument(user: User, token: string): Promise<void> {
   }
 }
 
-function getFirebaseApp() {
+export function getFirebaseApp() {
   if (!isConfigValid) return null;
   if (firebaseApp) return firebaseApp;
   if (getApps().length) {
