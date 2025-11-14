@@ -14,6 +14,7 @@ import settingsRouter from './api/settings';
 import usersRouter from './api/users-api';
 import projectMembersRouter from './api/project-members-api';
 import invitationsRouter from './api/invitations';
+import activityLogsRouter from './api/activity-logs';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 
@@ -57,6 +58,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/invitations', invitationsRouter);
 app.use('/api', projectMembersRouter);
+app.use('/api', activityLogsRouter);
 app.use('/api', excelRouter);
 
 app.get('/api/health', (_req, res) => {

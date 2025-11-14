@@ -40,6 +40,8 @@ export interface User {
  * プロジェクトメンバー（Project Member）
  */
 export interface ProjectMember {
+  id: string;                    // メンバーID（composite: {projectId}_{userId}）
+  projectId: string;             // プロジェクトID
   userId: string;                // ユーザーID
   email: string;                 // メールアドレス
   displayName: string;           // 表示名
@@ -52,6 +54,8 @@ export interface ProjectMember {
   invitedAt: Timestamp;          // 招待日時
   joinedAt?: Timestamp;          // 参加日時
   status: 'invited' | 'active' | 'inactive'; // ステータス
+  createdAt: Timestamp;          // 作成日時
+  updatedAt: Timestamp;          // 更新日時
 }
 
 /**

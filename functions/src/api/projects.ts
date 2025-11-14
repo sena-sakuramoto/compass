@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
 import { createProject, listProjects, updateProject, ProjectInput, getProject } from '../lib/firestore';
-import { listUserProjects } from '../lib/project-members';
 import { getUser } from '../lib/users';
+import { logActivity, calculateChanges } from '../lib/activity-log';
 
 const router = Router();
 
@@ -16,26 +16,10 @@ router.get('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // 管理者は全プロジェクトを取得
-    if (user.role === 'admin') {
-      const projects = await listProjects(user.orgId);
-      res.json({ projects });
-      return;
-    }
-
-    // 一般ユーザーは参加しているプロジェクトのみ取得
-    const userProjectMemberships = await listUserProjects(user.orgId, user.id);
-    const projectIds = userProjectMemberships.map(m => m.projectId);
-
-    // プロジェクト詳細を取得
-    const projects = await Promise.all(
-      projectIds.map(projectId => getProject(user.orgId, projectId))
-    );
-
-    // null を除外
-    const validProjects = projects.filter(p => p !== null);
-
-    res.json({ projects: validProjects });
+    // すべてのユーザーが全プロジェクトを取得
+    // TODO: 将来的にはproject_membersベースのフィルタリングを実装
+    const projects = await listProjects(user.orgId);
+    res.json({ projects });
   } catch (error) {
     next(error);
   }
@@ -65,7 +49,26 @@ router.post('/', async (req: any, res, next) => {
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
-    const id = await createProject(payload, user.orgId);
+    const id = await createProject(payload, user.orgId, req.uid);
+
+    // アクティビティログを記録
+    await logActivity({
+      orgId: user.orgId,
+      projectId: id,
+      type: 'project.created',
+      userId: user.id,
+      userName: user.displayName,
+      userEmail: user.email,
+      targetType: 'project',
+      targetId: id,
+      targetName: payload.物件名,
+      action: '作成',
+      metadata: {
+        ステータス: payload.ステータス,
+        優先度: payload.優先度,
+      },
+    });
+
     res.status(201).json({ id });
   } catch (error) {
     next(error);
@@ -79,7 +82,35 @@ router.patch('/:id', async (req: any, res, next) => {
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
+
+    // 変更前のプロジェクト情報を取得
+    const beforeProject = await getProject(user.orgId, req.params.id);
+    if (!beforeProject) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
     await updateProject(req.params.id, payload, user.orgId);
+
+    // 変更内容を計算
+    const changes = calculateChanges(beforeProject, { ...beforeProject, ...payload });
+
+    // アクティビティログを記録
+    if (Object.keys(changes).length > 0) {
+      await logActivity({
+        orgId: user.orgId,
+        projectId: req.params.id,
+        type: 'project.updated',
+        userId: user.id,
+        userName: user.displayName,
+        userEmail: user.email,
+        targetType: 'project',
+        targetId: req.params.id,
+        targetName: beforeProject.物件名,
+        action: '更新',
+        changes,
+      });
+    }
+
     res.json({ ok: true });
   } catch (error) {
     next(error);

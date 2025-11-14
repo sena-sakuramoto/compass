@@ -42,7 +42,10 @@ export async function addProjectMember(
     // 既存ユーザーの場合
     const org = await getOrganization(user.orgId);
 
+    const memberId = `${projectId}_${user.id}`;
     member = {
+      id: memberId,
+      projectId,
       userId: user.id,
       email: user.email,
       displayName: user.displayName,
@@ -54,19 +57,21 @@ export async function addProjectMember(
       invitedBy,
       invitedAt: now,
       status: 'invited',
+      createdAt: now,
+      updatedAt: now,
     };
 
-    await db
-      .collection('orgs').doc(orgId)
-      .collection('projects').doc(projectId)
-      .collection('members').doc(user.id)
-      .set(member);
+    // Top-level collection with composite ID
+    await db.collection('project_members').doc(memberId).set(member);
   } else {
     // 未登録ユーザーの場合、メールアドレスをキーとして招待レコードを作成
     // ユーザーが初回ログイン時に、このレコードを自分のUIDに紐付ける
     const userId = `pending_${input.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const memberId = `${projectId}_${userId}`;
 
     member = {
+      id: memberId,
+      projectId,
       userId,
       email: input.email,
       displayName: input.email.split('@')[0],
@@ -77,13 +82,12 @@ export async function addProjectMember(
       invitedBy,
       invitedAt: now,
       status: 'invited',
+      createdAt: now,
+      updatedAt: now,
     };
 
-    await db
-      .collection('orgs').doc(orgId)
-      .collection('projects').doc(projectId)
-      .collection('members').doc(userId)
-      .set(member);
+    // Top-level collection with composite ID
+    await db.collection('project_members').doc(memberId).set(member);
   }
 
   // プロジェクトのメンバー数を更新
@@ -103,12 +107,10 @@ export async function getProjectMember(
   projectId: string,
   userId: string
 ): Promise<ProjectMember | null> {
-  const doc = await db
-    .collection('orgs').doc(orgId)
-    .collection('projects').doc(projectId)
-    .collection('members').doc(userId)
-    .get();
-  
+  // Top-level collection with composite ID
+  const memberId = `${projectId}_${userId}`;
+  const doc = await db.collection('project_members').doc(memberId).get();
+
   if (!doc.exists) return null;
   return doc.data() as ProjectMember;
 }
@@ -125,25 +127,30 @@ export async function listProjectMembers(
     orgId?: string;
   }
 ): Promise<ProjectMember[]> {
-  let query = db
-    .collection('orgs').doc(orgId)
-    .collection('projects').doc(projectId)
-    .collection('members') as FirebaseFirestore.Query;
-  
+  // Top-level collection: project_members/
+  let query = db.collection('project_members')
+    .where('projectId', '==', projectId)
+    .where('orgId', '==', orgId) as FirebaseFirestore.Query;
+
   if (filters?.role) {
     query = query.where('role', '==', filters.role);
   }
-  
+
   if (filters?.status) {
     query = query.where('status', '==', filters.status);
   }
-  
-  if (filters?.orgId) {
-    query = query.where('orgId', '==', filters.orgId);
-  }
-  
+
   const snapshot = await query.get();
-  return snapshot.docs.map(doc => doc.data() as ProjectMember);
+  return snapshot.docs.map(doc => {
+    const data = doc.data();
+    return {
+      ...data,
+      invitedAt: data.invitedAt,
+      joinedAt: data.joinedAt,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt,
+    } as ProjectMember;
+  });
 }
 
 /**
@@ -164,10 +171,9 @@ export async function updateProjectMember(
     throw new Error('No updates provided');
   }
 
-  const memberRef = db
-    .collection('orgs').doc(orgId)
-    .collection('projects').doc(projectId)
-    .collection('members').doc(userId);
+  // Top-level collection with composite ID
+  const memberId = `${projectId}_${userId}`;
+  const memberRef = db.collection('project_members').doc(memberId);
 
   // メンバーが存在するか確認
   const memberDoc = await memberRef.get();
@@ -177,13 +183,13 @@ export async function updateProjectMember(
 
   // ロールが変更された場合、権限も更新
   if (updates.role) {
-    const currentMember = await getProjectMember(orgId, projectId, userId);
-    if (currentMember) {
-      updates.permissions = getProjectRolePermissions(updates.role);
-    }
+    updates.permissions = getProjectRolePermissions(updates.role);
   }
 
-  await memberRef.update(updates);
+  await memberRef.update({
+    ...updates,
+    updatedAt: Timestamp.now(),
+  });
 }
 
 /**
@@ -199,11 +205,9 @@ export async function removeProjectMember(
     throw new Error('Organization ID, project ID, and user ID are required');
   }
 
-  // メンバーが存在するか確認
-  const memberRef = db
-    .collection('orgs').doc(orgId)
-    .collection('projects').doc(projectId)
-    .collection('members').doc(userId);
+  // Top-level collection with composite ID
+  const memberId = `${projectId}_${userId}`;
+  const memberRef = db.collection('project_members').doc(memberId);
 
   const memberDoc = await memberRef.get();
   if (!memberDoc.exists) {
@@ -240,15 +244,14 @@ export async function acceptProjectInvitation(
     throw new Error(`Cannot accept invitation with status: ${member.status}`);
   }
 
+  // Top-level collection with composite ID
+  const memberId = `${projectId}_${userId}`;
   const now = Timestamp.now();
-  await db
-    .collection('orgs').doc(orgId)
-    .collection('projects').doc(projectId)
-    .collection('members').doc(userId)
-    .update({
-      status: 'active',
-      joinedAt: now,
-    });
+  await db.collection('project_members').doc(memberId).update({
+    status: 'active',
+    joinedAt: now,
+    updatedAt: now,
+  });
 
   // プロジェクトのメンバー数を更新
   await updateProjectMemberCount(orgId, projectId);
@@ -261,28 +264,23 @@ export async function listUserProjects(
   orgId: string,
   userId: string
 ): Promise<Array<{ projectId: string; member: ProjectMember }>> {
-  // すべてのプロジェクトを検索してメンバーシップを確認
-  const projectsSnapshot = await db
-    .collection('orgs').doc(orgId)
-    .collection('projects')
+  // Top-level collection: ユーザーIDでクエリ
+  const membersSnapshot = await db
+    .collection('project_members')
+    .where('userId', '==', userId)
+    .where('orgId', '==', orgId)
     .get();
-  
+
   const results: Array<{ projectId: string; member: ProjectMember }> = [];
-  
-  for (const projectDoc of projectsSnapshot.docs) {
-    const memberDoc = await projectDoc.ref
-      .collection('members')
-      .doc(userId)
-      .get();
-    
-    if (memberDoc.exists) {
-      results.push({
-        projectId: projectDoc.id,
-        member: memberDoc.data() as ProjectMember,
-      });
-    }
+
+  for (const memberDoc of membersSnapshot.docs) {
+    const member = memberDoc.data() as ProjectMember;
+    results.push({
+      projectId: member.projectId,
+      member,
+    });
   }
-  
+
   return results;
 }
 

@@ -80,6 +80,8 @@ export interface User {
  * プロジェクトメンバー
  */
 export interface ProjectMember {
+  id: string;                    // メンバーID（composite: {projectId}_{userId}）
+  projectId: string;             // プロジェクトID
   userId: string;
   email: string;
   displayName: string;
@@ -92,6 +94,8 @@ export interface ProjectMember {
   invitedAt: string;
   joinedAt?: string;
   status: 'invited' | 'active' | 'inactive';
+  createdAt: string;             // 作成日時
+  updatedAt: string;             // 更新日時
 }
 
 /**

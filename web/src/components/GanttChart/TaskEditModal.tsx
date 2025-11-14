@@ -5,6 +5,8 @@ import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import type { GanttTask } from './types';
+import type { ProjectMember } from '../../lib/auth-types';
+import { listProjectMembers } from '../../lib/api';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -39,14 +41,34 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   const [notifyDayBefore, setNotifyDayBefore] = useState(false);
   const [notifyDue, setNotifyDue] = useState(false);
   const [notifyOverdue, setNotifyOverdue] = useState(false);
+  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+
+  // プロジェクトメンバーを取得
+  useEffect(() => {
+    if (task?.projectId) {
+      setMembersLoading(true);
+      listProjectMembers(task.projectId, { status: 'active' })
+        .then(members => {
+          setProjectMembers(members);
+        })
+        .catch(error => {
+          console.error('Failed to load project members:', error);
+          setProjectMembers([]);
+        })
+        .finally(() => {
+          setMembersLoading(false);
+        });
+    }
+  }, [task?.projectId]);
 
   useEffect(() => {
     setEditedTask(task);
     setTempStartDate(null);
     // 初期化時に担当者から自動的にメールアドレスを取得
-    if (task?.assignee && people.length > 0) {
-      const person = people.find((p) => p.氏名 === task.assignee);
-      setAssigneeEmail(person?.メール || '');
+    if (task?.assignee && projectMembers.length > 0) {
+      const member = projectMembers.find((m) => m.displayName === task.assignee);
+      setAssigneeEmail(member?.email || '');
     }
     // マイルストーンの状態を復元
     setIsMilestone(task?.milestone || false);
@@ -55,7 +77,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     setNotifyDayBefore(task?.notificationSettings?.期限前日 || false);
     setNotifyDue(task?.notificationSettings?.期限当日 || false);
     setNotifyOverdue(task?.notificationSettings?.超過 || false);
-  }, [task, people]);
+  }, [task, projectMembers]);
 
   // 担当者が変更されたら、自動的にメールアドレスを補完
   useEffect(() => {
@@ -63,9 +85,9 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
       setAssigneeEmail('');
       return;
     }
-    const person = people.find((p) => p.氏名 === editedTask.assignee);
-    setAssigneeEmail(person?.メール || '');
-  }, [editedTask?.assignee, people]);
+    const member = projectMembers.find((m) => m.displayName === editedTask.assignee);
+    setAssigneeEmail(member?.email || '');
+  }, [editedTask?.assignee, projectMembers]);
 
   if (!task || !editedTask) return null;
 
@@ -166,16 +188,20 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
           {/* 担当者 */}
           <div>
             <label className="mb-1 block text-xs text-slate-500">担当者</label>
-            {people.length > 0 ? (
+            {membersLoading ? (
+              <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
+                メンバー読み込み中...
+              </div>
+            ) : projectMembers.length > 0 ? (
               <select
                 value={editedTask.assignee}
                 onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">選択</option>
-                {people.map((person) => (
-                  <option key={person.id} value={person.氏名}>
-                    {person.氏名}
+                {projectMembers.map((member) => (
+                  <option key={member.userId} value={member.displayName}>
+                    {member.displayName} ({member.role})
                   </option>
                 ))}
               </select>
@@ -185,6 +211,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                 value={editedTask.assignee}
                 onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="メンバーが見つかりません - 直接入力してください"
               />
             )}
           </div>

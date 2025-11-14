@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { X, Users, History } from 'lucide-react';
 import type { Project } from '../lib/types';
+import type { ProjectMember } from '../lib/auth-types';
+import { listProjectMembers, listActivityLogs, type ActivityLog } from '../lib/api';
 
 interface ProjectEditDialogProps {
   project: Project | null;
@@ -29,10 +31,40 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
     施工費: undefined,
   });
   const [saving, setSaving] = useState(false);
+  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   useEffect(() => {
     if (project) {
       setFormData(project);
+      // プロジェクトメンバーを取得（編集モード時のみ）
+      if (project.id) {
+        setMembersLoading(true);
+        setLogsLoading(true);
+
+        Promise.all([
+          listProjectMembers(project.id, { status: 'active' }),
+          listActivityLogs({ projectId: project.id, limit: 20 }),
+        ])
+          .then(([members, logsData]) => {
+            setProjectMembers(members);
+            setActivityLogs(logsData.logs);
+          })
+          .catch(error => {
+            console.error('Failed to load project data:', error);
+            setProjectMembers([]);
+            setActivityLogs([]);
+          })
+          .finally(() => {
+            setMembersLoading(false);
+            setLogsLoading(false);
+          });
+      } else {
+        setProjectMembers([]);
+        setActivityLogs([]);
+      }
     } else {
       // Reset to default values for new project
       setFormData({
@@ -51,6 +83,7 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
         備考: '',
         施工費: undefined,
       });
+      setProjectMembers([]);
     }
   }, [project]);
 
@@ -239,6 +272,114 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
+
+            {/* プロジェクトメンバー表示（編集モード時のみ） */}
+            {project && project.id && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <Users className="inline h-4 w-4 mr-1" />
+                  プロジェクトメンバー
+                </label>
+                {membersLoading ? (
+                  <div className="text-sm text-slate-400 text-center py-4">
+                    読み込み中...
+                  </div>
+                ) : projectMembers.length > 0 ? (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="max-h-32 overflow-y-auto">
+                      {projectMembers.map((member) => (
+                        <div
+                          key={member.userId}
+                          className="flex items-center justify-between px-3 py-2 text-sm border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                        >
+                          <div className="flex items-center gap-2">
+                            <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-medium">
+                              {member.displayName.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="font-medium text-slate-700">{member.displayName}</div>
+                              <div className="text-xs text-slate-500">{member.email}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {member.職種 && (
+                              <span className="text-xs text-slate-500">{member.職種}</span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                              {member.role === 'owner' ? 'オーナー' : member.role === 'manager' ? 'マネージャー' : member.role === 'member' ? 'メンバー' : '閲覧者'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-400 text-center py-4 border border-slate-200 rounded-lg">
+                    メンバーがいません
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* アクティビティログ表示（編集モード時のみ） */}
+            {project && project.id && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  <History className="inline h-4 w-4 mr-1" />
+                  編集履歴
+                </label>
+                {logsLoading ? (
+                  <div className="text-sm text-slate-400 text-center py-4">
+                    読み込み中...
+                  </div>
+                ) : activityLogs.length > 0 ? (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div className="max-h-48 overflow-y-auto">
+                      {activityLogs.map((log) => (
+                        <div
+                          key={log.id}
+                          className="px-3 py-2 text-sm border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="font-medium text-slate-700">{log.userName}</span>
+                                <span className="text-slate-500">が</span>
+                                <span className="font-medium text-blue-600">{log.action}</span>
+                              </div>
+                              {log.changes && Object.keys(log.changes).length > 0 && (
+                                <div className="mt-1 pl-2 border-l-2 border-slate-200">
+                                  {Object.entries(log.changes).map(([field, change]) => (
+                                    <div key={field} className="text-xs text-slate-600 mb-0.5">
+                                      <span className="font-medium">{field}:</span>{' '}
+                                      <span className="line-through text-slate-400">{JSON.stringify(change.before)}</span>
+                                      {' → '}
+                                      <span className="text-green-600">{JSON.stringify(change.after)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-400 ml-2 whitespace-nowrap">
+                              {new Date(log.createdAt).toLocaleString('ja-JP', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-400 text-center py-4 border border-slate-200 rounded-lg">
+                    編集履歴がありません
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="mt-6 flex justify-end gap-3">

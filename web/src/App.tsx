@@ -34,6 +34,7 @@ import {
   moveTaskDates,
   seedTaskReminders,
   syncTaskCalendar,
+  listProjectMembers,
 } from './lib/api';
 import { Filters } from './components/Filters';
 import { ProjectCard } from './components/ProjectCard';
@@ -52,6 +53,7 @@ import { UserManagement } from './components/UserManagement';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
+import type { ProjectMember } from './lib/auth-types';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
@@ -748,6 +750,8 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
   const [notifyDue, setNotifyDue] = useState(true);
   const [notifyOverdue, setNotifyOverdue] = useState(true);
   const [isMilestone, setIsMilestone] = useState(false);
+  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -815,14 +819,44 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
     }
   }, [open, editingTask]);
 
+  // プロジェクトメンバーを取得
+  useEffect(() => {
+    if (!project) {
+      setProjectMembers([]);
+      return;
+    }
+
+    console.log('[TaskModal] Loading project members for:', project);
+    setMembersLoading(true);
+    listProjectMembers(project, { status: 'active' })
+      .then(members => {
+        console.log('[TaskModal] Loaded project members:', members);
+        setProjectMembers(members);
+      })
+      .catch(error => {
+        console.error('[TaskModal] Failed to load project members:', error);
+        setProjectMembers([]);
+      })
+      .finally(() => {
+        setMembersLoading(false);
+      });
+  }, [project]);
+
+  // 担当者選択時にメールアドレスを自動入力（プロジェクトメンバーから検索）
   useEffect(() => {
     if (!assignee) {
       setAssigneeEmail('');
       return;
     }
-    const person = people.find((p) => p.氏名 === assignee);
-    setAssigneeEmail(person?.メール ?? '');
-  }, [assignee, people]);
+    const member = projectMembers.find((m) => m.displayName === assignee);
+    if (member) {
+      setAssigneeEmail(member.email);
+    } else {
+      // フォールバック: peopleから検索（後方互換性のため）
+      const person = people.find((p) => p.氏名 === assignee);
+      setAssigneeEmail(person?.メール ?? '');
+    }
+  }, [assignee, projectMembers, people]);
 
   // マイルストーン用の日付変更ハンドラ
   const handleMilestoneDateChange = (date: Date | null) => {
@@ -956,18 +990,36 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-500">担当者</label>
-            <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-              value={assignee}
-              onChange={(e) => setAssignee(e.target.value)}
-            >
-              <option value="">選択</option>
-              {people.map((person) => (
-                <option key={person.氏名} value={person.氏名}>
-                  {person.氏名}
-                </option>
-              ))}
-            </select>
+            {!project ? (
+              <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
+                プロジェクトを選択してください
+              </div>
+            ) : membersLoading ? (
+              <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
+                メンバー読み込み中...
+              </div>
+            ) : projectMembers.length > 0 ? (
+              <select
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={assignee}
+                onChange={(e) => setAssignee(e.target.value)}
+              >
+                <option value="">選択</option>
+                {projectMembers.map((member) => (
+                  <option key={member.userId} value={member.displayName}>
+                    {member.displayName} ({member.role})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={assignee}
+                onChange={(e) => setAssignee(e.target.value)}
+                placeholder="メンバーが見つかりません - 直接入力してください"
+              />
+            )}
           </div>
         </div>
         <div>

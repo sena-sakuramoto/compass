@@ -1,4 +1,5 @@
 import type { Project, Task, Person, ManageableUserSummary } from './types';
+import type { ProjectMember } from './auth-types';
 import { getAuth } from 'firebase/auth';
 import { getFirebaseApp } from './firebaseClient';
 
@@ -179,6 +180,15 @@ export async function createProject(payload: Partial<Project>) {
 export async function listManageableProjectUsers(projectId: string) {
   const { users } = await request<{ users: ManageableUserSummary[] }>(`/projects/${projectId}/manageable-users`);
   return users;
+}
+
+export async function listProjectMembers(projectId: string, filters?: { status?: string }) {
+  const params = new URLSearchParams();
+  if (filters?.status) {
+    params.append('status', filters.status);
+  }
+  const query = params.toString() ? `?${params.toString()}` : '';
+  return request<ProjectMember[]>(`/projects/${projectId}/members${query}`);
 }
 
 export async function updateProject(projectId: string, payload: Partial<Project>) {
@@ -397,4 +407,35 @@ export async function activateUser(userId: string) {
   return request<User>(`/users/${userId}/activate`, {
     method: 'POST',
   });
+}
+
+// ==================== アクティビティログ API ====================
+
+export interface ActivityLog {
+  id: string;
+  orgId: string;
+  projectId?: string;
+  taskId?: string;
+  type: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  targetType: 'project' | 'task' | 'member' | 'person';
+  targetId: string;
+  targetName: string;
+  action: string;
+  changes?: Record<string, { before: any; after: any }>;
+  metadata?: Record<string, any>;
+  createdAt: string;
+}
+
+export async function listActivityLogs(params?: { projectId?: string; taskId?: string; userId?: string; limit?: number }) {
+  const query = new URLSearchParams();
+  if (params?.projectId) query.set('projectId', params.projectId);
+  if (params?.taskId) query.set('taskId', params.taskId);
+  if (params?.userId) query.set('userId', params.userId);
+  if (params?.limit) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  const suffix = qs ? `?${qs}` : '';
+  return request<{ logs: ActivityLog[] }>(`/activity-logs${suffix}`);
 }

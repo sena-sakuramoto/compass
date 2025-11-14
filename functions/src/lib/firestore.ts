@@ -239,7 +239,7 @@ function sanitizeFieldNames(payload: Record<string, any>): Record<string, any> {
   return sanitized;
 }
 
-export async function createProject(payload: ProjectInput, orgId?: string) {
+export async function createProject(payload: ProjectInput, orgId?: string, createdBy?: string) {
   const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
   // Always generate new ID to prevent accidental overwrites
@@ -253,6 +253,51 @@ export async function createProject(payload: ProjectInput, orgId?: string) {
     createdAt: now,
     updatedAt: now,
   });
+
+  // プロジェクト作成者を自動的にメンバーとして追加
+  if (createdBy) {
+    try {
+      const userDoc = await db.collection('users').doc(createdBy).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const memberId = `${projectId}_${createdBy}`;
+
+        await db.collection('project_members').doc(memberId).set({
+          id: memberId,
+          projectId: projectId,
+          userId: createdBy,
+          email: userData?.email || '',
+          displayName: userData?.displayName || userData?.email || '',
+          orgId: userData?.orgId || targetOrgId,
+          orgName: userData?.orgName || targetOrgId,
+          role: 'owner',
+          職種: userData?.職種 || null,
+          permissions: {
+            canEditProject: true,
+            canDeleteProject: true,
+            canManageMembers: true,
+            canViewTasks: true,
+            canCreateTasks: true,
+            canEditTasks: true,
+            canDeleteTasks: true,
+            canViewFiles: true,
+            canUploadFiles: true,
+          },
+          invitedBy: createdBy,
+          invitedAt: now,
+          joinedAt: now,
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
+        console.log(`[createProject] Added creator ${createdBy} as owner of project ${projectId}`);
+      }
+    } catch (error) {
+      console.error('[createProject] Failed to add creator as member:', error);
+      // エラーが発生してもプロジェクト作成は成功させる
+    }
+  }
+
   return projectId;
 }
 
