@@ -26,6 +26,7 @@ import {
   updateProject,
   updatePerson,
   updateTask,
+  deleteTask,
   completeTask,
   importExcel,
   exportExcel,
@@ -2541,6 +2542,15 @@ function SchedulePage({
                   editingProject: project,
                   projectDialogOpen: true,
                 }));
+              }
+            }}
+            onTaskDelete={async (task) => {
+              try {
+                await deleteTask(task.id);
+                pushToast({ title: `タスク「${task.name}」を削除しました`, tone: 'success' });
+              } catch (error) {
+                console.error('タスクの削除に失敗しました:', error);
+                pushToast({ title: 'タスクの削除に失敗しました', tone: 'error' });
               }
             }}
           />

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
-import { createProject, listProjects, updateProject, ProjectInput, getProject } from '../lib/firestore';
+import { createProject, listProjects, updateProject, deleteProject as deleteProjectRepo, ProjectInput, getProject } from '../lib/firestore';
 import { getUser } from '../lib/users';
 import { logActivity, calculateChanges } from '../lib/activity-log';
 
@@ -132,6 +132,47 @@ router.patch('/:id', async (req: any, res, next) => {
         changes,
       });
     }
+
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/:id', async (req: any, res, next) => {
+  try {
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // プロジェクトの存在と権限をチェック
+    const project = await getProject(req.params.id, user.orgId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // オーナーのみ削除可能
+    if (project.オーナー !== user.id && project.オーナー !== user.email) {
+      return res.status(403).json({ error: 'Forbidden: Only the project owner can delete this project' });
+    }
+
+    // プロジェクトを削除
+    await deleteProjectRepo(req.params.id, user.orgId);
+
+    // 活動ログに記録
+    await logActivity({
+      orgId: user.orgId,
+      projectId: req.params.id,
+      type: 'project.deleted',
+      userId: user.id,
+      userName: user.displayName,
+      userEmail: user.email,
+      targetType: 'project',
+      targetId: req.params.id,
+      targetName: project.物件名,
+      action: '削除',
+    });
 
     res.json({ ok: true });
   } catch (error) {

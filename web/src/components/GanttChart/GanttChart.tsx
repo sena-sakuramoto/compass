@@ -22,6 +22,7 @@ interface GanttChartProps {
   onTaskUpdate?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onTaskCopy?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onTaskSave?: (task: GanttTask & { assigneeEmail?: string }) => void;
+  onTaskDelete?: (task: GanttTask) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
   onProjectClick?: (projectId: string) => void;
   initialViewMode?: ViewMode;
@@ -36,6 +37,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onTaskUpdate,
   onTaskCopy,
   onTaskSave,
+  onTaskDelete,
   onTaskToggleComplete,
   onProjectClick,
   initialViewMode = 'day',
@@ -391,6 +393,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         people={people}
         onClose={handleModalClose}
         onSave={handleTaskSaveInternal}
+        onDelete={onTaskDelete}
       />
     </div>
   );

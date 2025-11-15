@@ -24,6 +24,7 @@ interface TaskEditModalProps {
   people?: Person[];
   onClose: () => void;
   onSave: (task: GanttTask & { assigneeEmail?: string }) => void;
+  onDelete?: (task: GanttTask) => void;
 }
 
 export const TaskEditModal: React.FC<TaskEditModalProps> = ({
@@ -31,7 +32,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   allTasks,
   people = [],
   onClose,
-  onSave
+  onSave,
+  onDelete
 }) => {
   const [editedTask, setEditedTask] = useState<GanttTask | null>(task);
   const [assigneeEmail, setAssigneeEmail] = useState('');
@@ -119,6 +121,17 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     };
     onSave(taskToSave);
     onClose();
+  };
+
+  const handleDelete = () => {
+    if (!onDelete || !task) return;
+
+    // 確認ダイアログを表示
+    const confirmMessage = `タスク「${task.name}」を削除してもよろしいですか？\n\nこの操作は取り消せません。`;
+    if (window.confirm(confirmMessage)) {
+      onDelete(task);
+      onClose();
+    }
   };
 
   const handleDependencyToggle = (depId: string) => {
@@ -432,19 +445,33 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
         </div>
 
         {/* フッター */}
-        <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-2xl hover:bg-slate-50 transition-colors"
-          >
-            キャンセル
-          </button>
-          <button
-            onClick={handleSave}
-            className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-2xl hover:bg-slate-800 transition-colors"
-          >
-            保存
-          </button>
+        <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between gap-3">
+          {/* 削除ボタン（左側） */}
+          {onDelete && (
+            <button
+              onClick={handleDelete}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-2xl hover:bg-red-700 transition-colors"
+            >
+              削除
+            </button>
+          )}
+          {!onDelete && <div />}
+
+          {/* キャンセル・保存ボタン（右側） */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-2xl hover:bg-slate-50 transition-colors"
+            >
+              キャンセル
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-2xl hover:bg-slate-800 transition-colors"
+            >
+              保存
+            </button>
+          </div>
         </div>
       </div>
     </div>

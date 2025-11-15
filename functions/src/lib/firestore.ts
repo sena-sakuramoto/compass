@@ -329,6 +329,14 @@ export async function updateProject(projectId: string, payload: Partial<ProjectI
   });
 }
 
+export async function deleteProject(projectId: string, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new Error('Project not found');
+  await ref.delete();
+}
+
 export async function createPerson(payload: PersonInput, orgId?: string) {
   const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
@@ -409,6 +417,14 @@ export async function updateTask(taskId: string, payload: Partial<TaskInput>, or
   });
 
   await ref.update(updateData);
+}
+
+export async function deleteTask(taskId: string, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new Error('Task not found');
+  await ref.delete();
 }
 
 export async function moveTaskDates(taskId: string, payload: { 予定開始日?: string | null; 期限?: string | null }, orgId?: string) {

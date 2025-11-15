@@ -6,6 +6,7 @@ import {
   createTask,
   listTasks,
   updateTask,
+  deleteTask as deleteTaskRepo,
   moveTaskDates,
   TaskInput,
   recordTaskCreator,
@@ -253,6 +254,27 @@ router.post('/:id/move', async (req: any, res, next) => {
 router.post('/:id/seed-reminders', async (req, res, next) => {
   try {
     await enqueueNotificationSeed({ taskId: req.params.id, reason: 'manual' });
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/:id', async (req: any, res, next) => {
+  try {
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // タスクの編集権限をチェック
+    const task = await canEditTask(req.params.id, req.uid, user.orgId);
+    if (!task) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to delete this task' });
+    }
+
+    // タスクを削除
+    await deleteTaskRepo(req.params.id, user.orgId);
     res.json({ ok: true });
   } catch (error) {
     next(error);

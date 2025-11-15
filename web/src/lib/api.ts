@@ -198,6 +198,12 @@ export async function updateProject(projectId: string, payload: Partial<Project>
   });
 }
 
+export async function deleteProject(projectId: string) {
+  return request<{ ok: true }>(`/projects/${projectId}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function createPerson(payload: Partial<Person>) {
   return request<{ id: string }>('/people', {
     method: 'POST',
@@ -223,6 +229,12 @@ export async function updateTask(taskId: string, payload: Partial<Task>) {
   return request<{ ok: true }>(`/tasks/${taskId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTask(taskId: string) {
+  return request<{ ok: true }>(`/tasks/${taskId}`, {
+    method: 'DELETE',
   });
 }
 
