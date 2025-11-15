@@ -23,6 +23,7 @@ export interface Project {
 export interface Task {
   id: string;
   projectId: string;
+  orgId: string; // タスクが属する組織ID
   タスク名: string;
   タスク種別?: string | null;
   担当者?: string | null;

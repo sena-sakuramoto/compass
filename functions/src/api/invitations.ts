@@ -10,6 +10,7 @@ import {
   deleteInvitation,
   getUser,
   listProjects,
+  getProject,
 } from '../lib/firestore';
 import type { ProjectInvitationInput } from '../lib/types';
 
@@ -79,9 +80,18 @@ router.post('/', async (req: any, res, next) => {
       return;
     }
 
-    // プロジェクト存在確認
-    const projects = await listProjects(user.orgId);
-    const project = projects.find((p) => p.id === projectId);
+    // プロジェクト存在確認とメンバーシップチェック
+    const { listUserProjects } = await import('../lib/project-members');
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const projectMembership = userProjectMemberships.find(m => m.projectId === projectId);
+
+    if (!projectMembership) {
+      res.status(404).json({ error: 'Project not found or you are not a member' });
+      return;
+    }
+
+    // プロジェクト詳細を取得
+    const project = await getProject(projectMembership.member.orgId, projectId);
     if (!project) {
       res.status(404).json({ error: 'Project not found' });
       return;

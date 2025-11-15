@@ -316,7 +316,7 @@ function AppLayout({
             <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
           </div>
         ) : null}
-        <main className="flex-1 min-h-0 overflow-hidden mx-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8 max-w-full">{children}</main>
+        <main className="flex-1 min-h-0 overflow-y-auto mx-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8 max-w-full">{children}</main>
         <BottomBar
           onOpenTask={onOpenTask}
           onOpenProject={onOpenProject}

@@ -262,7 +262,7 @@ export async function createProject(payload: ProjectInput, orgId?: string, creat
         const userData = userDoc.data();
         const memberId = `${projectId}_${createdBy}`;
 
-        await db.collection('project_members').doc(memberId).set({
+        const memberData = {
           id: memberId,
           projectId: projectId,
           userId: createdBy,
@@ -289,7 +289,21 @@ export async function createProject(payload: ProjectInput, orgId?: string, creat
           status: 'active',
           createdAt: now,
           updatedAt: now,
-        });
+        };
+
+        // トップレベルの project_members コレクションに保存
+        await db.collection('project_members').doc(memberId).set(memberData);
+
+        // プロジェクトのサブコレクションにも保存
+        await db
+          .collection('orgs')
+          .doc(targetOrgId)
+          .collection('projects')
+          .doc(projectId)
+          .collection('members')
+          .doc(createdBy)
+          .set(memberData);
+
         console.log(`[createProject] Added creator ${createdBy} as owner of project ${projectId}`);
       }
     } catch (error) {
@@ -352,6 +366,7 @@ export async function createTask(payload: TaskInput, orgId?: string) {
     id: taskId,
     TaskID: taskId,
     projectId: payload.projectId,
+    orgId: targetOrgId,
     createdAt: now,
     updatedAt: now,
   });

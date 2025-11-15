@@ -105,7 +105,7 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
+      <div className="w-full max-w-2xl max-h-[90vh] rounded-2xl bg-white shadow-xl flex flex-col">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">
             {project ? 'プロジェクト編集' : 'プロジェクト作成'}
@@ -119,8 +119,8 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700">
                 プロジェクト名 <span className="text-rose-500">*</span>
@@ -382,7 +382,7 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
             )}
           </div>
 
-          <div className="mt-6 flex justify-end gap-3">
+          <div className="flex-shrink-0 border-t border-slate-200 px-6 py-4 flex justify-end gap-3">
             <button
               type="button"
               onClick={onClose}

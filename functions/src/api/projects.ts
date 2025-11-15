@@ -16,9 +16,30 @@ router.get('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // すべてのユーザーが全プロジェクトを取得
-    // TODO: 将来的にはproject_membersベースのフィルタリングを実装
-    const projects = await listProjects(user.orgId);
+    // ユーザーがメンバーとして参加している全プロジェクトを取得（組織をまたいでも）
+    const { listUserProjects } = await import('../lib/project-members');
+    const userProjectMemberships = await listUserProjects(null, req.uid); // orgId=null で全組織のプロジェクトを取得
+    const projectIds = userProjectMemberships.map(m => m.projectId);
+
+    if (projectIds.length === 0) {
+      res.json({ projects: [] });
+      return;
+    }
+
+    // プロジェクト詳細を各組織から取得
+    const projectsMap = new Map();
+    for (const { projectId, member } of userProjectMemberships) {
+      try {
+        const project = await getProject(member.orgId, projectId);
+        if (project) {
+          projectsMap.set(projectId, project);
+        }
+      } catch (error) {
+        console.error(`Failed to load project ${projectId}:`, error);
+      }
+    }
+
+    const projects = Array.from(projectsMap.values());
     res.json({ projects });
   } catch (error) {
     next(error);

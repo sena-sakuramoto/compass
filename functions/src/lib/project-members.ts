@@ -259,17 +259,24 @@ export async function acceptProjectInvitation(
 
 /**
  * ユーザーがメンバーとして参加しているプロジェクト一覧を取得
+ * @param orgId - 組織IDでフィルタ（省略可能。省略時は全組織のプロジェクトを取得）
+ * @param userId - ユーザーID
  */
 export async function listUserProjects(
-  orgId: string,
+  orgId: string | null,
   userId: string
 ): Promise<Array<{ projectId: string; member: ProjectMember }>> {
   // Top-level collection: ユーザーIDでクエリ
-  const membersSnapshot = await db
+  let query = db
     .collection('project_members')
-    .where('userId', '==', userId)
-    .where('orgId', '==', orgId)
-    .get();
+    .where('userId', '==', userId) as FirebaseFirestore.Query;
+
+  // orgIdが指定されている場合のみフィルタ
+  if (orgId) {
+    query = query.where('orgId', '==', orgId);
+  }
+
+  const membersSnapshot = await query.get();
 
   const results: Array<{ projectId: string; member: ProjectMember }> = [];
 
