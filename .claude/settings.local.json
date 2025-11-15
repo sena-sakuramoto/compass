@@ -40,7 +40,8 @@
       "Bash(set GOOGLE_APPLICATION_CREDENTIALS=)",
       "Bash(set FIRESTORE_EMULATOR_HOST=)",
       "Bash(curl:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(firebase projects:list:*)"
     ],
     "deny": [],
     "ask": []

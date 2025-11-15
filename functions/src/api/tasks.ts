@@ -37,17 +37,14 @@ router.get('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // 管理者は全タスクを取得
-    const orgAccess = user.organizations?.[user.orgId];
-    if (orgAccess?.role === 'admin' || orgAccess?.role === 'owner') {
-      const tasks = await listTasks({ ...params, orgId: user.orgId });
-      res.json({ tasks });
+    // ユーザーが参加している全プロジェクトを取得（クロスオーガナイゼーション対応）
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const projectIds = userProjectMemberships.map(m => m.projectId);
+
+    if (projectIds.length === 0) {
+      res.json({ tasks: [] });
       return;
     }
-
-    // 一般ユーザーは参加しているプロジェクトのタスクのみ取得
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const projectIds = userProjectMemberships.map(m => m.projectId);
 
     // プロジェクトIDでフィルタリング
     if (params.projectId && !projectIds.includes(params.projectId)) {
@@ -56,12 +53,21 @@ router.get('/', async (req: any, res, next) => {
       return;
     }
 
-    const tasks = await listTasks({ ...params, orgId: user.orgId });
+    // 各組織からタスクを取得
+    const orgIds = new Set(userProjectMemberships.map(m => m.member.orgId));
+    const allTasks: any[] = [];
 
-    // ユーザーが参加しているプロジェクトのタスクのみフィルタ
-    const filteredTasks = tasks.filter(task => projectIds.includes(task.projectId));
+    for (const orgId of orgIds) {
+      const orgTasks = await listTasks({ ...params, orgId });
+      // この組織でユーザーがアクセスできるプロジェクトのタスクのみ
+      const accessibleProjectIds = userProjectMemberships
+        .filter(m => m.member.orgId === orgId)
+        .map(m => m.projectId);
+      const filtered = orgTasks.filter(task => accessibleProjectIds.includes(task.projectId));
+      allTasks.push(...filtered);
+    }
 
-    res.json({ tasks: filteredTasks });
+    res.json({ tasks: allTasks });
   } catch (error) {
     next(error);
   }

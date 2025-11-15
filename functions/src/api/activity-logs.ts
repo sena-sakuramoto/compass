@@ -38,21 +38,54 @@ async function authenticate(req: any, res: any, next: any) {
 
 /**
  * GET /api/activity-logs
- * アクティビティログ一覧を取得
+ * アクティビティログ一覧を取得（クロスオーガナイゼーション対応）
  */
 router.get('/activity-logs', authenticate, async (req: any, res) => {
   try {
     const { projectId, taskId, userId, limit } = req.query;
 
-    const logs = await listActivityLogs({
-      orgId: req.user.orgId,
-      projectId: projectId || undefined,
-      taskId: taskId || undefined,
-      userId: userId || undefined,
-      limit: limit ? parseInt(limit) : 50,
+    // ユーザーが参加しているプロジェクトを取得
+    const { listUserProjects } = await import('../lib/project-members');
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+
+    // プロジェクトごとにグループ化（組織別）
+    const orgIds = new Set(userProjectMemberships.map(m => m.member.orgId));
+    const allLogs: any[] = [];
+
+    // 各組織からログを取得
+    for (const orgId of orgIds) {
+      const logs = await listActivityLogs({
+        orgId,
+        projectId: projectId || undefined,
+        taskId: taskId || undefined,
+        userId: userId || undefined,
+        limit: limit ? parseInt(limit) : 50,
+      });
+
+      // ユーザーがアクセスできるプロジェクトのログのみフィルタ
+      const accessibleProjectIds = userProjectMemberships
+        .filter(m => m.member.orgId === orgId)
+        .map(m => m.projectId);
+
+      const filteredLogs = logs.filter(log =>
+        !log.projectId || accessibleProjectIds.includes(log.projectId)
+      );
+
+      allLogs.push(...filteredLogs);
+    }
+
+    // 時刻でソート（新しい順）
+    allLogs.sort((a, b) => {
+      const timeA = a.timestamp?._seconds || 0;
+      const timeB = b.timestamp?._seconds || 0;
+      return timeB - timeA;
     });
 
-    res.json({ logs });
+    // limit 適用
+    const limitNum = limit ? parseInt(limit) : 50;
+    const limitedLogs = allLogs.slice(0, limitNum);
+
+    res.json({ logs: limitedLogs });
   } catch (error) {
     console.error('Error listing activity logs:', error);
     res.status(500).json({ error: 'Internal server error' });

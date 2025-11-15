@@ -449,7 +449,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                 >
                   {/* トップの小さいマーカー */}
                   <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-2">
-                    <div className="w-3 h-3 bg-red-500 rounded-full shadow-md" />
+                    <div className="w-1.5 h-1.5 bg-red-500 rounded-full shadow-md" />
                   </div>
                 </div>
               </>

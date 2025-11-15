@@ -15,7 +15,38 @@ router.get('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    const people = await listPeople(user.orgId);
+    // ユーザーが参加しているプロジェクトのメンバーを取得（クロスオーガナイゼーション対応）
+    const { listUserProjects } = await import('../lib/project-members');
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+
+    // 各プロジェクトのメンバーを取得
+    const { db } = await import('../lib/firestore');
+    const memberEmails = new Set<string>();
+    const peopleMap = new Map();
+
+    for (const { projectId } of userProjectMemberships) {
+      // プロジェクトのメンバーを取得
+      const membersSnapshot = await db.collection('project_members')
+        .where('projectId', '==', projectId)
+        .get();
+
+      membersSnapshot.docs.forEach(doc => {
+        const member = doc.data();
+        if (member.email && !memberEmails.has(member.email)) {
+          memberEmails.add(member.email);
+          peopleMap.set(member.email, {
+            氏名: member.displayName || member.email.split('@')[0],
+            役割: member.role,
+            メール: member.email,
+            職種: member.職種 || null,
+            電話: null,
+            '稼働時間/日(h)': null,
+          });
+        }
+      });
+    }
+
+    const people = Array.from(peopleMap.values());
     res.json({ people });
   } catch (error) {
     next(error);
