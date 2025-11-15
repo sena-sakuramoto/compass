@@ -9,18 +9,34 @@
  */
 
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
+
+// .firebaserc からプロジェクトIDを読み取る
+let projectId = process.env.FIREBASE_PROJECT_ID;
+
+if (!projectId) {
+  try {
+    const firebaseRcPath = path.resolve(__dirname, '../../.firebaserc');
+    const firebaseRc = JSON.parse(fs.readFileSync(firebaseRcPath, 'utf8'));
+    projectId = firebaseRc.projects?.default;
+  } catch (error) {
+    console.error('Failed to read .firebaserc:', error.message);
+  }
+}
 
 // Firebase Admin を初期化
-// 環境変数が設定されていればそれを使用、なければアプリケーションデフォルト認証情報を使用
 try {
-  admin.initializeApp();
-  console.log('Firebase Admin initialized successfully');
+  admin.initializeApp({
+    projectId: projectId
+  });
+  console.log(`Firebase Admin initialized successfully with project: ${projectId || 'auto-detected'}`);
 } catch (error) {
   console.error('Error initializing Firebase Admin:', error.message);
   console.error('\nPlease ensure you have set up authentication:');
-  console.error('1. Set GOOGLE_APPLICATION_CREDENTIALS to your service account JSON file, OR');
-  console.error('2. Run "firebase login:ci" and use the token, OR');
-  console.error('3. Run this from a GCP environment with default credentials');
+  console.error('1. Run "firebase login" to authenticate, OR');
+  console.error('2. Set FIREBASE_PROJECT_ID environment variable, OR');
+  console.error('3. Set GOOGLE_APPLICATION_CREDENTIALS to your service account JSON file');
   process.exit(1);
 }
 

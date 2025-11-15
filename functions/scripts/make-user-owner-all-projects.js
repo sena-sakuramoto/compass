@@ -3,13 +3,25 @@
  */
 
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
+
+// .firebaserc からプロジェクトIDを読み取る
+let projectId = process.env.FIREBASE_PROJECT_ID;
+
+if (!projectId) {
+  try {
+    const firebaseRcPath = path.resolve(__dirname, '../../.firebaserc');
+    const firebaseRc = JSON.parse(fs.readFileSync(firebaseRcPath, 'utf8'));
+    projectId = firebaseRc.projects?.default;
+  } catch (error) {
+    console.error('Failed to read .firebaserc:', error.message);
+  }
+}
 
 // 既に初期化されているかチェック
 if (!admin.apps.length) {
-  const serviceAccount = require('../compass-31e9e-8835b72b43c6.json');
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+  admin.initializeApp({ projectId: projectId });
 }
 
 const db = admin.firestore();
