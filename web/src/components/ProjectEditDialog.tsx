@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Users, History } from 'lucide-react';
-import type { Project } from '../lib/types';
+import { X, Users, History, Plus } from 'lucide-react';
+import type { Project, Task } from '../lib/types';
 import type { ProjectMember } from '../lib/auth-types';
 import { listProjectMembers, listActivityLogs, type ActivityLog } from '../lib/api';
 
@@ -8,12 +8,14 @@ interface ProjectEditDialogProps {
   project: Project | null;
   onClose: () => void;
   onSave: (project: Project) => Promise<void>;
+  onTaskCreate?: (taskData: Partial<Task>) => Promise<void>;
+  people?: Array<{ id: string; 氏名: string; メール?: string }>;
 }
 
 const STATUS_OPTIONS = ['未着手', '進行中', '確認待ち', '保留', '完了', '計画中', '見積', '実施中', '設計中'];
 const PRIORITY_OPTIONS = ['高', '中', '低'];
 
-export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialogProps) {
+export function ProjectEditDialog({ project, onClose, onSave, onTaskCreate, people = [] }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
@@ -24,6 +26,10 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
     優先度: '中',
     開始日: '',
     予定完了日: '',
+    現地調査日: '',
+    着工日: '',
+    竣工予定日: '',
+    引渡し予定日: '',
     '所在地/現地': '',
     '所在地_現地': '',
     'フォルダURL': '',
@@ -35,6 +41,12 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
   const [membersLoading, setMembersLoading] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [showTaskForm, setShowTaskForm] = useState(false);
+  const [newTaskName, setNewTaskName] = useState('');
+  const [newTaskAssignee, setNewTaskAssignee] = useState('');
+  const [newTaskStartDate, setNewTaskStartDate] = useState('');
+  const [newTaskEndDate, setNewTaskEndDate] = useState('');
+  const [taskCreating, setTaskCreating] = useState(false);
 
   useEffect(() => {
     if (project) {
@@ -77,6 +89,10 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
         優先度: '中',
         開始日: '',
         予定完了日: '',
+        現地調査日: '',
+        着工日: '',
+        竣工予定日: '',
+        引渡し予定日: '',
         '所在地/現地': '',
         '所在地_現地': '',
         'フォルダURL': '',
@@ -100,6 +116,35 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
       alert('保存に失敗しました');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCreateTask = async () => {
+    if (!newTaskName.trim() || !project?.id || !onTaskCreate) return;
+
+    setTaskCreating(true);
+    try {
+      await onTaskCreate({
+        タスク名: newTaskName,
+        担当者: newTaskAssignee || undefined,
+        予定開始日: newTaskStartDate || undefined,
+        期限: newTaskEndDate || undefined,
+        ステータス: '未着手',
+        優先度: '中',
+        projectId: project.id,
+      });
+
+      // フォームをリセット
+      setNewTaskName('');
+      setNewTaskAssignee('');
+      setNewTaskStartDate('');
+      setNewTaskEndDate('');
+      setShowTaskForm(false);
+    } catch (error) {
+      console.error('タスクの作成に失敗しました:', error);
+      alert('タスクの作成に失敗しました');
+    } finally {
+      setTaskCreating(false);
     }
   };
 
@@ -168,7 +213,7 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700">開始日</label>
+                <label className="block text-sm font-medium text-slate-700">受注日</label>
                 <input
                   type="date"
                   value={formData.開始日 || ''}
@@ -177,6 +222,50 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
                 />
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-700">現地調査日</label>
+                <input
+                  type="date"
+                  value={formData.現地調査日 || ''}
+                  onChange={(e) => setFormData({ ...formData, 現地調査日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700">着工日</label>
+                <input
+                  type="date"
+                  value={formData.着工日 || ''}
+                  onChange={(e) => setFormData({ ...formData, 着工日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700">竣工予定日</label>
+                <input
+                  type="date"
+                  value={formData.竣工予定日 || ''}
+                  onChange={(e) => setFormData({ ...formData, 竣工予定日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700">引渡し予定日</label>
+                <input
+                  type="date"
+                  value={formData.引渡し予定日 || ''}
+                  onChange={(e) => setFormData({ ...formData, 引渡し予定日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700">予定完了日</label>
                 <input
@@ -272,6 +361,107 @@ export function ProjectEditDialog({ project, onClose, onSave }: ProjectEditDialo
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
             </div>
+
+            {/* タスク追加（編集モード時のみ） */}
+            {project && project.id && onTaskCreate && (
+              <div className="border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-slate-700">
+                    <Plus className="inline h-4 w-4 mr-1" />
+                    タスク追加
+                  </label>
+                  {!showTaskForm && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTaskForm(true)}
+                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      + 新しいタスク
+                    </button>
+                  )}
+                </div>
+
+                {showTaskForm && (
+                  <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-slate-50">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        タスク名 <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newTaskName}
+                        onChange={(e) => setNewTaskName(e.target.value)}
+                        placeholder="タスク名を入力"
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">開始日</label>
+                        <input
+                          type="date"
+                          value={newTaskStartDate}
+                          onChange={(e) => setNewTaskStartDate(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700 mb-1">期限</label>
+                        <input
+                          type="date"
+                          value={newTaskEndDate}
+                          onChange={(e) => setNewTaskEndDate(e.target.value)}
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">担当者</label>
+                      <select
+                        value={newTaskAssignee}
+                        onChange={(e) => setNewTaskAssignee(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="">未割り当て</option>
+                        {people.map((person) => (
+                          <option key={person.id} value={person.氏名}>
+                            {person.氏名}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex gap-2 justify-end pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTaskForm(false);
+                          setNewTaskName('');
+                          setNewTaskAssignee('');
+                          setNewTaskStartDate('');
+                          setNewTaskEndDate('');
+                        }}
+                        className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-700 rounded-lg border border-slate-300 hover:bg-slate-100"
+                        disabled={taskCreating}
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCreateTask}
+                        disabled={!newTaskName.trim() || taskCreating}
+                        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {taskCreating ? '作成中...' : 'タスクを作成'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* プロジェクトメンバー表示（編集モード時のみ） */}
             {project && project.id && (

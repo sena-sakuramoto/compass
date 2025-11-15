@@ -8,11 +8,12 @@ export interface Project {
   自社PM?: string | null;
   ステータス: string;
   優先度: string;
-  開始日?: string | null;
+  開始日?: string | null; // 受注日として使用
   予定完了日?: string | null;
   現地調査日?: string | null;
   着工日?: string | null;
   竣工予定日?: string | null;
+  引渡し予定日?: string | null; // 追加
   '所在地/現地'?: string | null;
   フォルダURL?: string | null;
   備考?: string | null;

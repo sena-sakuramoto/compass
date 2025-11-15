@@ -699,15 +699,17 @@ interface ModalProps {
 function Modal({ open, onOpenChange, children, title }: ModalProps & { title: string; children: React.ReactNode }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg">
-        <div className="mb-4 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 overflow-y-auto">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-lg my-8 flex flex-col max-h-[calc(100vh-4rem)]">
+        <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-slate-200 flex-shrink-0">
           <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
-          <button type="button" onClick={() => onOpenChange(false)} className="text-slate-500">
+          <button type="button" onClick={() => onOpenChange(false)} className="text-slate-500 hover:text-slate-700">
             ×
           </button>
         </div>
-        {children}
+        <div className="px-6 py-4 overflow-y-auto flex-1">
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -1568,6 +1570,7 @@ function DashboardPage({
   projects,
   filtersProps,
   filteredTasks,
+  allTasks,
   onOpenTask,
   onOpenProject,
   onOpenPerson,
@@ -1580,6 +1583,7 @@ function DashboardPage({
 }: {
   projects: ProjectWithDerived[];
   filteredTasks: Task[];
+  allTasks: Task[];
   filtersProps: FiltersProps;
   onOpenTask(): void;
   onOpenProject(): void;
@@ -1658,19 +1662,35 @@ function DashboardPage({
 
   const activeFilterChips = useMemo(() => {
     const chips: string[] = [];
-    if (filtersProps.project !== 'all') {
-      const label = filtersProps.projects.find((option) => option.value === filtersProps.project)?.label;
-      if (label) chips.push(`プロジェクト: ${label}`);
+    const projectArray = Array.isArray(filtersProps.project) ? filtersProps.project : [];
+    const assigneeArray = Array.isArray(filtersProps.assignee) ? filtersProps.assignee : [];
+    const statusArray = Array.isArray(filtersProps.status) ? filtersProps.status : [];
+
+    if (projectArray.length > 0) {
+      if (projectArray.length === 1) {
+        const label = filtersProps.projects.find((option) => option.value === projectArray[0])?.label;
+        if (label) chips.push(`プロジェクト: ${label}`);
+      } else {
+        chips.push(`プロジェクト: ${projectArray.length}件選択`);
+      }
     }
-    if (filtersProps.assignee !== 'all') {
-      const label = filtersProps.assignees.find((option) => option.value === filtersProps.assignee)?.label;
-      if (label) chips.push(`担当: ${label}`);
+    if (assigneeArray.length > 0) {
+      if (assigneeArray.length === 1) {
+        const label = filtersProps.assignees.find((option) => option.value === assigneeArray[0])?.label;
+        if (label) chips.push(`担当: ${label}`);
+      } else {
+        chips.push(`担当: ${assigneeArray.length}件選択`);
+      }
     }
-    if (filtersProps.status !== 'all') {
-      chips.push(`ステータス: ${filtersProps.status}`);
+    if (statusArray.length > 0) {
+      if (statusArray.length === 1) {
+        chips.push(`ステータス: ${statusArray[0]}`);
+      } else {
+        chips.push(`ステータス: ${statusArray.length}件選択`);
+      }
     }
     if ((filtersProps.query ?? '').trim()) {
-      chips.push(`検索: “${filtersProps.query.trim()}”`);
+      chips.push(`検索: "${filtersProps.query.trim()}"`);
     }
     return chips;
   }, [filtersProps]);
@@ -1771,19 +1791,34 @@ function DashboardPage({
             </div>
           ) : (
             projects.map((project) => {
-              const dueCandidate = parseDate(project.nearestDue ?? project.予定完了日 ?? project.span?.end ?? null);
+              // プロジェクトに関連するタスクを取得
+              const relatedTasks = allTasks.filter((task) => task.projectId === project.id);
+
+              // 遅延タスクをチェック（期限超過 & 未完了 & 非マイルストーン）
+              const overdueTasks = relatedTasks.filter((task) => {
+                if (task.ステータス === '完了' || task.マイルストーン) return false;
+                const deadline = parseDate(task.期限);
+                if (!deadline) return false;
+                return deadline < today;
+              });
+
               let dueLabel: string | undefined;
               let overdue = false;
-              if (dueCandidate) {
-                const diffDays = Math.ceil((dueCandidate.getTime() - today.getTime()) / DAY_MS);
-                if (diffDays > 0) {
-                  dueLabel = `残り ${diffDays} 日`;
-                } else if (diffDays === 0) {
-                  dueLabel = '今日が期限';
-                  overdue = false;
-                } else {
-                  dueLabel = `${Math.abs(diffDays)} 日遅延`;
-                  overdue = true;
+
+              if (overdueTasks.length > 0) {
+                // 遅延タスクがある場合
+                dueLabel = `${overdueTasks.length} 件のタスクが遅延`;
+                overdue = true;
+              } else {
+                // 遅延タスクがない場合、最も近い期限を表示
+                const dueCandidate = parseDate(project.nearestDue ?? project.予定完了日 ?? project.span?.end ?? null);
+                if (dueCandidate) {
+                  const diffDays = Math.ceil((dueCandidate.getTime() - today.getTime()) / DAY_MS);
+                  if (diffDays > 0) {
+                    dueLabel = `残り ${diffDays} 日`;
+                  } else if (diffDays === 0) {
+                    dueLabel = '今日が期限';
+                  }
                 }
               }
 
@@ -1818,13 +1853,13 @@ interface FiltersProps {
   projects: { value: string; label: string }[];
   assignees: { value: string; label: string }[];
   statuses: { value: string; label: string }[];
-  project: string;
-  assignee: string;
-  status: string;
+  project: string | string[];
+  assignee: string | string[];
+  status: string | string[];
   query: string;
-  onProjectChange: (value: string) => void;
-  onAssigneeChange: (value: string) => void;
-  onStatusChange: (value: string) => void;
+  onProjectChange: (value: string | string[]) => void;
+  onAssigneeChange: (value: string | string[]) => void;
+  onStatusChange: (value: string | string[]) => void;
   onQueryChange: (value: string) => void;
   onReset: () => void;
   hasActiveFilters: boolean;
@@ -2122,19 +2157,35 @@ function SchedulePage({
 
   const activeFilterChips = useMemo(() => {
     const chips: string[] = [];
-    if (filtersProps.project !== 'all') {
-      const label = filtersProps.projects.find((option) => option.value === filtersProps.project)?.label;
-      if (label) chips.push(`プロジェクト: ${label}`);
+    const projectArray = Array.isArray(filtersProps.project) ? filtersProps.project : [];
+    const assigneeArray = Array.isArray(filtersProps.assignee) ? filtersProps.assignee : [];
+    const statusArray = Array.isArray(filtersProps.status) ? filtersProps.status : [];
+
+    if (projectArray.length > 0) {
+      if (projectArray.length === 1) {
+        const label = filtersProps.projects.find((option) => option.value === projectArray[0])?.label;
+        if (label) chips.push(`プロジェクト: ${label}`);
+      } else {
+        chips.push(`プロジェクト: ${projectArray.length}件選択`);
+      }
     }
-    if (filtersProps.assignee !== 'all') {
-      const label = filtersProps.assignees.find((option) => option.value === filtersProps.assignee)?.label;
-      if (label) chips.push(`担当: ${label}`);
+    if (assigneeArray.length > 0) {
+      if (assigneeArray.length === 1) {
+        const label = filtersProps.assignees.find((option) => option.value === assigneeArray[0])?.label;
+        if (label) chips.push(`担当: ${label}`);
+      } else {
+        chips.push(`担当: ${assigneeArray.length}件選択`);
+      }
     }
-    if (filtersProps.status !== 'all') {
-      chips.push(`ステータス: ${filtersProps.status}`);
+    if (statusArray.length > 0) {
+      if (statusArray.length === 1) {
+        chips.push(`ステータス: ${statusArray[0]}`);
+      } else {
+        chips.push(`ステータス: ${statusArray.length}件選択`);
+      }
     }
     if ((filtersProps.query ?? '').trim()) {
-      chips.push(`検索: “${filtersProps.query.trim()}”`);
+      chips.push(`検索: "${filtersProps.query.trim()}"`);
     }
     return chips;
   }, [filtersProps]);
@@ -2480,6 +2531,18 @@ function SchedulePage({
                 onTaskUpdate(updatedTask.id, updates);
               }
             }}
+            onProjectClick={(projectId) => {
+              // プロジェクト名クリックでプロジェクト編集ダイアログを開く
+              const project = projects.find((p: Project) => p.id === projectId);
+              if (project) {
+                // プロジェクトを編集用にセット（ダイアログを開く前に）
+                setState((current) => ({
+                  ...current,
+                  editingProject: project,
+                  projectDialogOpen: true,
+                }));
+              }
+            }}
           />
       </section>
     </div>
@@ -2803,9 +2866,9 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, canUndo, canRedo, pushToast]);
 
-  const [projectFilter, setProjectFilter] = useState('all');
-  const [assigneeFilter, setAssigneeFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [projectFilter, setProjectFilter] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('due');
 
@@ -2820,9 +2883,10 @@ function App() {
   const filteredTasks = useMemo(() => {
     const query = search.trim().toLowerCase();
     return state.tasks.filter((task) => {
-      const projectMatch = projectFilter === 'all' || task.projectId === projectFilter;
-      const assigneeMatch = assigneeFilter === 'all' || (task.assignee ?? task.担当者) === assigneeFilter;
-      const statusMatch = statusFilter === 'all' || task.ステータス === statusFilter;
+      // 配列が空の場合は全て表示、配列に値がある場合は含まれているかチェック
+      const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
+      const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
+      const statusMatch = statusFilter.length === 0 || statusFilter.includes(task.ステータス);
       const haystack = [
         task.id,
         task.タスク名,
@@ -2849,13 +2913,23 @@ function App() {
   );
 
   const assigneeOptions = useMemo(() => {
-    const names = new Set<string>();
+    // peopleコレクションから人物リストを生成
+    const peopleNames = new Set<string>();
+    state.people.forEach((person) => {
+      if (person.氏名) peopleNames.add(person.氏名);
+    });
+
+    // タスクに割り当てられている担当者も追加（peopleに登録されていない場合のため）
     state.tasks.forEach((task) => {
       const value = task.assignee ?? task.担当者;
-      if (value) names.add(value);
+      if (value) peopleNames.add(value);
     });
-    return [{ value: 'all', label: '全員' }, ...Array.from(names).map((name) => ({ value: name, label: name }))];
-  }, [state.tasks]);
+
+    // 重複を除去してソート
+    const sortedNames = Array.from(peopleNames).sort((a, b) => a.localeCompare(b, 'ja'));
+
+    return [{ value: 'all', label: '全員' }, ...sortedNames.map((name) => ({ value: name, label: name }))];
+  }, [state.tasks, state.people]);
 
   const statusOptions = useMemo(() => {
     const statuses = new Set<string>();
@@ -2866,12 +2940,12 @@ function App() {
   }, [state.tasks]);
 
   const hasActiveFilters =
-    projectFilter !== 'all' || assigneeFilter !== 'all' || statusFilter !== 'all' || (search ?? '').trim() !== '';
+    projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim() !== '';
 
   const resetFilters = () => {
-    setProjectFilter('all');
-    setAssigneeFilter('all');
-    setStatusFilter('all');
+    setProjectFilter([]);
+    setAssigneeFilter([]);
+    setStatusFilter([]);
     setSearch('');
   };
 
@@ -2883,9 +2957,9 @@ function App() {
     assignee: assigneeFilter,
     status: statusFilter,
     query: search,
-    onProjectChange: setProjectFilter,
-    onAssigneeChange: setAssigneeFilter,
-    onStatusChange: setStatusFilter,
+    onProjectChange: (value) => setProjectFilter(Array.isArray(value) ? value : []),
+    onAssigneeChange: (value) => setAssigneeFilter(Array.isArray(value) ? value : []),
+    onStatusChange: (value) => setStatusFilter(Array.isArray(value) ? value : []),
     onQueryChange: setSearch,
     onReset: resetFilters,
     hasActiveFilters,
@@ -2900,8 +2974,11 @@ function App() {
         .map((task) => parseDate(task.end ?? task.期限 ?? task.実績完了日))
         .filter((date): date is Date => Boolean(date))
         .sort((a, b) => a.getTime() - b.getTime())[0];
-      const progressAggregate = relatedTasks.length
-        ? relatedTasks.reduce((sum, task) => sum + computeProgress(task.progress, task.ステータス), 0) / relatedTasks.length
+      // 進捗計算: 完了タスク数 / 全タスク数（マイルストーンを除く）
+      const nonMilestoneTasks = relatedTasks.filter(task => !task.マイルストーン);
+      const completedTasks = nonMilestoneTasks.filter(task => task.ステータス === '完了');
+      const progressAggregate = nonMilestoneTasks.length
+        ? completedTasks.length / nonMilestoneTasks.length
         : 0;
       return {
         ...project,
@@ -3201,6 +3278,8 @@ function App() {
       ...values,
     };
 
+    let savedProjectId: string | undefined;
+
     if (projectDialogMode === 'create') {
       // 新規は絶対に id を送らない
       const { id: _id, ProjectID: _pid, ...clean } = payloadBase as any;
@@ -3219,6 +3298,7 @@ function App() {
           ...prev,
           projects: [...prev.projects, newProject],
         }));
+        savedProjectId = id;
         pushToast({ tone: 'success', title: 'プロジェクトを追加しました（ローカル保存）' });
       } else {
         // サーバー同期モードの場合は認証チェック
@@ -3234,7 +3314,8 @@ function App() {
 
         try {
           console.debug('[Project] Authenticated user:', { uid: user.uid, email: user.email });
-          await createProject(clean);
+          const result = await createProject(clean);
+          savedProjectId = result.id;
           pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
           // 再取得して描画
           const list = await listProjects();
@@ -3250,6 +3331,8 @@ function App() {
       // 編集モード
       console.debug('[Project] mode=edit → PATCH /api/projects/:id', editingProject?.id);
       if (!editingProject?.id) throw new Error('Missing id for edit');
+
+      savedProjectId = editingProject.id;
 
       if (!canSync) {
         setState((prev) => ({
@@ -3544,6 +3627,7 @@ function App() {
               <DashboardPage
                 projects={sortedProjects}
                 filteredTasks={filteredTasks}
+                allTasks={state.tasks}
                 filtersProps={filtersProps}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
@@ -3648,6 +3732,18 @@ function App() {
             setEditingProject(null);
           }}
           onSave={handleSaveProject}
+          onTaskCreate={async (taskData) => {
+            await handleCreateTask({
+              projectId: taskData.projectId || '',
+              タスク名: taskData.タスク名 || '',
+              担当者: taskData.担当者,
+              予定開始日: taskData.予定開始日,
+              期限: taskData.期限,
+              優先度: taskData.優先度 || '中',
+              ステータス: taskData.ステータス || '未着手',
+            });
+          }}
+          people={state.people}
         />
       )}
       <PersonEditDialog

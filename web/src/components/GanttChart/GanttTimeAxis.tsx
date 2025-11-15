@@ -109,15 +109,14 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
                 {/* 今日の背景 */}
                 {isToday && (
                   <div
-                    className="absolute inset-0 rounded-md bg-emerald-500 -mx-1"
-                    style={{ top: '4px', bottom: '4px' }}
+                    className="absolute inset-0 bg-blue-100/40"
                   />
                 )}
 
                 {/* 日付 */}
                 <div
                   className={`relative text-[11px] font-semibold ${
-                    isToday ? 'text-white' : isWeekend ? 'text-rose-500' : 'text-slate-600'
+                    isToday ? 'text-blue-700' : isWeekend ? 'text-rose-500' : 'text-slate-600'
                   }`}
                 >
                   {day}
@@ -125,7 +124,7 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
                 {/* 曜日 */}
                 <div
                   className={`relative text-[10px] ${
-                    isToday ? 'text-white' : isWeekend ? 'text-rose-400' : 'text-slate-400'
+                    isToday ? 'text-blue-600' : isWeekend ? 'text-rose-400' : 'text-slate-400'
                   }`}
                 >
                   {weekday}

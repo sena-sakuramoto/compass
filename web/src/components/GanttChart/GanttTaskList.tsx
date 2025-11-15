@@ -8,6 +8,7 @@ interface GanttTaskListProps {
   rowHeight: number;
   onTaskClick?: (task: GanttTask) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
+  onProjectClick?: (projectId: string) => void;
   scrollTop?: number;
   projectMap?: Record<string, { ステータス?: string; [key: string]: any }>;
 }
@@ -17,6 +18,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   rowHeight,
   onTaskClick,
   onTaskToggleComplete,
+  onProjectClick,
   scrollTop = 0,
   projectMap = {}
 }) => {
@@ -85,7 +87,12 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
           <div key={group.projectId}>
             {/* プロジェクトヘッダー（タイムラインと同じ32px） */}
             <div className="bg-slate-100/50 border-b border-slate-200 flex items-center justify-between px-4 sticky z-10" style={{ height: '32px' }}>
-              <span className="text-xs font-semibold text-slate-700">{group.projectName}</span>
+              <span
+                className={`text-xs font-semibold text-slate-700 ${onProjectClick ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}
+                onClick={() => onProjectClick && onProjectClick(group.projectId)}
+              >
+                {group.projectName}
+              </span>
               {group.projectStatus && (
                 <span className={`text-xs px-2 py-0.5 rounded ${
                   group.projectStatus === '施工中' || group.projectStatus === '工事中'

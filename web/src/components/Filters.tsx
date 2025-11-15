@@ -1,5 +1,6 @@
 import { Search, Filter, X } from 'lucide-react';
 import React, { useState } from 'react';
+import { MultiSelect } from './MultiSelect';
 
 interface Option {
   label: string;
@@ -19,13 +20,13 @@ interface FiltersProps {
   projects: Option[];
   assignees: Option[];
   statuses: Option[];
-  project: string;
-  assignee: string;
-  status: string;
+  project: string | string[];
+  assignee: string | string[];
+  status: string | string[];
   query: string;
-  onProjectChange(value: string): void;
-  onAssigneeChange(value: string): void;
-  onStatusChange(value: string): void;
+  onProjectChange(value: string | string[]): void;
+  onAssigneeChange(value: string | string[]): void;
+  onStatusChange(value: string | string[]): void;
   onQueryChange(value: string): void;
   onReset?(): void;
   hasActiveFilters?: boolean;
@@ -79,44 +80,37 @@ export function Filters(props: FiltersProps) {
   const hasQuickFilters = Object.keys(quickFilters).length > 0;
   const quickFilterCount = Object.keys(quickFilters).length;
 
+  // Convert string to array for multi-select
+  const projectArray = Array.isArray(project) ? project : [];
+  const assigneeArray = Array.isArray(assignee) ? assignee : [];
+  const statusArray = Array.isArray(status) ? status : [];
+
   return (
     <div className="flex flex-col gap-3">
       {/* 基本フィルタ行 */}
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row">
-          <select
-            className={`${baseSelectClass} w-full md:w-[220px]`}
-            value={project}
-            onChange={(e) => onProjectChange(e.target.value)}
-          >
-            {projects.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            className={`${baseSelectClass} w-full md:w-[160px]`}
-            value={assignee}
-            onChange={(e) => onAssigneeChange(e.target.value)}
-          >
-            {assignees.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <select
-            className={`${baseSelectClass} w-full md:w-[160px]`}
-            value={status}
-            onChange={(e) => onStatusChange(e.target.value)}
-          >
-            {statuses.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <MultiSelect
+            options={projects}
+            selectedValues={projectArray}
+            onChange={onProjectChange}
+            allLabel="すべてのプロジェクト"
+            className="w-full md:w-[220px]"
+          />
+          <MultiSelect
+            options={assignees}
+            selectedValues={assigneeArray}
+            onChange={onAssigneeChange}
+            allLabel="全員"
+            className="w-full md:w-[160px]"
+          />
+          <MultiSelect
+            options={statuses}
+            selectedValues={statusArray}
+            onChange={onStatusChange}
+            allLabel="全て"
+            className="w-full md:w-[160px]"
+          />
         </div>
         <div className="flex w-full items-center gap-2 md:w-auto">
           <div className="relative w-full md:w-64">

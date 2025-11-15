@@ -11,6 +11,7 @@ export interface Project {
   現地調査日?: string;
   着工日?: string;
   竣工予定日?: string;
+  引渡し予定日?: string;
   '所在地/現地'?: string;
   '所在地_現地'?: string;
   'フォルダURL'?: string;

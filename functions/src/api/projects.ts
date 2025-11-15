@@ -58,6 +58,7 @@ const projectSchema = z.object({
   現地調査日: z.string().optional().nullable(),
   着工日: z.string().optional().nullable(),
   竣工予定日: z.string().optional().nullable(),
+  引渡し予定日: z.string().optional().nullable(),
   '所在地/現地': z.string().optional().nullable(),
   'フォルダURL': z.string().optional().nullable(),
   '備考': z.string().optional().nullable(),

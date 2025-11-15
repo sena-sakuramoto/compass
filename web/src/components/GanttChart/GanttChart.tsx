@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { GanttToolbar } from './GanttToolbar';
 import { GanttTaskList } from './GanttTaskList';
-import { GanttTimeline } from './GanttTimeline';
+import { GanttTimeline, ProjectMilestone } from './GanttTimeline';
 import { TaskEditModal } from './TaskEditModal';
 import type { GanttTask, ViewMode } from './types';
 import { calculateDateRange, calculateDateTicks } from './utils';
@@ -23,6 +23,7 @@ interface GanttChartProps {
   onTaskCopy?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onTaskSave?: (task: GanttTask & { assigneeEmail?: string }) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
+  onProjectClick?: (projectId: string) => void;
   initialViewMode?: ViewMode;
   projectMap?: Record<string, { ステータス?: string; [key: string]: any }>;
   people?: Person[];
@@ -36,6 +37,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onTaskCopy,
   onTaskSave,
   onTaskToggleComplete,
+  onProjectClick,
   initialViewMode = 'day',
   projectMap,
   people = []
@@ -73,6 +75,56 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     () => calculateDateTicks(dateRange.start, dateRange.end, viewMode),
     [dateRange, viewMode]
   );
+
+  // プロジェクトマイルストーンを生成（着工日、竣工予定日、引渡し予定日）
+  const projectMilestones = useMemo<ProjectMilestone[]>(() => {
+    if (!projectMap) return [];
+
+    const milestones: ProjectMilestone[] = [];
+
+    Object.entries(projectMap).forEach(([projectId, project]) => {
+      // 着工日
+      if (project.着工日) {
+        const date = new Date(project.着工日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: '着工',
+            type: 'construction_start',
+          });
+        }
+      }
+
+      // 竣工予定日
+      if (project.竣工予定日) {
+        const date = new Date(project.竣工予定日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: '竣工',
+            type: 'completion',
+          });
+        }
+      }
+
+      // 引渡し予定日
+      if (project.引渡し予定日) {
+        const date = new Date(project.引渡し予定日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: '引渡し',
+            type: 'delivery',
+          });
+        }
+      }
+    });
+
+    return milestones;
+  }, [projectMap]);
 
   // コンテナ幅の計算（ズームレベルを適用）
   useEffect(() => {
@@ -293,6 +345,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             rowHeight={rowHeight}
             onTaskClick={handleTaskClickInternal}
             onTaskToggleComplete={onTaskToggleComplete}
+            onProjectClick={onProjectClick}
             scrollTop={scrollTop}
             projectMap={projectMap}
           />
@@ -319,6 +372,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             onBatchMove={handleBatchMove}
             onClearSelection={handleClearSelection}
             onViewModeToggle={handleViewModeToggle}
+            projectMilestones={projectMilestones}
             onZoom={(direction) => {
               if (direction === 'in') {
                 handleZoomIn();

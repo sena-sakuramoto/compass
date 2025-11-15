@@ -8,6 +8,13 @@ import { GanttDependencyArrow } from './GanttDependencyArrow';
 import type { GanttTask, DateTick } from './types';
 import { calculateTaskBarPosition, calculateTodayPosition, resolveDependencies } from './utils';
 
+export interface ProjectMilestone {
+  projectId: string;
+  date: Date;
+  label: string;
+  type: 'construction_start' | 'completion' | 'delivery';
+}
+
 interface GanttTimelineProps {
   tasks: GanttTask[];
   ticks: DateTick[];
@@ -27,6 +34,7 @@ interface GanttTimelineProps {
   onBatchMove?: (deltaDays: number) => void;
   onClearSelection?: () => void;
   onViewModeToggle?: () => void;
+  projectMilestones?: ProjectMilestone[];
 }
 
 interface GanttTimelinePropsExtended extends GanttTimelineProps {
@@ -48,6 +56,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   scrollTop = 0,
   onScroll,
   selectedTaskIds = new Set(),
+  projectMilestones = [],
   onTaskSelection,
   onBatchMove,
   onClearSelection,
@@ -106,6 +115,17 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     if (!element) return;
 
     const handleWheel = (e: WheelEvent) => {
+      // Alt+スクロールでズーム
+      if (e.altKey && onZoom) {
+        e.preventDefault();
+        if (e.deltaY < 0) {
+          onZoom('in');
+        } else {
+          onZoom('out');
+        }
+        return;
+      }
+
       // Shift+スクロールで横スクロール
       if (e.shiftKey) {
         e.preventDefault();
@@ -116,15 +136,8 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
         return;
       }
 
-      // Alt+スクロールでズーム
-      if (e.altKey && onZoom) {
-        e.preventDefault();
-        if (e.deltaY < 0) {
-          onZoom('in');
-        } else {
-          onZoom('out');
-        }
-      }
+      // 通常のスクロール（縦スクロール）は自然な動作に任せる
+      // preventDefaultしないことで、ブラウザのデフォルトスクロールが動作する
     };
 
     // passive: falseを明示的に指定してpreventDefaultを使用可能に
@@ -403,6 +416,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
             {projectGroups.map((group, groupIndex) => {
               const headerTop = groupIndex === 0 ? 0 : projectGroups.slice(0, groupIndex).reduce((sum, g) => sum + g.rowCount * rowHeight + projectHeaderHeight, 0);
 
+              // このプロジェクトのマイルストーンを取得
+              const projectMilestonesForThisProject = projectMilestones.filter(
+                (m) => m.projectId === group.projectId
+              );
+
               return (
                 <React.Fragment key={group.projectId}>
                   {/* プロジェクトヘッダー背景 */}
@@ -413,6 +431,48 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                       height: `${projectHeaderHeight}px`
                     }}
                   />
+
+                  {/* プロジェクトマイルストーン（着工日、竣工予定日、引渡し予定日） */}
+                  {projectMilestonesForThisProject.map((milestone, mIndex) => {
+                    // マイルストーンのX位置を計算
+                    const totalMs = dateRange.end.getTime() - dateRange.start.getTime();
+                    const milestoneMs = milestone.date.getTime() - dateRange.start.getTime();
+
+                    // 範囲外のマイルストーンはスキップ
+                    if (milestoneMs < 0 || milestoneMs > totalMs) return null;
+
+                    const milestoneX = (milestoneMs / totalMs) * containerWidth;
+                    const milestoneY = headerTop + projectHeaderHeight / 2;
+
+                    // マイルストーンの色を種類別に設定
+                    let milestoneColor = 'bg-blue-500';
+                    if (milestone.type === 'construction_start') milestoneColor = 'bg-green-500';
+                    else if (milestone.type === 'completion') milestoneColor = 'bg-orange-500';
+                    else if (milestone.type === 'delivery') milestoneColor = 'bg-purple-500';
+
+                    return (
+                      <div
+                        key={`${group.projectId}-milestone-${mIndex}`}
+                        className="absolute pointer-events-none z-10"
+                        style={{
+                          left: `${milestoneX}px`,
+                          top: `${milestoneY}px`,
+                          transform: 'translate(-50%, -50%)',
+                        }}
+                      >
+                        {/* ダイヤモンド型のマーカー */}
+                        <div
+                          className={`w-3 h-3 ${milestoneColor} rotate-45 border-2 border-white shadow-md`}
+                        />
+                        {/* ラベル */}
+                        <div
+                          className="absolute top-4 left-1/2 transform -translate-x-1/2 text-xs font-medium whitespace-nowrap bg-white px-1 py-0.5 rounded shadow-sm border border-slate-200"
+                        >
+                          {milestone.label}
+                        </div>
+                      </div>
+                    );
+                  })}
 
                   {/* プロジェクト内のタスク区切り線 */}
                   {group.tasks.map((_, taskIndex) => {
@@ -432,26 +492,21 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
             {/* 今日の縦線 */}
             {todayPosition !== null && (
               <>
-                {/* 背景のハイライト - 薄い赤 */}
+                {/* 背景のハイライト - 薄いブルー */}
                 <div
-                  className="absolute top-0 bottom-0 bg-red-50 pointer-events-none"
+                  className="absolute top-0 bottom-0 bg-blue-100/40 pointer-events-none"
                   style={{
                     left: `${todayPosition}px`,
                     width: `${containerWidth / ticks.length}px`,
                   }}
                 />
-                {/* 今日の線 - シンプルで目立つ赤い線 */}
+                {/* 今日の線 - 細い青い点線 */}
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-20"
+                  className="absolute top-0 bottom-0 border-l border-blue-500 border-dashed pointer-events-none z-20"
                   style={{
                     left: `${todayPosition}px`,
                   }}
-                >
-                  {/* トップの小さいマーカー */}
-                  <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-2">
-                    <div className="w-1.5 h-1.5 bg-red-500 rounded-full shadow-md" />
-                  </div>
-                </div>
+                />
               </>
             )}
           </div>
