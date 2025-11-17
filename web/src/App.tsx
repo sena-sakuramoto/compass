@@ -2050,6 +2050,7 @@ function SchedulePage({
   onOpenProject,
   onOpenPerson,
   onEditPerson,
+  onEditProject,
   pushToast,
   setState,
   canEdit,
@@ -2067,6 +2068,7 @@ function SchedulePage({
   onOpenProject(): void;
   onOpenPerson(): void;
   onEditPerson(person: Person): void;
+  onEditProject(project: Project): void;
   pushToast: (toast: ToastInput) => void;
   setState: React.Dispatch<React.SetStateAction<CompassState>>;
   canEdit: boolean;
@@ -2539,14 +2541,9 @@ function SchedulePage({
               const project = projects.find((p: Project) => p.id === projectId);
               console.log('[onProjectClick] Found project:', project);
               if (project) {
-                // プロジェクトを編集用にセット（ダイアログを開く前に）
-                console.log('[onProjectClick] Setting state to open dialog');
-                setState((current) => ({
-                  ...current,
-                  editingProject: project,
-                  projectDialogOpen: true,
-                  projectDialogMode: 'edit',
-                }));
+                // onEditProjectコールバックを呼ぶ
+                console.log('[onProjectClick] Calling onEditProject');
+                onEditProject(project);
               }
             }}
             onTaskDelete={async (task) => {
@@ -3700,6 +3697,11 @@ function App() {
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
+                onEditProject={(project) => {
+                  setProjectDialogMode('edit');
+                  setEditingProject(project);
+                  setProjectDialogOpen(true);
+                }}
                 pushToast={pushToast}
                 setState={setState}
                 canEdit={canEdit}
@@ -3779,6 +3781,11 @@ function App() {
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
+                onEditProject={(project) => {
+                  setProjectDialogMode('edit');
+                  setEditingProject(project);
+                  setProjectDialogOpen(true);
+                }}
                 pushToast={pushToast}
                 setState={setState}
                 canEdit={canEdit}
