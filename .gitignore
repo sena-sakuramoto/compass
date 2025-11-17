@@ -9,6 +9,13 @@ dist
 .firebase
 nul
 
+# Firebase service account (credentials - NEVER commit)
+service-account.json
+**/service-account.json
+
+# Temporary scripts
+scripts/
+
 # Documentation and requirement files
 apdw_project_compass_google環境_要件定義_codex_cli向けspec_v_*.md
 元データ.txt
