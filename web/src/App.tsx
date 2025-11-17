@@ -2536,13 +2536,9 @@ function SchedulePage({
               }
             }}
             onProjectClick={(projectId) => {
-              console.log('[onProjectClick] Clicked project:', projectId);
               // プロジェクト名クリックでプロジェクト編集ダイアログを開く
               const project = projects.find((p: Project) => p.id === projectId);
-              console.log('[onProjectClick] Found project:', project);
               if (project) {
-                // onEditProjectコールバックを呼ぶ
-                console.log('[onProjectClick] Calling onEditProject');
                 onEditProject(project);
               }
             }}

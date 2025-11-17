@@ -83,9 +83,9 @@ export async function getCachedIdToken(): Promise<string | undefined> {
       tokenCache.exp = now + Math.max(ttl, 60 * 1000); // 最低1分はキャッシュ
       tokenCache.promise = undefined;
 
-      console.log('[authToken] 🔑 New token obtained from Firebase Auth');
-      console.log('[authToken] Token preview:', token.substring(0, 30) + '...');
-      console.log('[authToken] Cache valid for', Math.round(ttl / 1000), 'seconds');
+      // console.log('[authToken] 🔑 New token obtained from Firebase Auth');
+      // console.log('[authToken] Token preview:', token.substring(0, 30) + '...');
+      // console.log('[authToken] Cache valid for', Math.round(ttl / 1000), 'seconds');
 
       return token;
     } catch (error) {
