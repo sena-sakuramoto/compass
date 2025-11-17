@@ -4,6 +4,7 @@ import { authMiddleware } from '../lib/auth';
 import { createProject, listProjects, updateProject, deleteProject as deleteProjectRepo, ProjectInput, getProject } from '../lib/firestore';
 import { getUser } from '../lib/users';
 import { logActivity, calculateChanges } from '../lib/activity-log';
+import { canDeleteProject } from '../lib/access-control';
 
 const router = Router();
 
@@ -152,10 +153,11 @@ router.delete('/:id', async (req: any, res, next) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // TODO: オーナー権限のチェック（現在は未実装）
-    // if (project.オーナー !== user.id && project.オーナー !== user.email) {
-    //   return res.status(403).json({ error: 'Forbidden: Only the project owner can delete this project' });
-    // }
+    // 削除権限をチェック
+    const hasPermission = await canDeleteProject(user, project, user.orgId);
+    if (!hasPermission) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to delete this project' });
+    }
 
     // プロジェクトを削除
     await deleteProjectRepo(req.params.id, user.orgId);
