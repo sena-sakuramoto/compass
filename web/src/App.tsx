@@ -2542,6 +2542,7 @@ function SchedulePage({
                   ...current,
                   editingProject: project,
                   projectDialogOpen: true,
+                  projectDialogMode: 'edit',
                 }));
               }
             }}
