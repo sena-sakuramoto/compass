@@ -2048,6 +2048,7 @@ function SchedulePage({
   onTaskUpdate,
   onOpenTask,
   onOpenProject,
+  onEditProject,
   onOpenPerson,
   onEditPerson,
   pushToast,
@@ -2065,6 +2066,7 @@ function SchedulePage({
   onTaskUpdate?: (taskId: string, updates: Partial<Task>) => void;
   onOpenTask(): void;
   onOpenProject(): void;
+  onEditProject(project: Project): void;
   onOpenPerson(): void;
   onEditPerson(person: Person): void;
   pushToast: (toast: ToastInput) => void;
@@ -2511,7 +2513,10 @@ function SchedulePage({
                 start: formattedStartDate, // startフィールドも更新
                 end: formattedEndDate, // endフィールドも更新
                 担当者: updatedTask.assignee,
-                担当者メール: updatedTask.assigneeEmail || '', // 担当者メールも保存
+                // 担当者メールは空文字の場合は送信しない（APIのバリデーションエラーを回避）
+                ...(updatedTask.assigneeEmail && updatedTask.assigneeEmail.trim() !== ''
+                  ? { 担当者メール: updatedTask.assigneeEmail.trim() }
+                  : {}),
                 ステータス: statusJa,
                 進捗率: updatedTask.progress,
                 '依存タスク': updatedTask.dependencies || [],
@@ -2537,12 +2542,8 @@ function SchedulePage({
               // プロジェクト名クリックでプロジェクト編集ダイアログを開く
               const project = projects.find((p: Project) => p.id === projectId);
               if (project) {
-                // プロジェクトを編集用にセット（ダイアログを開く前に）
-                setState((current) => ({
-                  ...current,
-                  editingProject: project,
-                  projectDialogOpen: true,
-                }));
+                console.log('[App.onProjectClick] Opening project edit dialog', { projectId, projectName: project.物件名 });
+                onEditProject(project);
               }
             }}
             onTaskDelete={async (task) => {
@@ -3084,6 +3085,12 @@ function App() {
       updatedAt: new Date().toISOString(),
     };
 
+    console.log('[App.handleTaskUpdate] Starting update', {
+      taskId,
+      updates: Object.keys(updates),
+      timestamp: updatesWithTimestamp.updatedAt,
+    });
+
     // 1. 楽観的更新：まずUIを即座に更新
     setState((current) => ({
       ...current,
@@ -3106,13 +3113,15 @@ function App() {
     try {
       await updateTask(taskId, updates);
 
+      console.log('[App.handleTaskUpdate] ✅ API success, ACK pending', { taskId, opId });
+
       // 4. ACK - pendingを解除
       ackPending(taskId, opId);
 
       // 成功時は何もしない（UIは既に更新済み）
       // pushToast({ tone: 'success', title: 'タスクを更新しました' }); // トーストは表示しない
     } catch (err) {
-      console.error('Task update error:', err);
+      console.error('[App.handleTaskUpdate] ❌ API error, rollback', { taskId, error: err });
 
       // 5. エラー時はロールバックとpending解除
       rollbackPending(taskId);
@@ -3429,6 +3438,12 @@ function App() {
         updatedAt: new Date().toISOString(),
       } as Partial<Task>;
 
+      console.log('[App.handleTaskAssigneeChange] Starting update', {
+        taskId,
+        assignee,
+        timestamp: updates.updatedAt,
+      });
+
       // 1. 楽観的更新：即座にUIを更新
       setState((current) => ({
         ...current,
@@ -3447,6 +3462,8 @@ function App() {
         // 3. APIを呼び出し
         await updateTask(taskId, { 担当者: assignee });
 
+        console.log('[App.handleTaskAssigneeChange] ✅ API success, ACK pending', { taskId, opId });
+
         // 4. ACK - pendingを解除
         ackPending(taskId, opId);
 
@@ -3455,7 +3472,7 @@ function App() {
         // ⚠️ リロードイベントは発火しない
         // window.dispatchEvent(new CustomEvent('snapshot:reload'));
       } catch (error) {
-        console.error(error);
+        console.error('[App.handleTaskAssigneeChange] ❌ API error, rollback', { taskId, error });
 
         // 5. エラー時はロールバックとpending解除
         rollbackPending(taskId);
@@ -3487,6 +3504,14 @@ function App() {
         updatedAt: new Date().toISOString(),
       } as Partial<Task>;
 
+      console.log('[App.handleTaskDateChange] Starting update', {
+        taskId,
+        kind: payload.kind,
+        start: payload.start,
+        end: payload.end,
+        timestamp: updates.updatedAt,
+      });
+
       // 1. 楽観的更新：即座にUIを更新
       setState((current) => ({
         ...current,
@@ -3498,7 +3523,7 @@ function App() {
         return;
       }
 
-      // 2. pendingに追加（3秒間ロック）
+      // 2. pendingに追加（8秒間ロック）
       const opId = addPending(taskId, updates);
 
       try {
@@ -3510,6 +3535,8 @@ function App() {
           end: payload.end
         });
 
+        console.log('[App.handleTaskDateChange] ✅ API success, ACK pending', { taskId, opId });
+
         // 4. ACK - pendingを解除
         ackPending(taskId, opId);
 
@@ -3518,7 +3545,7 @@ function App() {
         // ⚠️ リロードイベントは発火しない（pending中のデータが巻き戻らないようにするため）
         // window.dispatchEvent(new CustomEvent('snapshot:reload'));
       } catch (error) {
-        console.error(error);
+        console.error('[App.handleTaskDateChange] ❌ API error, rollback', { taskId, error });
 
         // 5. エラー時はロールバックとpending解除
         rollbackPending(taskId);
@@ -3694,6 +3721,11 @@ function App() {
                   setEditingProject(null);
                   setProjectDialogOpen(true);
                 }}
+                onEditProject={(project) => {
+                  setProjectDialogMode('edit');
+                  setEditingProject(project);
+                  setProjectDialogOpen(true);
+                }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditPerson={setEditingPerson}
                 pushToast={pushToast}
@@ -3771,6 +3803,11 @@ function App() {
                 onOpenProject={() => {
                   setProjectDialogMode('create');
                   setEditingProject(null);
+                  setProjectDialogOpen(true);
+                }}
+                onEditProject={(project) => {
+                  setProjectDialogMode('edit');
+                  setEditingProject(project);
                   setProjectDialogOpen(true);
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}

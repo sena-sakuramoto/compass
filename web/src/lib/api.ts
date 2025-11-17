@@ -1,7 +1,6 @@
 import type { Project, Task, Person, ManageableUserSummary } from './types';
 import type { ProjectMember } from './auth-types';
-import { getAuth } from 'firebase/auth';
-import { getFirebaseApp } from './firebaseClient';
+import { getCachedIdToken } from './authToken';
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
@@ -33,10 +32,16 @@ function mergeHeaders(base: Record<string, string>, extra?: HeadersInit): Header
   return { ...result, ...(extra as Record<string, string>) };
 }
 
+/**
+ * localStorage からトークンを取得（後方互換性のため残す）
+ */
 function getIdToken() {
   return localStorage.getItem('apdw_id_token') ?? undefined;
 }
 
+/**
+ * localStorage にトークンを保存（後方互換性のため残す）
+ */
 export function setIdToken(token?: string) {
   if (token) {
     localStorage.setItem('apdw_id_token', token);
@@ -45,46 +50,10 @@ export function setIdToken(token?: string) {
   }
 }
 
-/**
- * Firebase Auth から最新の ID トークンを取得
- * トークンをリフレッシュして常に有効なものを返す
- */
-async function getFreshIdToken(): Promise<string | undefined> {
-  try {
-    const app = getFirebaseApp();
-    if (!app) {
-      console.log('[api] Firebase app not initialized');
-      return getIdToken();
-    }
-    const auth = getAuth(app);
-    const user = auth.currentUser;
-    console.log('[api] Current user:', user?.email || 'NOT LOGGED IN');
-    if (user) {
-      // forceRefresh: false でキャッシュされたトークンを使用（クォータ節約）
-      const token = await user.getIdToken(false);
-      console.log('[api] ✅ ID token obtained from Firebase Auth');
-      console.log('[api] Token preview:', token.substring(0, 30) + '...');
-      return token;
-    } else {
-      console.log('[api] ❌ No authenticated user found');
-      return undefined;
-    }
-  } catch (error) {
-    console.error('[api] ❌ Failed to get fresh ID token:', error);
-    // フォールバック: localStorage から取得
-    return getIdToken();
-  }
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  // Firebase Auth から最新のトークンを取得
+  // キャッシュされたIDトークンを取得（重複呼び出しを防ぐ）
   console.log(`[api] 🔵 Starting ${options.method || 'GET'} ${path}`);
-  const token = await getFreshIdToken();
-
-  console.log(`[api] ${options.method || 'GET'} ${path}`, {
-    hasToken: !!token,
-    tokenPreview: token ? `${token.substring(0, 20)}...` : 'none',
-  });
+  const token = await getCachedIdToken();
 
   const { headers: optionHeaders, credentials: optionCredentials, ...restOptions } = options;
   const authHeaders = buildAuthHeaders(token);
@@ -272,7 +241,7 @@ export async function syncTaskCalendar(taskId: string, mode: 'push' | 'sync' = '
 export async function importExcel(file: File) {
   const formData = new FormData();
   formData.append('file', file);
-  const token = await getFreshIdToken();
+  const token = await getCachedIdToken();
   const headers = buildAuthHeaders(token);
   const res = await fetch(`${BASE_URL}/import`, {
     method: 'POST',
@@ -285,7 +254,7 @@ export async function importExcel(file: File) {
 }
 
 export async function exportExcel(): Promise<Blob> {
-  const token = await getFreshIdToken();
+  const token = await getCachedIdToken();
   const res = await fetch(`${BASE_URL}/export`, {
     headers: token ? buildAuthHeaders(token) : undefined,
     credentials: 'include',
@@ -295,7 +264,7 @@ export async function exportExcel(): Promise<Blob> {
 }
 
 export async function exportSnapshot() {
-  const token = await getFreshIdToken();
+  const token = await getCachedIdToken();
   const res = await fetch(`${BASE_URL}/snapshot`, {
     credentials: 'include',
     headers: token ? buildAuthHeaders(token) : undefined,

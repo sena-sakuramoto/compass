@@ -38,9 +38,17 @@ interface PendingOverlayState {
 export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
   pending: {},
 
-  addPending: (taskId: string, fields: Partial<Task>, lockDuration = 3000) => {
+  addPending: (taskId: string, fields: Partial<Task>, lockDuration = 8000) => {
     const opId = crypto.randomUUID();
     const now = Date.now();
+
+    console.log('[pendingOverlay] Adding pending change', {
+      taskId,
+      opId,
+      fields: Object.keys(fields),
+      lockDuration,
+      lockUntil: new Date(now + lockDuration).toISOString(),
+    });
 
     set((state) => ({
       pending: {
@@ -62,15 +70,34 @@ export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
 
     // opIdが一致する場合のみACK
     if (current?.opId === opId) {
+      console.log('[pendingOverlay] ✅ ACK pending change', {
+        taskId,
+        opId,
+        duration: Date.now() - current.startedAt,
+      });
+
       set((state) => {
         const newPending = { ...state.pending };
         delete newPending[taskId];
         return { pending: newPending };
       });
+    } else {
+      console.warn('[pendingOverlay] ⚠️ ACK opId mismatch', {
+        taskId,
+        requestedOpId: opId,
+        currentOpId: current?.opId,
+      });
     }
   },
 
   rollbackPending: (taskId: string) => {
+    const current = get().pending[taskId];
+
+    console.log('[pendingOverlay] ⏮️ Rollback pending change', {
+      taskId,
+      opId: current?.opId,
+    });
+
     set((state) => {
       const newPending = { ...state.pending };
       delete newPending[taskId];

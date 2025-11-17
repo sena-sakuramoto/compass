@@ -1,11 +1,29 @@
 // タスク取得・更新のカスタムフック（React Query + 楽観的更新）
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useCallback } from 'react';
 import { listTasks, updateTask, moveTaskDates, type ListTasksParams } from '../lib/api';
 import type { Task } from '../lib/types';
 import { usePendingOverlay, applyPendingToTasks } from '../state/pendingOverlay';
 import { applyServerTask } from '../state/guards';
 import { toast } from '../lib/toast';
+import { debounce } from '../lib/debounce';
+
+/**
+ * デバウンスされたinvalidateQueries
+ * 短時間の連続更新による重複取得を防ぐ
+ */
+let debouncedInvalidate: ((queryClient: ReturnType<typeof useQueryClient>) => void) | null = null;
+
+function getDebouncedInvalidate(): (queryClient: ReturnType<typeof useQueryClient>) => void {
+  if (!debouncedInvalidate) {
+    debouncedInvalidate = debounce((queryClient: ReturnType<typeof useQueryClient>) => {
+      console.log('[useTasks] 🔄 Invalidating tasks query (debounced)');
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    }, 500); // 500ms デバウンス
+  }
+  return debouncedInvalidate;
+}
 
 /**
  * タスク一覧を取得するカスタムフック
@@ -20,13 +38,15 @@ export function useTasks(params: ListTasksParams) {
       const result = await listTasks(params);
       return result.tasks;
     },
-    staleTime: 10_000, // 10秒間はキャッシュを使用
+    staleTime: 30_000, // 30秒間はキャッシュを使用（無駄な再取得を防ぐ）
     refetchOnWindowFocus: false, // フォーカス時の自動再取得を無効化
     refetchOnReconnect: true, // 再接続時は再取得
   });
 
-  // pending変更を適用したタスクリストを返す
-  const tasksWithPending = query.data ? applyPendingToTasks(query.data, pending) : undefined;
+  // pending変更を適用したタスクリストを返す（useMemoで不要な再計算を防ぐ）
+  const tasksWithPending = useMemo(() => {
+    return query.data ? applyPendingToTasks(query.data, pending) : undefined;
+  }, [query.data, pending]);
 
   return {
     ...query,
@@ -41,6 +61,7 @@ export function useTasks(params: ListTasksParams) {
 export function useUpdateTask() {
   const queryClient = useQueryClient();
   const { addPending, ackPending, rollbackPending } = usePendingOverlay();
+  const invalidate = getDebouncedInvalidate();
 
   return useMutation({
     mutationFn: async ({ id, payload }: { id: string; payload: Partial<Task> }) => {
@@ -54,8 +75,8 @@ export function useUpdateTask() {
         // 3. ACK - pendingを解除
         ackPending(id, opId);
 
-        // 4. クエリを再取得して最新状態に同期
-        await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        // 4. クエリを再取得して最新状態に同期（デバウンス）
+        invalidate(queryClient);
 
         return { ok: true, opId };
       } catch (error) {
@@ -77,6 +98,7 @@ export function useUpdateTask() {
 export function useMoveTaskDates() {
   const queryClient = useQueryClient();
   const { addPending, ackPending, rollbackPending } = usePendingOverlay();
+  const invalidate = getDebouncedInvalidate();
 
   return useMutation({
     mutationFn: async ({
@@ -103,8 +125,8 @@ export function useMoveTaskDates() {
         // 3. ACK - pendingを解除
         ackPending(id, opId);
 
-        // 4. クエリを再取得して最新状態に同期
-        await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        // 4. クエリを再取得して最新状態に同期（デバウンス）
+        invalidate(queryClient);
 
         return { ok: true, opId };
       } catch (error) {

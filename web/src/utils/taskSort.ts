@@ -4,12 +4,15 @@ import type { Task } from '../lib/types';
 import type { PendingChange } from '../state/pendingOverlay';
 
 /**
- * タスクの有効なキーを取得（pending変更を優先）
+ * タスクの実効値を取得（pending変更を優先）
+ * 並び替え・描画の両方で使用する統一関数
+ *
  * @param task タスク
  * @param pending pending変更
  * @param field フィールド名
+ * @returns pending変更があればそちらを、なければ元の値を返す
  */
-function getEffectiveValue<K extends keyof Task>(
+export function getEffectiveValue<K extends keyof Task>(
   task: Task,
   pending: PendingChange | undefined,
   field: K
@@ -20,6 +23,21 @@ function getEffectiveValue<K extends keyof Task>(
   }
 
   return task[field];
+}
+
+/**
+ * タスク全体の実効値を取得（pending変更を全フィールドに適用）
+ * @param task タスク
+ * @param pending pending変更
+ * @returns pending変更を適用したタスク
+ */
+export function getEffectiveTask(task: Task, pending: PendingChange | undefined): Task {
+  if (!pending) return task;
+
+  return {
+    ...task,
+    ...pending.fields,
+  };
 }
 
 /**

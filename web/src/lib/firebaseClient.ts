@@ -11,6 +11,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { setIdToken } from './api';
+import { clearTokenCache } from './authToken';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -109,6 +110,7 @@ export function useFirebaseAuth() {
           setState({ user: firebaseUser, ready: true, error: null });
         } else {
           setIdToken();
+          clearTokenCache(); // ログアウト時にキャッシュをクリア
           setState({ user: null, ready: true, error: null });
         }
       } catch (error) {
@@ -144,6 +146,7 @@ export function useFirebaseAuth() {
     try {
       await signOut(getAuth(app));
       setIdToken();
+      clearTokenCache(); // ログアウト時にキャッシュをクリア
       setState((prev) => ({ ...prev, error: null, user: null }));
     } catch (error) {
       console.error('Sign-out failed', error);

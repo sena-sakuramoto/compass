@@ -5,7 +5,44 @@ import type { Task } from '../lib/types';
 import type { PendingChange } from './pendingOverlay';
 
 /**
- * サーバーからの更新を適用すべきかどうかを判定
+ * ネストされたオブジェクトのパスから値を取得
+ * 例: getPath(obj, 'a.b.c') → obj.a.b.c
+ */
+function getPath(obj: any, path: string): any {
+  const keys = path.split('.');
+  let current = obj;
+  for (const key of keys) {
+    if (current == null) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+/**
+ * フィールド単位で回帰（編集前の値に戻る）をチェック
+ * ネストされたフィールドにも対応
+ */
+function regresses(incoming: Task, pending: PendingChange, local: Task): boolean {
+  for (const [path, pendingValue] of Object.entries(pending.fields)) {
+    const incomingValue = getPath(incoming, path);
+    const localValue = getPath(local, path);
+
+    // pendingで変更したが、incomingが元の値（編集前）に戻そうとしている
+    if (incomingValue !== pendingValue && incomingValue === localValue) {
+      console.log('[guards] Field regression detected', {
+        path,
+        pendingValue,
+        incomingValue,
+        localValue,
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * サーバーからの更新を適用すべきかどうかを判定（厳格版）
  *
  * @param local ローカルのタスク（現在のUI上のタスク）
  * @param incoming サーバーから受信したタスク
@@ -14,54 +51,99 @@ import type { PendingChange } from './pendingOverlay';
  */
 export function shouldApplyServerUpdate(
   local: Task | undefined,
-  incoming: Task,
+  incoming: Task & { opId?: string },
   pending?: PendingChange
 ): boolean {
-  // ローカルタスクがない場合は常に適用
-  if (!local) return true;
+  const taskId = incoming.id;
 
-  // 1. updatedAt で後勝ち判定
+  // ローカルタスクがない場合は常に適用
+  if (!local) {
+    console.log('[guards] Accepting server update: no local task', { taskId });
+    return true;
+  }
+
+  // 1. version による厳格比較（version があれば最優先）
+  if (local.version !== undefined && incoming.version !== undefined) {
+    if (incoming.version < local.version) {
+      console.log('[guards] ❌ Rejecting server update: older version', {
+        taskId,
+        localVersion: local.version,
+        incomingVersion: incoming.version,
+      });
+      return false;
+    }
+    if (incoming.version > local.version) {
+      console.log('[guards] ✅ Accepting server update: newer version', {
+        taskId,
+        localVersion: local.version,
+        incomingVersion: incoming.version,
+      });
+      return true;
+    }
+    // version が同じ場合は opId ACK のみ許可
+    if (incoming.version === local.version) {
+      const isAck = pending && incoming.opId && pending.opId === incoming.opId;
+      if (isAck) {
+        console.log('[guards] ✅ Accepting server update: ACK with matching opId', {
+          taskId,
+          opId: incoming.opId,
+        });
+        return true;
+      } else {
+        console.log('[guards] ❌ Rejecting server update: same version without ACK', {
+          taskId,
+          version: incoming.version,
+          incomingOpId: incoming.opId,
+          pendingOpId: pending?.opId,
+        });
+        return false;
+      }
+    }
+  }
+
+  // 2. updatedAt による後勝ち判定
   if (local.updatedAt && incoming.updatedAt) {
     const localTime = new Date(local.updatedAt).getTime();
     const incomingTime = new Date(incoming.updatedAt).getTime();
 
-    // サーバーの更新が古い場合は破棄
     if (incomingTime < localTime) {
-      console.log('[guards] Rejecting server update: older updatedAt', {
-        taskId: incoming.id,
+      console.log('[guards] ❌ Rejecting server update: older updatedAt', {
+        taskId,
         localUpdatedAt: local.updatedAt,
         incomingUpdatedAt: incoming.updatedAt,
       });
       return false;
     }
+
+    // updatedAt が同点の場合は拒否（同一時刻の競合を避ける）
+    if (incomingTime === localTime) {
+      const isAck = pending && incoming.opId && pending.opId === incoming.opId;
+      if (!isAck) {
+        console.log('[guards] ❌ Rejecting server update: same updatedAt without ACK', {
+          taskId,
+          updatedAt: incoming.updatedAt,
+          incomingOpId: incoming.opId,
+          pendingOpId: pending?.opId,
+        });
+        return false;
+      }
+    }
   }
 
-  // 2. pending が生きている間は、同一フィールドが"編集前に戻る"回帰を禁止
+  // 3. pending が生きている間は、フィールド単位の回帰を禁止
   if (pending && Date.now() < pending.lockUntil) {
-    // pending.fields に含まれるフィールドをチェック
-    const regressingFields: string[] = [];
-
-    Object.entries(pending.fields).forEach(([key, pendingValue]) => {
-      const incomingValue = (incoming as any)[key];
-      const localValue = (local as any)[key];
-
-      // pendingで変更したフィールドが、サーバー更新で元の値に戻ろうとしている
-      if (incomingValue !== pendingValue && incomingValue === localValue) {
-        regressingFields.push(key);
-      }
-    });
-
-    if (regressingFields.length > 0) {
-      console.log('[guards] Rejecting server update: regression detected', {
-        taskId: incoming.id,
-        regressingFields,
+    if (regresses(incoming, pending, local)) {
+      console.log('[guards] ❌ Rejecting server update: field regression during pending', {
+        taskId,
         pendingOpId: pending.opId,
         lockUntil: new Date(pending.lockUntil).toISOString(),
+        remainingMs: pending.lockUntil - Date.now(),
       });
       return false;
     }
   }
 
+  console.log('[guards] ✅ Accepting server update: all checks passed', { taskId });
   return true;
 }
 
