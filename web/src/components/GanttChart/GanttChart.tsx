@@ -350,7 +350,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         {/* タイムライン（右側、横スクロール） */}
         <div
           ref={timelineRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden"
+          className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-hide"
           onScroll={(e) => {
             const top = e.currentTarget.scrollTop;
             setScrollTop(top);
