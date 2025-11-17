@@ -118,19 +118,19 @@ export function calculateTaskBarPosition(
   const top = rowIndex * rowHeight;
 
   // デバッグログ
-  if (duration === 0) {
-    console.log('[calculateTaskBarPosition] 1-day task:', {
-      taskName: task.name,
-      startDate: taskStart.toISOString().split('T')[0],
-      endDate: taskEnd.toISOString().split('T')[0],
-      duration,
-      totalDaysInclusive,
-      dayWidth,
-      left,
-      width,
-      widthInDays: width / dayWidth
-    });
-  }
+  // if (duration === 0) {
+  //   console.log('[calculateTaskBarPosition] 1-day task:', {
+  //     taskName: task.name,
+  //     startDate: taskStart.toISOString().split('T')[0],
+  //     endDate: taskEnd.toISOString().split('T')[0],
+  //     duration,
+  //     totalDaysInclusive,
+  //     dayWidth,
+  //     left,
+  //     width,
+  //     widthInDays: width / dayWidth
+  //   });
+  // }
 
   return { left, width, top };
 }

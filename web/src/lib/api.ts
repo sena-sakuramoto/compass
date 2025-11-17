@@ -52,7 +52,7 @@ export function setIdToken(token?: string) {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // キャッシュされたIDトークンを取得（重複呼び出しを防ぐ）
-  console.log(`[api] 🔵 Starting ${options.method || 'GET'} ${path}`);
+  // console.log(`[api] 🔵 Starting ${options.method || 'GET'} ${path}`);
   const token = await getCachedIdToken();
 
   const { headers: optionHeaders, credentials: optionCredentials, ...restOptions } = options;

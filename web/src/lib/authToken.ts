@@ -45,13 +45,13 @@ export async function getCachedIdToken(): Promise<string | undefined> {
 
   // 1. キャッシュが有効ならそれを返す
   if (tokenCache.value && tokenCache.exp && now < tokenCache.exp) {
-    console.log('[authToken] ✅ Using cached token (expires in', Math.round((tokenCache.exp - now) / 1000), 'seconds)');
+    // console.log('[authToken] ✅ Using cached token (expires in', Math.round((tokenCache.exp - now) / 1000), 'seconds)');
     return tokenCache.value;
   }
 
   // 2. 既に取得中のPromiseがあればそれを返す（デデュープ）
   if (tokenCache.promise) {
-    console.log('[authToken] ⏳ Waiting for in-flight token request...');
+    // console.log('[authToken] ⏳ Waiting for in-flight token request...');
     return tokenCache.promise;
   }
 

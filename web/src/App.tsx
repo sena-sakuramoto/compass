@@ -2534,10 +2534,13 @@ function SchedulePage({
               }
             }}
             onProjectClick={(projectId) => {
+              console.log('[onProjectClick] Clicked project:', projectId);
               // プロジェクト名クリックでプロジェクト編集ダイアログを開く
               const project = projects.find((p: Project) => p.id === projectId);
+              console.log('[onProjectClick] Found project:', project);
               if (project) {
                 // プロジェクトを編集用にセット（ダイアログを開く前に）
+                console.log('[onProjectClick] Setting state to open dialog');
                 setState((current) => ({
                   ...current,
                   editingProject: project,
