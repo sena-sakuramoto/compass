@@ -27,6 +27,7 @@ export interface GanttTask {
   estimatedHours?: number;
   priority?: string; // 優先度
   notificationSettings?: TaskNotificationSettings;
+  isPending?: boolean; // 楽観的更新中かどうか
 }
 
 export interface GanttViewState {

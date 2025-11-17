@@ -73,6 +73,7 @@ import {
 } from 'recharts';
 import { useFirebaseAuth } from './lib/firebaseClient';
 import type { User } from 'firebase/auth';
+import { usePendingOverlay, applyPendingToTasks } from './state/pendingOverlay';
 
 const LOCAL_KEY = 'apdw_compass_snapshot_v1';
 
@@ -2801,6 +2802,9 @@ function App() {
   const toastTimers = useRef<Map<string, number>>(new Map());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
+  // 楽観的更新のためのPending Overlayストア
+  const { addPending, ackPending, rollbackPending, pending } = usePendingOverlay();
+
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
     const timers = toastTimers.current;
@@ -3075,12 +3079,17 @@ function App() {
   };
 
   const handleTaskUpdate = async (taskId: string, updates: Partial<Task>) => {
-    // 楽観的更新：まずUIを即座に更新
+    const updatesWithTimestamp = {
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // 1. 楽観的更新：まずUIを即座に更新
     setState((current) => ({
       ...current,
       tasks: current.tasks.map((task) =>
         task.id === taskId
-          ? { ...task, ...updates, updatedAt: todayString() }
+          ? { ...task, ...updatesWithTimestamp }
           : task
       ),
     }));
@@ -3090,13 +3099,24 @@ function App() {
       return;
     }
 
-    // バックグラウンドでAPIに保存
+    // 2. pendingに追加
+    const opId = addPending(taskId, updatesWithTimestamp);
+
+    // 3. バックグラウンドでAPIに保存
     try {
       await updateTask(taskId, updates);
+
+      // 4. ACK - pendingを解除
+      ackPending(taskId, opId);
+
       // 成功時は何もしない（UIは既に更新済み）
       // pushToast({ tone: 'success', title: 'タスクを更新しました' }); // トーストは表示しない
     } catch (err) {
       console.error('Task update error:', err);
+
+      // 5. エラー時はロールバックとpending解除
+      rollbackPending(taskId);
+
       pushToast({ tone: 'error', title: 'タスクの更新に失敗しました', description: String(err) });
       // エラー時はリロードして正しい状態に戻す
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
@@ -3406,31 +3426,51 @@ function App() {
       const updates = {
         assignee,
         担当者: assignee,
+        updatedAt: new Date().toISOString(),
       } as Partial<Task>;
 
+      // 1. 楽観的更新：即座にUIを更新
       setState((current) => ({
         ...current,
         tasks: current.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
       }));
 
+      if (!canSync) {
+        pushToast({ tone: 'success', title: '担当者を更新しました（ローカル保存）' });
+        return;
+      }
+
+      // 2. pendingに追加
+      const opId = addPending(taskId, updates);
+
       try {
-        if (!canSync) {
-          pushToast({ tone: 'success', title: '担当者を更新しました（ローカル保存）' });
-          return;
-        }
+        // 3. APIを呼び出し
         await updateTask(taskId, { 担当者: assignee });
-        pushToast({ tone: 'success', title: '担当者を更新しました' });
-        window.dispatchEvent(new CustomEvent('snapshot:reload'));
+
+        // 4. ACK - pendingを解除
+        ackPending(taskId, opId);
+
+        // pushToast({ tone: 'success', title: '担当者を更新しました' }); // トーストは表示しない
+
+        // ⚠️ リロードイベントは発火しない
+        // window.dispatchEvent(new CustomEvent('snapshot:reload'));
       } catch (error) {
         console.error(error);
+
+        // 5. エラー時はロールバックとpending解除
+        rollbackPending(taskId);
+
         setState((current) => ({
           ...current,
           tasks: current.tasks.map((task) => (task.id === taskId ? previousSnapshot : task)),
         }));
         pushToast({ tone: 'error', title: '担当者の更新に失敗しました' });
+
+        // エラー時はリロードして正しい状態に戻す
+        window.dispatchEvent(new CustomEvent('snapshot:reload'));
       }
     },
-    [canSync, state.tasks]
+    [canSync, state.tasks, addPending, ackPending, rollbackPending]
   );
 
   const handleTaskDateChange = useCallback(
@@ -3438,43 +3478,75 @@ function App() {
       taskId: string,
       payload: { start: string; end: string; kind: 'move' | 'resize-start' | 'resize-end' }
     ) => {
-      try {
-        if (!canSync) {
-          // ローカルモード：即座にstateを更新
-          setState((current) => {
-            const updates = {
-              start: payload.start,
-              end: payload.end,
-              予定開始日: payload.start,
-              期限: payload.end,
-              duration_days: calculateDuration(payload.start, payload.end),
-            } as Partial<Task>;
-            return {
-              ...current,
-              tasks: current.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
-            };
-          });
-          pushToast({ tone: 'success', title: 'スケジュールを更新しました（ローカル保存）' });
-          return;
-        }
+      const updates = {
+        start: payload.start,
+        end: payload.end,
+        予定開始日: payload.start,
+        期限: payload.end,
+        duration_days: calculateDuration(payload.start, payload.end),
+        updatedAt: new Date().toISOString(),
+      } as Partial<Task>;
 
-        // APIモード：先にAPIを呼び出し、成功したらリロード
+      // 1. 楽観的更新：即座にUIを更新
+      setState((current) => ({
+        ...current,
+        tasks: current.tasks.map((task) => (task.id === taskId ? { ...task, ...updates } : task)),
+      }));
+
+      if (!canSync) {
+        pushToast({ tone: 'success', title: 'スケジュールを更新しました（ローカル保存）' });
+        return;
+      }
+
+      // 2. pendingに追加（3秒間ロック）
+      const opId = addPending(taskId, updates);
+
+      try {
+        // 3. APIを呼び出し
         await moveTaskDates(taskId, {
           予定開始日: payload.start,
           期限: payload.end,
           start: payload.start,
           end: payload.end
         });
-        pushToast({ tone: 'success', title: 'スケジュールを更新しました' });
 
-        // リロードイベントを発火（useSnapshotがデータを再取得する）
-        window.dispatchEvent(new CustomEvent('snapshot:reload'));
+        // 4. ACK - pendingを解除
+        ackPending(taskId, opId);
+
+        // pushToast({ tone: 'success', title: 'スケジュールを更新しました' }); // トーストは表示しない（即座に反映されるため）
+
+        // ⚠️ リロードイベントは発火しない（pending中のデータが巻き戻らないようにするため）
+        // window.dispatchEvent(new CustomEvent('snapshot:reload'));
       } catch (error) {
         console.error(error);
+
+        // 5. エラー時はロールバックとpending解除
+        rollbackPending(taskId);
+
+        // 元の状態に戻す
+        setState((current) => ({
+          ...current,
+          tasks: current.tasks.map((task) => {
+            if (task.id === taskId) {
+              // updatesを取り消し
+              const reverted = { ...task };
+              delete (reverted as any).start;
+              delete (reverted as any).end;
+              delete (reverted as any).予定開始日;
+              delete (reverted as any).期限;
+              return reverted;
+            }
+            return task;
+          }),
+        }));
+
         pushToast({ tone: 'error', title: 'スケジュールの更新に失敗しました' });
+
+        // エラー時はリロードして正しい状態に戻す
+        window.dispatchEvent(new CustomEvent('snapshot:reload'));
       }
     },
-    [canSync, setState]
+    [canSync, setState, addPending, ackPending, rollbackPending]
   );
 
   const handleSeedReminders = useCallback(

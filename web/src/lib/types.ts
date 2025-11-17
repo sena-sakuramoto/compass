@@ -63,6 +63,8 @@ export interface Task {
   milestone?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  version?: number;  // 楽観的ロック用のバージョン番号
+  opId?: string;     // 操作ID（楽観的更新のACK用）
 }
 
 export interface Person {
