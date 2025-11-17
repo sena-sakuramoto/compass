@@ -91,7 +91,7 @@ const taskSchema = z.object({
   タスク種別: z.string().optional().nullable(),
   担当者: z.string().optional().nullable(),
   assignee: z.string().optional().nullable(),
-  担当者メール: z.string().email().optional().nullable(),
+  担当者メール: z.union([z.string().email(), z.literal('')]).optional().nullable(),
   優先度: z.string().optional().nullable(),
   ステータス: z.string().min(1),
   予定開始日: z.string().optional().nullable(),
