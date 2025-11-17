@@ -96,16 +96,10 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
   };
 
-  // スクロール位置を同期
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollTop;
-    }
-  }, [scrollTop]);
-
+  // 横スクロール位置のみ処理（縦スクロールは親コンテナで処理）
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (onScroll) {
-      onScroll(e.currentTarget.scrollLeft, e.currentTarget.scrollTop);
+      onScroll(e.currentTarget.scrollLeft, 0);
     }
   };
 
@@ -369,7 +363,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [isSelecting, selectionStart, selectionEnd]);
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-auto" onScroll={handleScroll}>
+    <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
       <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
         {/* 時間軸 */}
         <div className="sticky top-0 z-10 bg-white">

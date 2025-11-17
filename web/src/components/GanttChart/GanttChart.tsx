@@ -158,15 +158,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     return () => window.removeEventListener('resize', updateWidth);
   }, [taskListWidth, viewMode, ticks.length, zoomLevel]);
 
-  // タスク一覧とタイムラインのスクロール同期
-  const handleTimelineScroll = (left: number, top: number) => {
+  // タイムラインの横スクロール（縦スクロールは親コンテナで処理）
+  const handleTimelineScroll = (left: number, _top: number) => {
     setScrollLeft(left);
-    setScrollTop(top);
-
-    // タスク一覧の縦スクロールを同期
-    if (taskListRef.current) {
-      taskListRef.current.scrollTop = top;
-    }
   };
 
   const handleTaskListScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -354,7 +348,18 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         </div>
 
         {/* タイムライン（右側、横スクロール） */}
-        <div ref={timelineRef} className="flex-1 overflow-hidden">
+        <div
+          ref={timelineRef}
+          className="flex-1 overflow-y-auto overflow-x-hidden"
+          onScroll={(e) => {
+            const top = e.currentTarget.scrollTop;
+            setScrollTop(top);
+            // タスク一覧の縦スクロールを同期
+            if (taskListRef.current) {
+              taskListRef.current.scrollTop = top;
+            }
+          }}
+        >
           <GanttTimeline
             tasks={tasks}
             ticks={ticks}
