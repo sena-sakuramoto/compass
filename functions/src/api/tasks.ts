@@ -267,13 +267,22 @@ router.delete('/:id', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // タスクの編集権限をチェック
-    const task = await canEditTask(req.params.id, req.uid, user.orgId);
+    // タスクを取得してプロジェクトIDを確認
+    const tasks = await listTasks({ orgId: user.orgId });
+    const task = tasks.find(t => t.id === req.params.id);
     if (!task) {
-      return res.status(403).json({ error: 'Forbidden: You do not have permission to delete this task' });
+      return res.status(404).json({ error: 'Task not found' });
     }
 
-    // タスクを削除
+    // プロジェクトメンバーシップをチェック
+    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
+    const projectIds = userProjectMemberships.map(m => m.projectId);
+
+    if (!projectIds.includes(task.projectId)) {
+      return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
+    }
+
+    // プロジェクトメンバーであれば誰でも削除可能
     await deleteTaskRepo(req.params.id, user.orgId);
     res.json({ ok: true });
   } catch (error) {
