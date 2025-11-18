@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import type { GanttTask } from './types';
+import type { ProjectMilestone } from './GanttTimeline';
 
 interface GanttTaskListProps {
   tasks: GanttTask[];
@@ -10,7 +11,8 @@ interface GanttTaskListProps {
   onTaskToggleComplete?: (task: GanttTask) => void;
   onProjectClick?: (projectId: string) => void;
   scrollTop?: number;
-  projectMap?: Record<string, { ステータス?: string; [key: string]: any }>;
+  projectMap?: Record<string, { 物件名?: string; ステータス?: string; [key: string]: any }>;
+  projectMilestones?: ProjectMilestone[];
 }
 
 export const GanttTaskList: React.FC<GanttTaskListProps> = ({
@@ -20,7 +22,8 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   onTaskToggleComplete,
   onProjectClick,
   scrollTop = 0,
-  projectMap = {}
+  projectMap = {},
+  projectMilestones = []
 }) => {
   // ローカル完了状態管理（即座にUIを更新するため）
   const [localCompletedStates, setLocalCompletedStates] = useState<Record<string, boolean>>({});
@@ -53,13 +56,15 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
         return !isCompleted; // 未完了のタスクのみを含める
       }) as GanttTask[];
   };
-  // プロジェクトごとにグループ化
+  // プロジェクトごとにグループ化（タスクがないプロジェクトも含める）
   const projectGroups: { projectId: string; projectName: string; projectStatus?: string; tasks: GanttTask[] }[] = [];
   let currentProjectId: string | null = null;
+  const projectsWithTasks = new Set<string>();
 
   tasks.forEach(task => {
     if (task.projectId !== currentProjectId) {
       currentProjectId = task.projectId;
+      projectsWithTasks.add(task.projectId);
       const project = projectMap[task.projectId];
       projectGroups.push({
         projectId: task.projectId,
@@ -70,6 +75,23 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
     }
     projectGroups[projectGroups.length - 1].tasks.push(task);
   });
+
+  // タスクがないプロジェクトもマイルストーンがあれば追加
+  if (projectMilestones.length > 0) {
+    const projectsWithMilestones = new Set(projectMilestones.map(m => m.projectId));
+
+    projectsWithMilestones.forEach(projectId => {
+      if (!projectsWithTasks.has(projectId) && projectMap[projectId]) {
+        const project = projectMap[projectId];
+        projectGroups.push({
+          projectId,
+          projectName: project.物件名 || projectId,
+          projectStatus: project.ステータス,
+          tasks: []
+        });
+      }
+    });
+  }
 
   return (
     <div className="border-r border-slate-200 bg-white">

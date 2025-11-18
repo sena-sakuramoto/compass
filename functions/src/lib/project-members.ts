@@ -90,8 +90,9 @@ export async function addProjectMember(
     await db.collection('project_members').doc(memberId).set(member);
   }
 
-  // プロジェクトのメンバー数を更新
-  await updateProjectMemberCount(orgId, projectId);
+  // プロジェクトのメンバー数を更新（インクリメント）
+  // 招待段階ではカウントしない（active になった時にカウント）
+  // await updateProjectMemberCount(orgId, projectId, member.orgId, true);
 
   // メール通知は実装していません（UI上のベル通知のみ）
   console.log(`Project invitation created for ${input.email} to project ${projectName}`);
@@ -214,10 +215,14 @@ export async function removeProjectMember(
     throw new Error('Member not found');
   }
 
+  const memberData = memberDoc.data() as ProjectMember;
   await memberRef.delete();
 
-  // プロジェクトのメンバー数を更新
-  await updateProjectMemberCount(orgId, projectId);
+  // プロジェクトのメンバー数を更新（デクリメント）
+  // active メンバーのみカウントしているため、active の場合のみデクリメント
+  if (memberData.status === 'active') {
+    await updateProjectMemberCount(orgId, projectId, memberData.orgId, false);
+  }
 }
 
 /**
@@ -253,8 +258,9 @@ export async function acceptProjectInvitation(
     updatedAt: now,
   });
 
-  // プロジェクトのメンバー数を更新
-  await updateProjectMemberCount(orgId, projectId);
+  // プロジェクトのメンバー数を更新（インクリメント）
+  // invited から active になったのでカウントを増やす
+  await updateProjectMemberCount(orgId, projectId, member.orgId, true);
 }
 
 /**
@@ -294,26 +300,68 @@ export async function listUserProjects(
 /**
  * プロジェクトのメンバー数を更新
  */
+/**
+ * メンバー数をインクリメント/デクリメントする（最適化版）
+ * @param orgId - 組織ID
+ * @param projectId - プロジェクトID
+ * @param memberOrgId - 追加/削除されるメンバーの組織ID
+ * @param increment - true: 追加, false: 削除
+ */
 async function updateProjectMemberCount(
+  orgId: string,
+  projectId: string,
+  memberOrgId?: string,
+  increment: boolean = true
+): Promise<void> {
+  const projectRef = db
+    .collection('orgs').doc(orgId)
+    .collection('projects').doc(projectId);
+
+  // プロジェクトオーナーの組織IDを取得（外部メンバー判定用）
+  const projectDoc = await projectRef.get();
+  if (!projectDoc.exists) return;
+
+  const projectData = projectDoc.data();
+  const ownerOrgId = projectData?.ownerOrgId;
+
+  const admin = await import('firebase-admin');
+  const incrementValue = increment ? 1 : -1;
+
+  const updates: any = {
+    memberCount: admin.firestore.FieldValue.increment(incrementValue),
+    updatedAt: Timestamp.now(),
+  };
+
+  // 外部メンバーかどうかを判定
+  if (memberOrgId && memberOrgId !== ownerOrgId) {
+    updates.externalMemberCount = admin.firestore.FieldValue.increment(incrementValue);
+  }
+
+  await projectRef.update(updates);
+}
+
+/**
+ * メンバー数を再計算する（整合性チェック用）
+ * 通常は使用せず、データ修復時のみ使用
+ */
+async function recalculateProjectMemberCount(
   orgId: string,
   projectId: string
 ): Promise<void> {
   const members = await listProjectMembers(orgId, projectId, { status: 'active' });
-  
-  // プロジェクトオーナーの組織IDを取得
+
   const projectDoc = await db
     .collection('orgs').doc(orgId)
     .collection('projects').doc(projectId)
     .get();
-  
+
   if (!projectDoc.exists) return;
-  
+
   const projectData = projectDoc.data();
   const ownerOrgId = projectData?.ownerOrgId;
-  
-  // 外部メンバー数をカウント
+
   const externalMembers = members.filter(m => m.orgId !== ownerOrgId);
-  
+
   await db
     .collection('orgs').doc(orgId)
     .collection('projects').doc(projectId)

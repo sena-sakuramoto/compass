@@ -35,7 +35,7 @@ function orgCollection(name: string) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function serialize<T extends Record<string, any>>(doc: admin.firestore.QueryDocumentSnapshot): T {
+export function serialize<T extends Record<string, any>>(doc: admin.firestore.QueryDocumentSnapshot): T {
   const data = doc.data();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: Record<string, any> = { ...data, id: doc.id };
@@ -244,73 +244,94 @@ export async function createProject(payload: ProjectInput, orgId?: string, creat
   const now = admin.firestore.FieldValue.serverTimestamp();
   // Always generate new ID to prevent accidental overwrites
   const projectId = await generateProjectId(targetOrgId);
-  const docRef = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
   const sanitizedPayload = sanitizeFieldNames(payload);
-  await docRef.set({
+
+  // バッチ書き込みを使用して複数の操作を一度に実行
+  const batch = db.batch();
+
+  // プロジェクト作成者のユーザー情報を事前に取得（バッチ外で実行）
+  let userData: any = null;
+  let creatorOrgId = targetOrgId;
+  if (createdBy) {
+    const userDoc = await db.collection('users').doc(createdBy).get();
+    if (userDoc.exists) {
+      userData = userDoc.data();
+      creatorOrgId = userData?.orgId || targetOrgId;
+    }
+  }
+
+  // プロジェクトドキュメントを追加
+  const docRef = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
+  const isExternalCreator = creatorOrgId !== targetOrgId;
+  batch.set(docRef, {
     ...sanitizedPayload,
     id: projectId,
     ProjectID: projectId,
+    ownerOrgId: targetOrgId,
+    memberCount: 1,  // 作成者が最初のメンバー
+    externalMemberCount: isExternalCreator ? 1 : 0,  // 作成者が外部メンバーの場合
     createdAt: now,
     updatedAt: now,
   });
 
   // プロジェクト作成者を自動的にメンバーとして追加
-  if (createdBy) {
+  if (createdBy && userData) {
     try {
-      const userDoc = await db.collection('users').doc(createdBy).get();
-      if (userDoc.exists) {
-        const userData = userDoc.data();
-        const memberId = `${projectId}_${createdBy}`;
+      const memberId = `${projectId}_${createdBy}`;
 
-        const memberData = {
-          id: memberId,
-          projectId: projectId,
-          userId: createdBy,
-          email: userData?.email || '',
-          displayName: userData?.displayName || userData?.email || '',
-          orgId: userData?.orgId || targetOrgId,
-          orgName: userData?.orgName || targetOrgId,
-          role: 'owner',
-          職種: userData?.職種 || null,
-          permissions: {
-            canEditProject: true,
-            canDeleteProject: true,
-            canManageMembers: true,
-            canViewTasks: true,
-            canCreateTasks: true,
-            canEditTasks: true,
-            canDeleteTasks: true,
-            canViewFiles: true,
-            canUploadFiles: true,
-          },
-          invitedBy: createdBy,
-          invitedAt: now,
-          joinedAt: now,
-          status: 'active',
-          createdAt: now,
-          updatedAt: now,
-        };
+      const memberData = {
+        id: memberId,
+        projectId: projectId,
+        userId: createdBy,
+        email: userData?.email || '',
+        displayName: userData?.displayName || userData?.email || '',
+        orgId: userData?.orgId || targetOrgId,
+        orgName: userData?.orgName || targetOrgId,
+        role: 'owner',
+        職種: userData?.職種 || null,
+        permissions: {
+          canEditProject: true,
+          canDeleteProject: true,
+          canManageMembers: true,
+          canViewTasks: true,
+          canCreateTasks: true,
+          canEditTasks: true,
+          canDeleteTasks: true,
+          canViewFiles: true,
+          canUploadFiles: true,
+        },
+        invitedBy: createdBy,
+        invitedAt: now,
+        joinedAt: now,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      };
 
-        // トップレベルの project_members コレクションに保存
-        await db.collection('project_members').doc(memberId).set(memberData);
+      // バッチにメンバーデータを追加
+      // トップレベルの project_members コレクションに保存
+      const memberDocRef = db.collection('project_members').doc(memberId);
+      batch.set(memberDocRef, memberData);
 
-        // プロジェクトのサブコレクションにも保存
-        await db
-          .collection('orgs')
-          .doc(targetOrgId)
-          .collection('projects')
-          .doc(projectId)
-          .collection('members')
-          .doc(createdBy)
-          .set(memberData);
+      // プロジェクトのサブコレクションにも保存
+      const subMemberDocRef = db
+        .collection('orgs')
+        .doc(targetOrgId)
+        .collection('projects')
+        .doc(projectId)
+        .collection('members')
+        .doc(createdBy);
+      batch.set(subMemberDocRef, memberData);
 
-        console.log(`[createProject] Added creator ${createdBy} as owner of project ${projectId}`);
-      }
+      console.log(`[createProject] Prepared creator ${createdBy} as owner of project ${projectId}`);
     } catch (error) {
-      console.error('[createProject] Failed to add creator as member:', error);
+      console.error('[createProject] Failed to prepare creator as member:', error);
       // エラーが発生してもプロジェクト作成は成功させる
     }
   }
+
+  // バッチをコミット（1回の操作で全ての書き込みを実行）
+  await batch.commit();
 
   return projectId;
 }

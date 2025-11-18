@@ -12,7 +12,7 @@ export interface ProjectMilestone {
   projectId: string;
   date: Date;
   label: string;
-  type: 'construction_start' | 'completion' | 'delivery';
+  type: 'survey' | 'construction_start' | 'completion' | 'delivery';
 }
 
 interface GanttTimelineProps {
@@ -35,6 +35,7 @@ interface GanttTimelineProps {
   onClearSelection?: () => void;
   onViewModeToggle?: () => void;
   projectMilestones?: ProjectMilestone[];
+  projectMap?: Record<string, { 物件名?: string; ステータス?: string; [key: string]: any }>;
 }
 
 interface GanttTimelinePropsExtended extends GanttTimelineProps {
@@ -57,6 +58,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   onScroll,
   selectedTaskIds = new Set(),
   projectMilestones = [],
+  projectMap,
   onTaskSelection,
   onBatchMove,
   onClearSelection,
@@ -279,15 +281,19 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   // 今日の位置を計算
   const todayPosition = calculateTodayPosition(dateRange, containerWidth);
 
-  // プロジェクトごとにグループ化
+  // プロジェクトごとにグループ化（タスクがないプロジェクトも含める）
   const projectGroups = useMemo(() => {
     const groups: { projectId: string; projectName: string; tasks: GanttTask[]; startRow: number; rowCount: number }[] = [];
-    let currentProjectId: string | null = null;
     let rowIndex = 0;
+
+    // タスクがあるプロジェクトをグループ化
+    let currentProjectId: string | null = null;
+    const projectsWithTasks = new Set<string>();
 
     tasks.forEach((task, index) => {
       if (task.projectId !== currentProjectId) {
         currentProjectId = task.projectId;
+        projectsWithTasks.add(task.projectId);
         groups.push({
           projectId: task.projectId,
           projectName: task.projectName,
@@ -303,8 +309,27 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       rowIndex++;
     });
 
+    // タスクがないプロジェクトもマイルストーンがあれば追加
+    if (projectMap && projectMilestones.length > 0) {
+      const projectsWithMilestones = new Set(projectMilestones.map(m => m.projectId));
+
+      projectsWithMilestones.forEach(projectId => {
+        if (!projectsWithTasks.has(projectId) && projectMap[projectId]) {
+          groups.push({
+            projectId,
+            projectName: projectMap[projectId].物件名 || projectId,
+            tasks: [],
+            startRow: rowIndex,
+            rowCount: 0
+          });
+          // プロジェクトヘッダーの行を追加
+          rowIndex++;
+        }
+      });
+    }
+
     return groups;
-  }, [tasks]);
+  }, [tasks, projectMap, projectMilestones]);
 
   // タスクの総高さを計算（プロジェクトヘッダー分も含む）
   const projectHeaderHeight = 32;

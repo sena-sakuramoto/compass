@@ -219,8 +219,8 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       projectId: 'P-0001',
       タスク名: '基本設計_レイアウト案',
       タスク種別: '設計',
-      担当者: '櫻本',
-      assignee: '櫻本',
+      担当者: '櫻本 聖成',
+      assignee: '櫻本 聖成',
       優先度: '高',
       ステータス: '進行中',
       予定開始日: '2025-09-01',
@@ -254,7 +254,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     },
   ],
   people: [
-    { id: 'PERSON001', 氏名: '櫻本', 役割: 'PM/設計統括', メール: 's.sakuramoto@archi-prisma.co.jp' },
+    { id: 'PERSON001', 氏名: '櫻本 聖成', 役割: 'PM/設計統括', メール: 's.sakuramoto@archi-prisma.co.jp' },
     { id: 'PERSON002', 氏名: '中村', 役割: '管理建築士/設計', メール: 's.nakamura@archi-prisma.co.jp' },
   ],
 };

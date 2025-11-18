@@ -27,16 +27,36 @@ router.get('/', async (req: any, res, next) => {
       return;
     }
 
-    // プロジェクト詳細を各組織から取得
-    const projectsMap = new Map();
+    // 組織IDごとにプロジェクトをグループ化
+    const projectsByOrg = new Map<string, string[]>();
     for (const { projectId, member } of userProjectMemberships) {
+      if (!projectsByOrg.has(member.orgId)) {
+        projectsByOrg.set(member.orgId, []);
+      }
+      projectsByOrg.get(member.orgId)!.push(projectId);
+    }
+
+    // プロジェクト詳細を組織ごとにバッチ取得
+    const { db, serialize } = await import('../lib/firestore');
+    const projectsMap = new Map();
+
+    for (const [orgId, projectIds] of projectsByOrg.entries()) {
       try {
-        const project = await getProject(member.orgId, projectId);
-        if (project) {
-          projectsMap.set(projectId, project);
-        }
+        // Firestoreの getAll で一度に複数のドキュメントを取得（バッチ読み取り）
+        const refs = projectIds.map(projectId =>
+          db.collection('orgs').doc(orgId).collection('projects').doc(projectId)
+        );
+        const snapshots = await db.getAll(...refs);
+
+        snapshots.forEach(snapshot => {
+          if (snapshot.exists) {
+            // getProject と同じように serialize を使用して型を整える
+            const project = serialize(snapshot as any);
+            projectsMap.set(snapshot.id, project);
+          }
+        });
       } catch (error) {
-        console.error(`Failed to load project ${projectId}:`, error);
+        console.error(`Failed to load projects from org ${orgId}:`, error);
       }
     }
 
@@ -148,13 +168,13 @@ router.delete('/:id', async (req: any, res, next) => {
     }
 
     // プロジェクトの存在と権限をチェック
-    const project = await getProject(req.params.id, user.orgId);
+    const project = await getProject(user.orgId, req.params.id);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // 削除権限をチェック
-    const hasPermission = await canDeleteProject(user, project, user.orgId);
+    // 削除権限をチェック（型アサーション: serialize によって適切な形式に変換済み）
+    const hasPermission = await canDeleteProject(user, project as any, user.orgId);
     if (!hasPermission) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to delete this project' });
     }

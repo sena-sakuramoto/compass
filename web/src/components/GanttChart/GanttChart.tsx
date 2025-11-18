@@ -85,6 +85,19 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     const milestones: ProjectMilestone[] = [];
 
     Object.entries(projectMap).forEach(([projectId, project]) => {
+      // 現地調査日
+      if (project.現地調査日) {
+        const date = new Date(project.現地調査日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: '現地調査',
+            type: 'survey',
+          });
+        }
+      }
+
       // 着工日
       if (project.着工日) {
         const date = new Date(project.着工日);
@@ -344,6 +357,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             onProjectClick={onProjectClick}
             scrollTop={scrollTop}
             projectMap={projectMap}
+            projectMilestones={projectMilestones}
           />
         </div>
 
@@ -380,6 +394,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             onClearSelection={handleClearSelection}
             onViewModeToggle={handleViewModeToggle}
             projectMilestones={projectMilestones}
+            projectMap={projectMap}
             onZoom={(direction) => {
               if (direction === 'in') {
                 handleZoomIn();
