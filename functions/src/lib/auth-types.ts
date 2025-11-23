@@ -2,6 +2,48 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { Role, ProjectRole, ProjectPermissions, RolePermissions } from './roles';
 
 /**
+ * サブスクリプションプラン
+ */
+export type SubscriptionPlan = 'starter' | 'business' | 'enterprise';
+
+/**
+ * プラン別の料金と上限設定
+ */
+export const PLAN_LIMITS = {
+  starter: {
+    price: 5000,        // ¥5,000/月
+    members: 5,         // 正式メンバー上限
+    guests: 10,         // ゲスト上限
+  },
+  business: {
+    price: 30000,       // ¥30,000/月
+    members: 30,        // 正式メンバー上限
+    guests: 100,        // ゲスト上限
+  },
+  enterprise: {
+    price: null,        // カスタム料金
+    members: 999999,    // 実質無制限
+    guests: 999999,     // 実質無制限
+  },
+} as const;
+
+/**
+ * 組織の利用上限
+ */
+export interface OrganizationLimits {
+  maxMembers: number;   // メンバー上限
+  maxGuests: number;    // ゲスト上限
+}
+
+/**
+ * 組織の現在の利用状況
+ */
+export interface OrganizationUsage {
+  members: number;      // 現在の正式メンバー数
+  guests: number;       // 現在のゲストユーザー数
+}
+
+/**
  * 組織（Organization）
  */
 export interface Organization {
@@ -13,10 +55,10 @@ export interface Organization {
     allowExternalMembers: boolean; // 外部メンバーの追加を許可
     defaultRole: Role;            // デフォルトのロール
   };
-  limits: {
-    maxMembers: number;           // メンバー上限（デフォルト: 5）
-    maxGuests: number;            // ゲスト上限（デフォルト: 10）
-  };
+  // プラン関連（新規追加）
+  plan?: SubscriptionPlan;       // サブスクリプションプラン（未設定の場合はstarter扱い）
+  limits?: OrganizationLimits;   // カスタム上限（未設定の場合はプランのデフォルト値を使用）
+  usage?: OrganizationUsage;     // 現在の利用状況
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -25,6 +67,32 @@ export interface Organization {
  * メンバー区分
  */
 export type MemberType = 'member' | 'guest';
+
+/**
+ * ゲストユーザーの権限
+ */
+export interface GuestPermissions {
+  viewProject: boolean;          // プロジェクト閲覧
+  createOwnTasks: boolean;       // 自分のタスク作成
+  editOwnTasks: boolean;         // 自分のタスク編集
+  deleteOwnTasks: boolean;       // 自分のタスク削除
+  assignTasksToOthers: boolean;  // 他人へのタスク割当
+  editOtherTasks: boolean;       // 他人のタスク編集
+  createProjects: boolean;       // プロジェクト作成
+}
+
+/**
+ * デフォルトのゲスト権限（協力会社向け）
+ */
+export const DEFAULT_GUEST_PERMISSIONS: GuestPermissions = {
+  viewProject: true,           // プロジェクト閲覧可能
+  createOwnTasks: true,        // 自分のタスク作成可能
+  editOwnTasks: true,          // 自分のタスク編集可能
+  deleteOwnTasks: true,        // 自分のタスク削除可能
+  assignTasksToOthers: false,  // 他人へのタスク割当不可
+  editOtherTasks: false,       // 他人のタスク編集不可
+  createProjects: false,       // プロジェクト作成不可
+};
 
 /**
  * ユーザー（User）
@@ -41,6 +109,8 @@ export interface User {
   電話番号?: string;
   photoURL?: string;             // プロフィール画像URL
   isActive: boolean;             // アクティブ状態
+  // ゲスト権限（memberType === 'guest'の場合のみ使用）
+  guestPermissions?: GuestPermissions; // カスタムゲスト権限（未設定の場合はDEFAULT_GUEST_PERMISSIONSを使用）
   createdAt: Timestamp;
   updatedAt: Timestamp;
   lastLoginAt?: Timestamp;
