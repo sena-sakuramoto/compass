@@ -3,8 +3,8 @@
  */
 
 // グローバルロール
-export type Role = 
-  | 'admin'           // 管理者: すべての権限
+export type Role =
+  | 'admin'           // 組織管理者: 組織全体の管理、メンバー管理
   | 'project_manager' // プロジェクトマネージャー: プロジェクト全体の管理
   | 'sales'           // 営業: 営業関連の閲覧・編集
   | 'designer'        // 設計: 設計関連の閲覧・編集
@@ -200,7 +200,7 @@ export const PROJECT_ROLE_PERMISSIONS: Record<ProjectRole, ProjectPermissions> =
 
 // ロールのラベル（日本語）
 export const ROLE_LABELS: Record<Role, string> = {
-  admin: '管理者',
+  admin: '組織管理者',
   project_manager: 'プロジェクトマネージャー',
   sales: '営業',
   designer: '設計',
@@ -218,7 +218,7 @@ export const PROJECT_ROLE_LABELS: Record<ProjectRole, string> = {
 
 // ロールの説明
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
-  admin: 'すべてのプロジェクトとタスクを管理できます',
+  admin: '組織全体を管理し、メンバーやゲストを招待・管理できます',
   project_manager: 'プロジェクト全体を管理し、メンバーを追加できます',
   sales: '営業関連のプロジェクトとタスクを管理できます',
   designer: '設計関連のタスクを管理できます',

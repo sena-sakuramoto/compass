@@ -337,6 +337,7 @@ export interface User {
   displayName: string;
   orgId: string;
   role: 'admin' | 'project_manager' | 'viewer';
+  memberType?: 'member' | 'guest';
   職種?: string;
   部署?: string;
   電話番号?: string;
@@ -387,6 +388,12 @@ export async function deactivateUser(userId: string) {
 export async function activateUser(userId: string) {
   return request<User>(`/users/${userId}/activate`, {
     method: 'POST',
+  });
+}
+
+export async function deleteUser(userId: string) {
+  return request<{ success: boolean }>(`/users/${userId}`, {
+    method: 'DELETE',
   });
 }
 

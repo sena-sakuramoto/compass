@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { listUsers, updateUser, deactivateUser, activateUser, type User } from '../lib/api';
-import { listInvitations, createInvitation, deleteInvitation, type ProjectInvitation } from '../lib/invitations';
-import { InvitationModal } from './InvitationModal';
-import { InvitationList } from './InvitationList';
+import { listUsers, updateUser, deactivateUser, activateUser, deleteUser, type User } from '../lib/api';
+import { OrgMemberInvitationModal } from './OrgMemberInvitationModal';
+import { UserEditModal } from './UserEditModal';
 import type { Project } from '../lib/types';
 
 interface UserManagementProps {
@@ -11,22 +10,15 @@ interface UserManagementProps {
 
 export function UserManagement({ projects = [] }: UserManagementProps) {
   const [users, setUsers] = useState<User[]>([]);
-  const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [invitationModalOpen, setInvitationModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'users' | 'invitations'>('users');
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   useEffect(() => {
-    loadData();
+    loadUsers();
   }, []);
-
-  async function loadData() {
-    // 招待機能を一時的に無効化
-    await loadUsers();
-    // await Promise.all([loadUsers(), loadInvitations()]);
-  }
 
   async function loadUsers() {
     try {
@@ -42,31 +34,29 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     }
   }
 
-  async function loadInvitations() {
-    try {
-      const data = await listInvitations();
-      setInvitations(data);
-    } catch (err) {
-      console.error('Failed to load invitations:', err);
-      // エラーの場合は空配列を設定して続行
-      setInvitations([]);
-    }
-  }
+  async function handleCreateInvitation(data: {
+    email: string;
+    displayName?: string;
+    role: string;
+    memberType: 'member' | 'guest';
+    message?: string;
+  }) {
+    const token = localStorage.getItem('apdw_id_token');
+    const response = await fetch('/api/org-invitations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
 
-  async function handleCreateInvitation(data: { email: string; projectId: string; role: 'member' | 'guest'; message?: string }) {
-    await createInvitation(data);
-    await loadInvitations();
-  }
-
-  async function handleDeleteInvitation(invitationId: string) {
-    if (!confirm('この招待を取り消しますか？')) return;
-    try {
-      await deleteInvitation(invitationId);
-      await loadInvitations();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '削除に失敗しました');
-      console.error('Failed to delete invitation:', err);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || '招待の作成に失敗しました');
     }
+
+    await loadUsers();
   }
 
   async function handleUpdateUser(userId: string, updates: Partial<User>) {
@@ -74,9 +64,11 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
       await updateUser(userId, updates);
       await loadUsers();
       setEditingUser(null);
+      setEditModalOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : '更新に失敗しました');
       console.error('Failed to update user:', err);
+      throw err; // Re-throw for modal to handle
     }
   }
 
@@ -91,6 +83,20 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ステータスの変更に失敗しました');
       console.error('Failed to toggle user status:', err);
+    }
+  }
+
+  async function handleDeleteUser(user: User) {
+    if (!confirm(`${user.displayName} を完全に削除しますか？この操作は取り消せません。`)) {
+      return;
+    }
+
+    try {
+      await deleteUser(user.id);
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ユーザーの削除に失敗しました');
+      console.error('Failed to delete user:', err);
     }
   }
 
@@ -121,54 +127,23 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-slate-900">人員管理</h2>
-        {/* 招待機能を一時的に無効化
         <button
           onClick={() => setInvitationModalOpen(true)}
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700"
         >
-          外部協力者を招待
+          メンバー/ゲストを招待
         </button>
-        */}
       </div>
 
-      {/* タブ - 招待機能を一時的に無効化 */}
-      <div className="border-b border-slate-200">
-        <nav className="flex gap-8">
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
-              activeTab === 'users'
-                ? 'border-teal-600 text-teal-600'
-                : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
-            }`}
-          >
-            ユーザー ({users.length})
-          </button>
-          {/* 招待タブを一時的に非表示
-          <button
-            onClick={() => setActiveTab('invitations')}
-            className={`border-b-2 px-1 pb-3 text-sm font-medium transition ${
-              activeTab === 'invitations'
-                ? 'border-teal-600 text-teal-600'
-                : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
-            }`}
-          >
-            招待 ({invitations.length})
-          </button>
-          */}
-        </nav>
-      </div>
-
-      {/* タブコンテンツ */}
-      {activeTab === 'users' ? (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+      {/* ユーザー一覧 */}
+      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <table className="w-full">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">名前</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メール</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">種別</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役割</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">組織</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">部署</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">ステータス</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">操作</th>
@@ -193,40 +168,33 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-600">{user.email}</td>
                 <td className="px-4 py-3">
-                  {editingUser?.id === user.id ? (
-                    <select
-                      value={editingUser.role}
-                      onChange={(e) =>
-                        setEditingUser({
-                          ...editingUser,
-                          role: e.target.value as User['role'],
-                        })
-                      }
-                      className="text-xs border border-slate-300 rounded px-2 py-1"
-                    >
-                      <option value="admin">管理者</option>
-                      <option value="project_manager">プロジェクトマネージャー</option>
-                      <option value="viewer">閲覧者</option>
-                    </select>
-                  ) : (
-                    <span
-                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        user.role === 'admin'
-                          ? 'bg-purple-100 text-purple-800'
-                          : user.role === 'project_manager'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-slate-100 text-slate-800'
-                      }`}
-                    >
-                      {user.role === 'admin'
-                        ? '管理者'
-                        : user.role === 'project_manager'
-                        ? 'PM'
-                        : '閲覧者'}
-                    </span>
-                  )}
+                  <span
+                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      user.memberType === 'member'
+                        ? 'bg-teal-100 text-teal-800'
+                        : 'bg-purple-100 text-purple-800'
+                    }`}
+                  >
+                    {user.memberType === 'member' ? 'メンバー' : 'ゲスト'}
+                  </span>
                 </td>
-                <td className="px-4 py-3 text-sm text-slate-600">{user.orgId}</td>
+                <td className="px-4 py-3">
+                  <span
+                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                      user.role === 'admin'
+                        ? 'bg-purple-100 text-purple-800'
+                        : user.role === 'project_manager'
+                        ? 'bg-blue-100 text-blue-800'
+                        : 'bg-slate-100 text-slate-800'
+                    }`}
+                  >
+                    {user.role === 'admin'
+                      ? '管理者'
+                      : user.role === 'project_manager'
+                      ? 'PM'
+                      : '閲覧者'}
+                  </span>
+                </td>
                 <td className="px-4 py-3 text-sm text-slate-600">{user.部署 || '-'}</td>
                 <td className="px-4 py-3">
                   <button
@@ -241,52 +209,46 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                   </button>
                 </td>
                 <td className="px-4 py-3">
-                  {editingUser?.id === user.id ? (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() =>
-                          handleUpdateUser(user.id, {
-                            role: editingUser.role,
-                          })
-                        }
-                        className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                      >
-                        保存
-                      </button>
-                      <button
-                        onClick={() => setEditingUser(null)}
-                        className="px-2 py-1 text-xs bg-slate-200 text-slate-700 rounded hover:bg-slate-300"
-                      >
-                        キャンセル
-                      </button>
-                    </div>
-                  ) : (
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setEditingUser(user)}
+                      onClick={() => {
+                        setEditingUser(user);
+                        setEditModalOpen(true);
+                      }}
                       className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
                     >
                       編集
                     </button>
-                  )}
+                    <button
+                      onClick={() => handleDeleteUser(user)}
+                      className="px-2 py-1 text-xs text-rose-600 hover:text-rose-800 hover:underline"
+                    >
+                      削除
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      ) : (
-        <InvitationList
-          invitations={invitations}
-          onDelete={handleDeleteInvitation}
-        />
-      )}
 
       {/* 招待モーダル */}
-      <InvitationModal
+      <OrgMemberInvitationModal
         open={invitationModalOpen}
-        projects={projects}
         onClose={() => setInvitationModalOpen(false)}
         onSubmit={handleCreateInvitation}
+      />
+
+      {/* 編集モーダル */}
+      <UserEditModal
+        open={editModalOpen}
+        user={editingUser}
+        onClose={() => {
+          setEditModalOpen(false);
+          setEditingUser(null);
+        }}
+        onSubmit={handleUpdateUser}
       />
     </div>
   );

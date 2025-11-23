@@ -8,6 +8,7 @@ if (!admin.apps.length) {
 export const db = admin.firestore();
 db.settings({ ignoreUndefinedProperties: true });
 export const ORG_ID = process.env.ORG_ID ?? 'demo';
+export const FieldValue = admin.firestore.FieldValue;
 
 type FirestoreTimestamp = admin.firestore.Timestamp;
 

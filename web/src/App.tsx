@@ -51,6 +51,7 @@ import { PersonEditDialog } from './components/PersonEditDialog';
 import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { InvitationNotifications } from './components/InvitationNotifications';
 import { UserManagement } from './components/UserManagement';
+import { HelpPage } from './pages/HelpPage';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -240,7 +241,7 @@ function AppLayout({
 }) {
   const navLinks = [
     { path: '/', label: '工程表' },
-    { path: '/summary', label: 'サマリー' },
+    { path: '/summary', label: 'プロジェクト' },
     { path: '/tasks', label: 'タスク' },
     { path: '/workload', label: '稼働状況' },
     { path: '/users', label: '人員管理' },
@@ -273,7 +274,7 @@ function AppLayout({
                 onNotify={onNotify}
               />
             </div>
-            <nav className="flex flex-wrap gap-2">
+            <nav className="hidden flex-wrap gap-2">
               {navLinks.map((link) => (
                 <NavLink
                   key={link.path}
@@ -318,7 +319,7 @@ function AppLayout({
             <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
           </div>
         ) : null}
-        <main className="flex-1 min-h-0 overflow-y-auto mx-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8 max-w-full">{children}</main>
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8">{children}</main>
         <BottomBar
           onOpenTask={onOpenTask}
           onOpenProject={onOpenProject}
@@ -1598,6 +1599,7 @@ function DashboardPage({
   setManagingMembersProject: (project: Project | null) => void;
 }) {
   const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const openTaskCount = useMemo(
     () => filteredTasks.filter((task) => task.ステータス !== '完了').length,
     [filteredTasks]
@@ -1606,9 +1608,9 @@ function DashboardPage({
     () =>
       filteredTasks.filter((task) => {
         const deadline = parseDate(task.end ?? task.期限 ?? task.実績完了日);
-        return deadline ? deadline.getTime() < today.getTime() && task.ステータス !== '完了' : false;
+        return deadline ? deadline.getTime() < startOfToday.getTime() && task.ステータス !== '完了' : false;
       }).length,
-    [filteredTasks, today]
+    [filteredTasks, startOfToday]
   );
   const averageProgress = useMemo(() => {
     if (!filteredTasks.length) return 0;
@@ -1656,7 +1658,7 @@ function DashboardPage({
         label: '稼働メンバー',
         value: activeMembersCount.toString(),
         accent: 'neutral' as const,
-        note: `${filtersProps.assignees.length - 1} 人中`,
+        note: '',
       },
     ],
     [filteredTasks.length, openTaskCount, overdueCount, averageProgress, activeMembersCount, filtersProps.hasActiveFilters, filtersProps.assignees.length]
@@ -1765,15 +1767,6 @@ function DashboardPage({
               title={!canEdit ? '現在は変更できません' : undefined}
             >
               <Plus className="h-4 w-4" /> プロジェクト追加
-            </button>
-            <button
-              type="button"
-              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 md:flex"
-              onClick={onOpenPerson}
-              disabled={!canEdit}
-              title={!canEdit ? '現在は変更できません' : undefined}
-            >
-              <Plus className="h-4 w-4" /> 担当者追加
             </button>
           </div>
         </div>
@@ -1987,14 +1980,6 @@ function TasksPage({
           >
             <Plus className="h-4 w-4" /> プロジェクト追加
           </button>
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onOpenPerson}
-            disabled={!canEdit}
-          >
-            <Plus className="h-4 w-4" /> 担当者追加
-          </button>
         </div>
       </div>
       <div className="grid gap-3 md:hidden">
@@ -2108,22 +2093,6 @@ function SchedulePage({
     });
   }, [filteredTasks, today]);
 
-  const busyMembers = useMemo(() => {
-    const set = new Set<string>();
-    tasksActiveToday.forEach((task) => {
-      const name = task.assignee ?? task.担当者;
-      if (name) set.add(name);
-    });
-    return set;
-  }, [tasksActiveToday]);
-
-  const freeMembers = useMemo(() => {
-    if (!people.length) return [] as string[];
-    return people
-      .map((person) => person.氏名)
-      .filter((name): name is string => Boolean(name))
-      .filter((name) => !busyMembers.has(name));
-  }, [people, busyMembers]);
 
   const scheduleStats = useMemo(
     () => [
@@ -2148,15 +2117,8 @@ function SchedulePage({
         note: '期限が今日のタスク',
         tone: tasksDueToday > 0 ? 'alert' : 'neutral',
       },
-      {
-        id: 'free_members',
-        label: '空きメンバー',
-        value: `${freeMembers.length} 人`,
-        note: freeMembers.length ? freeMembers.slice(0, 3).join(' / ') + (freeMembers.length > 3 ? ` 他${freeMembers.length - 3}人` : '') : '全員アサイン済み',
-        tone: freeMembers.length ? 'neutral' : 'primary',
-      },
     ],
-    [tasksActiveToday.length, tasksStartingToday, tasksDueToday, freeMembers]
+    [tasksActiveToday.length, tasksStartingToday, tasksDueToday]
   );
 
   const activeFilterChips = useMemo(() => {
@@ -2353,13 +2315,13 @@ function SchedulePage({
   }, [filteredTasks, projectMap]);
 
   return (
-    <div className="h-full flex flex-col gap-2 min-h-0">
+    <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-6 md:-my-8 lg:-mx-8">
       {/* 極小ヘッダー - フィルター統合 */}
-      <section className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm flex-shrink-0">
+      <section className="border-b border-slate-200 bg-white p-2 flex-shrink-0">
         <div className="flex flex-col gap-1.5">
           {/* タイトル、フィルター、ボタンを1行に */}
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-slate-800 whitespace-nowrap">スケジュール</h2>
+            <h2 className="text-sm font-semibold text-slate-800 whitespace-nowrap">工程表</h2>
             <div className="flex-1 min-w-0">
               <Filters {...filtersProps} resultCount={undefined} />
             </div>
@@ -2396,8 +2358,6 @@ function SchedulePage({
             <span className={tasksDueToday > 0 ? 'font-medium text-rose-600' : ''}>
               締切:{tasksDueToday}
             </span>
-            <span className="text-slate-300">|</span>
-            <span>空き:{freeMembers.length}人</span>
             <span className="ml-auto text-slate-500">{newGanttTasks.length}件</span>
           </div>
         </div>
@@ -2417,7 +2377,7 @@ function SchedulePage({
 
       {/* ガントチャート - 利用可能な高さいっぱいに表示 */}
       <section
-        className="flex-1 min-h-0 rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden"
+        className="flex-1 min-h-0 bg-white"
       >
         <NewGanttChart
           tasks={newGanttTasks}
@@ -3664,7 +3624,7 @@ function App() {
         onNotify={pushToast}
       >
         {loading ? (
-          <div className="fixed bottom-4 left-4 lg:left-[17rem] z-50 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg shadow-lg text-sm text-blue-700 flex items-center gap-2">
+          <div className="fixed bottom-4 left-4 z-50 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg shadow-lg text-sm text-blue-700 flex items-center gap-2">
             <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -3791,6 +3751,7 @@ function App() {
           />
           <Route path="/workload" element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} />} />
           <Route path="/users" element={<UserManagement projects={state.projects} />} />
+          <Route path="/help" element={<HelpPage />} />
         </Routes>
       </AppLayout>
       <TaskModal

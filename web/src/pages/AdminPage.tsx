@@ -39,7 +39,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     email: '',
     displayName: '',
     orgId: '',
-    role: 'project_manager',
+    role: 'admin',
     message: '',
     expiresInDays: 7,
   });
@@ -51,8 +51,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   });
 
   const isSuperAdmin = currentUserRole === 'super_admin';
-  const isOrgAdmin = currentUserRole === 'org_admin';
-  const canManage = isSuperAdmin || isOrgAdmin;
+  const canManage = isSuperAdmin;
 
   useEffect(() => {
     if (canManage) {
@@ -130,7 +129,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
           email: '',
           displayName: '',
           orgId: '',
-          role: 'project_manager',
+          role: 'admin',
           message: '',
           expiresInDays: 7,
         });
@@ -197,8 +196,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const getRoleLabel = (role: string) => {
     const labels: Record<string, string> = {
       super_admin: 'スーパー管理者',
-      org_admin: '組織管理者',
-      admin: '管理者',
+      admin: '組織管理者',
       project_manager: 'プロジェクトマネージャー',
       sales: '営業',
       designer: '設計',
@@ -325,14 +323,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                     onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
-                    {isSuperAdmin && <option value="org_admin">組織管理者</option>}
-                    <option value="admin">管理者</option>
-                    <option value="project_manager">プロジェクトマネージャー</option>
-                    <option value="sales">営業</option>
-                    <option value="designer">設計</option>
-                    <option value="site_manager">施工管理</option>
-                    <option value="worker">職人</option>
-                    <option value="viewer">閲覧者</option>
+                    <option value="admin">組織管理者</option>
                   </select>
                 </div>
 

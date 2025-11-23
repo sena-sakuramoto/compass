@@ -10,9 +10,10 @@ import {
   deactivateUser,
   activateUser,
 } from '../lib/users';
-import { UserInput } from '../lib/auth-types';
+import { UserInput, MemberType } from '../lib/auth-types';
 import { canManageUsers } from '../lib/access-control';
 import { resolveAuthHeader, verifyToken } from '../lib/auth';
+import { canAddMember, getMemberCounts, getOrganizationLimits } from '../lib/member-limits';
 
 const router = Router();
 
@@ -198,26 +199,56 @@ router.post('/', authenticate, async (req: any, res) => {
 router.patch('/:userId', authenticate, async (req: any, res) => {
   try {
     const { userId } = req.params;
-    
+
     // 自分自身または管理者のみ更新可能
     if (req.uid !== userId && !canManageUsers(req.user)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     const updates = req.body;
-    
-    // 管理者以外はロールを変更できない
+
+    // 管理者以外はロールとmemberTypeを変更できない
     if (updates.role && !canManageUsers(req.user)) {
       delete updates.role;
     }
-    
+    if (updates.memberType && !canManageUsers(req.user)) {
+      delete updates.memberType;
+    }
+
+    // memberTypeが変更される場合は人数制限をチェック
+    if (updates.memberType && canManageUsers(req.user)) {
+      const currentUser = await getUser(userId);
+      if (!currentUser) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // memberTypeが実際に変更される場合のみチェック
+      if (currentUser.memberType !== updates.memberType) {
+        // 新しいmemberTypeに変更できるかチェック
+        const limitCheck = await canAddMember(req.user.orgId, updates.memberType as MemberType);
+
+        // 現在のユーザーは既にカウントされているため、上限を1増やす
+        if (!limitCheck.canAdd && limitCheck.current < limitCheck.max + 1) {
+          // 既存ユーザーを変更する場合は上限+1まで許可
+          // （例: member 5人の時に guest → member に変更する場合、一時的に6人になるが許可）
+        } else if (!limitCheck.canAdd) {
+          return res.status(400).json({
+            error: limitCheck.reason,
+            current: limitCheck.current,
+            max: limitCheck.max,
+          });
+        }
+      }
+    }
+
     await updateUser(userId, updates);
-    
+
     const updatedUser = await getUser(userId);
     res.json(updatedUser);
   } catch (error) {
-    console.error('Error updating user:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[Users API] Error updating user:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    res.status(500).json({ error: errorMessage });
   }
 });
 
@@ -251,18 +282,50 @@ router.post('/:userId/deactivate', authenticate, async (req: any, res) => {
 router.post('/:userId/activate', authenticate, async (req: any, res) => {
   try {
     const { userId } = req.params;
-    
+
     // 権限チェック
     if (!canManageUsers(req.user)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     await activateUser(userId);
-    
+
     const updatedUser = await getUser(userId);
     res.json(updatedUser);
   } catch (error) {
     console.error('Error activating user:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * DELETE /api/users/:userId
+ * ユーザーを削除（管理者のみ）
+ */
+router.delete('/:userId', authenticate, async (req: any, res) => {
+  try {
+    const { userId } = req.params;
+
+    // 権限チェック
+    if (!canManageUsers(req.user)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // 自分自身は削除できない
+    if (req.uid === userId) {
+      return res.status(400).json({ error: 'Cannot delete yourself' });
+    }
+
+    // Firebase Authからユーザーを削除
+    await getAuth().deleteUser(userId);
+
+    // Firestoreからユーザー情報を削除
+    const db = require('firebase-admin').firestore();
+    await db.collection('users').doc(userId).delete();
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting user:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

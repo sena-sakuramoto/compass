@@ -15,6 +15,8 @@ import usersRouter from './api/users-api';
 import projectMembersRouter from './api/project-members-api';
 import invitationsRouter from './api/invitations';
 import activityLogsRouter from './api/activity-logs';
+import orgInvitationsRouter from './api/org-invitations';
+import adminCleanupRouter from './api/admin-cleanup';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 
@@ -57,9 +59,11 @@ app.use('/api/jobs', jobsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/invitations', invitationsRouter);
+app.use('/api/org-invitations', orgInvitationsRouter);
 app.use('/api', projectMembersRouter);
 app.use('/api', activityLogsRouter);
 app.use('/api', excelRouter);
+app.use('/api/admin', adminCleanupRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });

@@ -96,6 +96,8 @@ export interface User {
   email: string;
   displayName?: string | null;
   orgId: string; // Primary/current organization
+  role?: string; // Primary organization role
+  memberType?: 'member' | 'guest'; // Member type in primary organization
   organizations?: Record<string, UserOrgAccess>; // All organizations user belongs to
   canCreateOrg?: boolean; // Only true if invited by owner
   createdAt: FirebaseFirestore.Timestamp;

@@ -1,8 +1,10 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import { User, UserInput, Organization } from './auth-types';
 import { Role, getRolePermissions } from './roles';
 
 const db = getFirestore();
+const auth = getAuth();
 
 /**
  * ユーザーを作成
@@ -16,6 +18,7 @@ export async function createUser(uid: string, input: UserInput): Promise<User> {
     displayName: input.displayName,
     orgId: input.orgId,
     role: input.role,
+    memberType: input.memberType,
     職種: input.職種,
     部署: input.部署,
     電話番号: input.電話番号,
@@ -53,13 +56,39 @@ export async function getUser(uid: string): Promise<User | null> {
  */
 export async function updateUser(
   uid: string,
-  updates: Partial<Omit<User, 'id' | 'email' | 'orgId' | 'createdAt'>>
+  updates: Partial<Omit<User, 'id' | 'orgId' | 'createdAt'>>
 ): Promise<void> {
   const now = Timestamp.now();
-  await db.collection('users').doc(uid).update({
-    ...updates,
-    updatedAt: now,
-  });
+
+  // メールアドレスが変更される場合はFirebase Authも更新
+  if (updates.email) {
+    try {
+      await auth.updateUser(uid, { email: updates.email });
+    } catch (error: any) {
+      console.error('[Users] Failed to update Firebase Auth email:', error);
+      // Firebase Auth の詳細なエラーメッセージを返す
+      const errorCode = error?.code || 'unknown';
+      if (errorCode === 'auth/email-already-exists') {
+        throw new Error('このメールアドレスは既に使用されています');
+      } else if (errorCode === 'auth/invalid-email') {
+        throw new Error('無効なメールアドレスです');
+      } else if (errorCode === 'auth/user-not-found') {
+        throw new Error('ユーザーが見つかりません');
+      }
+      throw new Error(`メールアドレスの更新に失敗しました: ${errorCode}`);
+    }
+  }
+
+  // Firestoreを更新
+  try {
+    await db.collection('users').doc(uid).update({
+      ...updates,
+      updatedAt: now,
+    });
+  } catch (error: any) {
+    console.error('[Users] Failed to update Firestore:', error);
+    throw new Error('ユーザー情報の更新に失敗しました');
+  }
 }
 
 /**

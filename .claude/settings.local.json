@@ -41,7 +41,10 @@
       "Bash(set FIRESTORE_EMULATOR_HOST=)",
       "Bash(curl:*)",
       "Bash(git restore:*)",
-      "Bash(firebase projects:list:*)"
+      "Bash(firebase projects:list:*)",
+      "Bash(git config:*)",
+      "Bash(nul)",
+      "Bash(set GCLOUD_PROJECT=compass-31e9e)"
     ],
     "deny": [],
     "ask": []

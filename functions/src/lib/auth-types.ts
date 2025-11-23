@@ -13,9 +13,18 @@ export interface Organization {
     allowExternalMembers: boolean; // 外部メンバーの追加を許可
     defaultRole: Role;            // デフォルトのロール
   };
+  limits: {
+    maxMembers: number;           // メンバー上限（デフォルト: 5）
+    maxGuests: number;            // ゲスト上限（デフォルト: 10）
+  };
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+
+/**
+ * メンバー区分
+ */
+export type MemberType = 'member' | 'guest';
 
 /**
  * ユーザー（User）
@@ -26,6 +35,7 @@ export interface User {
   displayName: string;           // 表示名
   orgId: string;                 // 所属組織ID
   role: Role;                    // グローバルロール
+  memberType: MemberType;        // メンバー区分（member: 正社員/正規メンバー、guest: 外部協力者）
   職種?: string;                 // 職種（設計、施工管理、営業、職人など）
   部署?: string;                 // 部署
   電話番号?: string;
@@ -66,6 +76,7 @@ export interface UserInput {
   displayName: string;
   orgId: string;
   role: Role;
+  memberType: MemberType;
   職種?: string;
   部署?: string;
   電話番号?: string;

@@ -1,6 +1,7 @@
 // プロジェクト招待API
 
 import express from 'express';
+import { authMiddleware } from '../lib/auth';
 import {
   createInvitation,
   listInvitations,
@@ -15,6 +16,8 @@ import {
 import type { ProjectInvitationInput } from '../lib/types';
 
 const router = express.Router();
+
+router.use(authMiddleware());
 
 /**
  * GET /api/invitations
