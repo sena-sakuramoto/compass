@@ -200,6 +200,12 @@ router.patch('/:userId', authenticate, async (req: any, res) => {
   try {
     const { userId } = req.params;
 
+    // req.userが存在することを確認
+    if (!req.user) {
+      console.error('[Users API] req.user is undefined');
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
     // 自分自身または管理者のみ更新可能
     if (req.uid !== userId && !canManageUsers(req.user)) {
       return res.status(403).json({ error: 'Forbidden' });
@@ -305,6 +311,12 @@ router.post('/:userId/activate', authenticate, async (req: any, res) => {
 router.delete('/:userId', authenticate, async (req: any, res) => {
   try {
     const { userId } = req.params;
+
+    // req.userが存在することを確認
+    if (!req.user) {
+      console.error('[Users API] req.user is undefined');
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
 
     // 権限チェック
     if (!canManageUsers(req.user)) {

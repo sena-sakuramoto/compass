@@ -28,7 +28,7 @@ export function UserEditModal({ open, user, onClose, onSubmit }: UserEditModalPr
         email: user.email,
         displayName: user.displayName || '',
         role: user.role || 'viewer',
-        memberType: (user.memberType as 'member' | 'guest') || 'member',
+        memberType: (user.memberType as 'member' | 'guest') || 'guest',
         部署: user.部署 || '',
         職種: user.職種 || '',
         電話番号: user.電話番号 || '',

@@ -1871,6 +1871,7 @@ function TasksPage({
   filtersProps,
   filteredTasks,
   projectMap,
+  people,
   onComplete,
   onTaskUpdate: updateTask,
   onOpenTask,
@@ -1885,6 +1886,7 @@ function TasksPage({
   filtersProps: FiltersProps;
   filteredTasks: Task[];
   projectMap: Record<string, Project>;
+  people: Person[];
   onComplete(task: Task, done: boolean): void;
   onTaskUpdate(taskId: string, updates: Partial<Task>): void;
   onOpenTask(): void;
@@ -1898,6 +1900,7 @@ function TasksPage({
 }) {
   const [seedBusyIds, setSeedBusyIds] = useState<Set<string>>(new Set());
   const [calendarBusyIds, setCalendarBusyIds] = useState<Set<string>>(new Set());
+  const [sortKey, setSortKey] = useState<'name' | 'project' | 'assignee' | 'schedule' | 'status'>('status');
 
   const runWithBusy = useCallback(
     async (
@@ -1941,17 +1944,51 @@ function TasksPage({
     return `${startLabel || '未設定'} → ${endLabel || '未設定'}`;
   }, []);
 
+  // 担当者名をメールアドレスまたは名前から正しい表示名に変換
+  const getAssigneeDisplayName = useCallback((assigneeValue: string): string => {
+    if (!assigneeValue) return '';
+
+    // peopleから検索 (氏名 または メール で一致)
+    const person = people.find(p =>
+      p.氏名 === assigneeValue || p.メール === assigneeValue
+    );
+
+    return person?.氏名 || assigneeValue;
+  }, [people]);
+
   const rows: TaskTableRow[] = filteredTasks.map((task) => ({
     id: task.id,
     name: task.タスク名,
     projectLabel: projectMap[task.projectId]?.物件名 ?? task.projectId,
-    assignee: task.assignee ?? task.担当者 ?? '',
+    assignee: getAssigneeDisplayName(task.assignee ?? task.担当者 ?? ''),
     schedule: buildScheduleLabel(task),
     effort: task['工数見積(h)'] ? String(task['工数見積(h)']) : '-',
     priority: task['優先度'] ?? '',
     status: task.ステータス,
     progress: task.progress,
   }));
+
+  // ソート処理
+  const sortedRows = useMemo(() => {
+    const sorted = [...rows];
+    sorted.sort((a, b) => {
+      switch (sortKey) {
+        case 'name':
+          return a.name.localeCompare(b.name);
+        case 'project':
+          return a.projectLabel.localeCompare(b.projectLabel);
+        case 'assignee':
+          return a.assignee.localeCompare(b.assignee);
+        case 'schedule':
+          return a.schedule.localeCompare(b.schedule);
+        case 'status':
+        default:
+          const statusOrder = { '未着手': 0, '進行中': 1, '完了': 2 };
+          return (statusOrder[a.status as keyof typeof statusOrder] ?? 3) - (statusOrder[b.status as keyof typeof statusOrder] ?? 3);
+      }
+    });
+    return sorted;
+  }, [rows, sortKey]);
 
   return (
     <div className="space-y-4">
@@ -1963,47 +2000,63 @@ function TasksPage({
       ) : null}
       <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
         <Filters {...filtersProps} />
-        <div className="hidden gap-2 md:flex">
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onOpenTask}
-            disabled={!canEdit}
+        <div className="flex items-center gap-2">
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
+            className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700"
           >
-            <Plus className="h-4 w-4" /> タスク追加
-          </button>
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onOpenProject}
-            disabled={!canEdit}
-          >
-            <Plus className="h-4 w-4" /> プロジェクト追加
-          </button>
+            <option value="status">並替: ステータス</option>
+            <option value="name">並替: タスク名</option>
+            <option value="project">並替: プロジェクト</option>
+            <option value="assignee">並替: 担当者</option>
+            <option value="schedule">並替: 期限</option>
+          </select>
+          <div className="hidden gap-2 md:flex">
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={onOpenTask}
+              disabled={!canEdit}
+            >
+              <Plus className="h-4 w-4" /> タスク追加
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={onOpenProject}
+              disabled={!canEdit}
+            >
+              <Plus className="h-4 w-4" /> プロジェクト追加
+            </button>
+          </div>
         </div>
       </div>
       <div className="grid gap-3 md:hidden">
-        {filteredTasks.map((task) => (
-          <TaskCard
-            key={task.id}
-            id={task.id}
-            name={task.タスク名}
-            projectLabel={projectMap[task.projectId]?.物件名 ?? task.projectId}
-            assignee={task.assignee ?? task.担当者 ?? ''}
-            schedule={buildScheduleLabel(task)}
-            status={task.ステータス}
-            progress={task.progress}
-            onComplete={() => onComplete(task, true)}
-            onSeedReminders={onSeedReminders ? () => handleSeedReminders(task.id) : undefined}
-            onCalendarSync={onCalendarSync ? () => handleCalendarSync(task.id) : undefined}
-            seedBusy={seedBusyIds.has(task.id)}
-            calendarBusy={calendarBusyIds.has(task.id)}
-          />
-        ))}
+        {sortedRows.map((row) => {
+          const task = filteredTasks.find(t => t.id === row.id)!;
+          return (
+            <TaskCard
+              key={row.id}
+              id={row.id}
+              name={row.name}
+              projectLabel={row.projectLabel}
+              assignee={row.assignee}
+              schedule={row.schedule}
+              status={row.status}
+              progress={row.progress}
+              onComplete={() => onComplete(task, true)}
+              onSeedReminders={onSeedReminders ? () => handleSeedReminders(row.id) : undefined}
+              onCalendarSync={onCalendarSync ? () => handleCalendarSync(row.id) : undefined}
+              seedBusy={seedBusyIds.has(row.id)}
+              calendarBusy={calendarBusyIds.has(row.id)}
+            />
+          );
+        })}
       </div>
       <div className="hidden md:block">
         <TaskTable
-          rows={rows}
+          rows={sortedRows}
           onToggle={(id, checked) => {
             const task = filteredTasks.find((t) => t.id === id);
             if (task) onComplete(task, checked);
@@ -3700,6 +3753,7 @@ function App() {
                 filtersProps={filtersProps}
                 filteredTasks={filteredTasks}
                 projectMap={projectMap}
+                people={state.people}
                 onComplete={handleComplete}
                 onTaskUpdate={handleTaskUpdate}
                 onOpenTask={() => setTaskModalOpen(true)}

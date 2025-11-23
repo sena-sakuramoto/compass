@@ -170,12 +170,12 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                 <td className="px-4 py-3">
                   <span
                     className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      user.memberType === 'member'
+                      (user.memberType || 'guest') === 'member'
                         ? 'bg-teal-100 text-teal-800'
                         : 'bg-purple-100 text-purple-800'
                     }`}
                   >
-                    {user.memberType === 'member' ? 'メンバー' : 'ゲスト'}
+                    {(user.memberType || 'guest') === 'member' ? 'メンバー' : 'ゲスト'}
                   </span>
                 </td>
                 <td className="px-4 py-3">
