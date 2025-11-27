@@ -389,14 +389,18 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [isSelecting, selectionStart, selectionEnd]);
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
-      <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
-        {/* 時間軸（スクロールしても常に表示） */}
-        <div className="sticky top-0 bg-white" style={{ zIndex: 100 }}>
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 時間軸（固定表示） */}
+      <div className="flex-shrink-0 bg-white border-b border-slate-200" style={{ zIndex: 100 }}>
+        <div style={{ width: `${containerWidth}px`, minWidth: `${containerWidth}px` }}>
           <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
         </div>
+      </div>
 
-        {/* タスクバー描画エリア */}
+      {/* スクロール可能なコンテンツエリア */}
+      <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
+        <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
+          {/* タスクバー描画エリア */}
         <div
           className="relative bg-white"
           style={{ height: `${totalHeight}px`, minWidth: `${containerWidth}px` }}
@@ -649,6 +653,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
