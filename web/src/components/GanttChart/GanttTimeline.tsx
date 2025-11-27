@@ -476,11 +476,12 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                     return (
                       <div
                         key={`${group.projectId}-milestone-${mIndex}`}
-                        className="absolute pointer-events-none z-10"
+                        className="absolute pointer-events-none"
                         style={{
                           left: `${milestoneX}px`,
                           top: `${milestoneY}px`,
                           transform: 'translate(-50%, -50%)',
+                          zIndex: 50,
                         }}
                       >
                         {/* ダイヤモンド型のマーカー */}
@@ -490,6 +491,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                         {/* ラベル */}
                         <div
                           className="absolute top-4 left-1/2 transform -translate-x-1/2 text-xs font-medium whitespace-nowrap bg-white px-1 py-0.5 rounded shadow-sm border border-slate-200"
+                          style={{ zIndex: 51 }}
                         >
                           {milestone.label}
                         </div>
