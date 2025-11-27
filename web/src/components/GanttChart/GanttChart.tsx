@@ -361,7 +361,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         <div
           ref={taskListRef}
           className="flex-shrink-0 overflow-y-auto overflow-x-hidden scrollbar-hide"
-          style={{ width: `${taskListWidth}px`, scrollBehavior: 'smooth' }}
+          style={{ width: `${taskListWidth}px` }}
           onScroll={handleTaskListScroll}
         >
           <GanttTaskList
