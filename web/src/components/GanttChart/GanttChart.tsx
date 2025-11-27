@@ -200,6 +200,35 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     }
   };
 
+  // タイムライン側でのホイールイベントを処理（縦スクロールをタスクリスト側に転送）
+  useEffect(() => {
+    const timelineElement = timelineRef.current;
+    if (!timelineElement) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Alt+スクロール（ズーム）とShift+スクロール（横スクロール）は処理しない
+      if (e.altKey || e.shiftKey) {
+        return;
+      }
+
+      // 横スクロールの場合は処理しない
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        return;
+      }
+
+      // 縦スクロールの場合、タスクリスト側にスクロールを転送
+      if (taskListRef.current && Math.abs(e.deltaY) > 0) {
+        e.preventDefault();
+        taskListRef.current.scrollTop += e.deltaY;
+      }
+    };
+
+    timelineElement.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      timelineElement.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
+
 
   const handleZoomIn = () => {
     // ズームイン処理：今日を基準に範囲を縮小（未来重視：前25%、後75%）

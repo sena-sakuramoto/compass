@@ -389,7 +389,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [isSelecting, selectionStart, selectionEnd]);
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-auto" onScroll={handleScroll}>
+    <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
       <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
         {/* 時間軸 */}
         <div className="sticky top-0 z-10 bg-white">
