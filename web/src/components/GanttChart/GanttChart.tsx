@@ -194,7 +194,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     const top = e.currentTarget.scrollTop;
     setScrollTop(top);
 
-    // scrollTopステートを更新することで、GanttTimeline内部のscrollRefに同期される
+    // タイムラインの縦スクロールを同期
+    if (timelineRef.current) {
+      timelineRef.current.scrollTop = top;
+    }
   };
 
   // タイムライン側でのホイールイベントを処理（縦スクロールをタスクリスト側に転送）
@@ -405,9 +408,19 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         {/* タイムライン（右側、横スクロール） */}
         <div
           ref={timelineRef}
-          className="flex-1 overflow-hidden"
-          style={{ direction: 'ltr', order: 1 }}
+          className="flex-1 overflow-y-auto overflow-x-hidden gantt-timeline-wrapper"
+          style={{
+            direction: 'ltr',
+            order: 1,
+            scrollbarWidth: 'none',
+            msOverflowStyle: 'none',
+          }}
         >
+          <style>{`
+            .gantt-timeline-wrapper::-webkit-scrollbar {
+              display: none;
+            }
+          `}</style>
           <GanttTimeline
             tasks={tasks}
             ticks={ticks}
