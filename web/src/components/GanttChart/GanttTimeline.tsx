@@ -66,7 +66,6 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   onViewModeToggle,
   onZoom
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null);
@@ -99,50 +98,6 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
   };
 
-  // 縦横スクロール位置を処理
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (onScroll) {
-      onScroll(e.currentTarget.scrollLeft, e.currentTarget.scrollTop);
-    }
-  };
-
-  // Alt+スクロールでズーム、Shift+スクロールで横スクロール
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      // Alt+スクロールでズーム
-      if (e.altKey && onZoom) {
-        e.preventDefault();
-        if (e.deltaY < 0) {
-          onZoom('in');
-        } else {
-          onZoom('out');
-        }
-        return;
-      }
-
-      // Shift+スクロールで横スクロール
-      if (e.shiftKey) {
-        e.preventDefault();
-        element.scrollLeft += e.deltaY;
-        if (onScroll) {
-          onScroll(element.scrollLeft, element.scrollTop);
-        }
-        return;
-      }
-
-      // 通常のスクロール（縦スクロール）は自然な動作に任せる
-      // preventDefaultしないことで、ブラウザのデフォルトスクロールが動作する
-    };
-
-    // passive: falseを明示的に指定してpreventDefaultを使用可能に
-    element.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      element.removeEventListener('wheel', handleWheel);
-    };
-  }, [onZoom, onScroll]);
 
   // 範囲選択開始
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -158,8 +113,8 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
 
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left + scrollRef.current!.scrollLeft;
-    const y = e.clientY - rect.top + scrollRef.current!.scrollTop;
+    const x = e.clientX - rect.left + scrollLeft;
+    const y = e.clientY - rect.top + scrollTop;
 
     setIsSelecting(true);
     setSelectionStart({ x, y });
@@ -173,11 +128,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
   // 範囲選択中
   const handleMouseMove = (e: MouseEvent) => {
-    if (!isSelecting || !selectionStart || !scrollRef.current) return;
+    if (!isSelecting || !selectionStart) return;
 
-    const rect = scrollRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left + scrollRef.current.scrollLeft;
-    const y = e.clientY - rect.top + scrollRef.current.scrollTop;
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    const x = e.clientX - rect.left + scrollLeft;
+    const y = e.clientY - rect.top + scrollTop;
 
     setSelectionEnd({ x, y });
   };
@@ -389,15 +344,14 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [isSelecting, selectionStart, selectionEnd]);
 
   return (
-    <div ref={scrollRef} className="h-full overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
-      <div style={{ width: `${containerWidth}px`, minWidth: `${containerWidth}px` }}>
-        {/* 時間軸（sticky固定、高さ64px） */}
-        <div className="sticky top-0 bg-white border-b border-slate-200" style={{ height: '64px', zIndex: 100 }}>
-          <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
-        </div>
+    <div style={{ width: `${containerWidth}px`, minWidth: `${containerWidth}px` }}>
+      {/* 時間軸（sticky固定、高さ64px） */}
+      <div className="sticky top-0 bg-white border-b border-slate-200" style={{ height: '64px', zIndex: 10 }}>
+        <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
+      </div>
 
-        {/* タスクバー描画エリア */}
-        <div className="relative bg-white" style={{ height: `${totalHeight}px` }} onMouseDown={handleMouseDown}>
+      {/* タスクバー描画エリア */}
+      <div className="relative bg-white" style={{ height: `${totalHeight}px` }} onMouseDown={handleMouseDown}>
           {/* グリッド背景 */}
           <div className="absolute inset-0">
             {/* 縦線（日付の区切り） */}
@@ -645,7 +599,6 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 };

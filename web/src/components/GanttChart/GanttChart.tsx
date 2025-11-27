@@ -408,12 +408,23 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         {/* タイムライン（右側、横スクロール） */}
         <div
           ref={timelineRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden"
+          className="flex-1 overflow-y-auto overflow-x-auto"
           style={{
             direction: 'ltr',
             order: 1,
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
+          }}
+          onScroll={(e) => {
+            const left = e.currentTarget.scrollLeft;
+            const top = e.currentTarget.scrollTop;
+            setScrollLeft(left);
+            setScrollTop(top);
+
+            // タスクリストの縦スクロールを同期
+            if (taskListRef.current) {
+              taskListRef.current.scrollTop = top;
+            }
           }}
         >
           <style>{`
@@ -435,7 +446,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             interactive={interactive}
             scrollLeft={scrollLeft}
             scrollTop={scrollTop}
-            onScroll={handleTimelineScroll}
             selectedTaskIds={selectedTaskIds}
             onTaskSelection={handleTaskSelection}
             onBatchMove={handleBatchMove}
