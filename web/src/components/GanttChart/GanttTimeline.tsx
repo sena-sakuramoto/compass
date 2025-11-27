@@ -389,36 +389,15 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [isSelecting, selectionStart, selectionEnd]);
 
   return (
-    <div
-      ref={scrollRef}
-      className="flex-1 overflow-x-auto overflow-y-auto"
-      onScroll={handleScroll}
-      style={{
-        scrollbarWidth: 'none', // Firefox
-        msOverflowStyle: 'none', // IE/Edge
-      }}
-    >
-      <style>{`
-        .gantt-timeline-container::-webkit-scrollbar {
-          display: none; /* Chrome/Safari */
-        }
-      `}</style>
-
-      {/* 時間軸（sticky固定） */}
-      <div className="sticky top-0 bg-white border-b border-slate-200 gantt-timeline-container" style={{ zIndex: 100 }}>
-        <div style={{ width: `${containerWidth}px`, minWidth: `${containerWidth}px` }}>
+    <div ref={scrollRef} className="h-full overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
+      <div style={{ width: `${containerWidth}px`, minWidth: `${containerWidth}px` }}>
+        {/* 時間軸（sticky固定、高さ64px） */}
+        <div className="sticky top-0 bg-white border-b border-slate-200" style={{ height: '64px', zIndex: 100 }}>
           <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
         </div>
-      </div>
 
-      {/* タスクバー描画エリア */}
-      <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
-        {/* コンテンツ */}
-        <div
-          className="relative bg-white"
-          style={{ height: `${totalHeight}px`, minWidth: `${containerWidth}px` }}
-          onMouseDown={handleMouseDown}
-        >
+        {/* タスクバー描画エリア */}
+        <div className="relative bg-white" style={{ height: `${totalHeight}px` }} onMouseDown={handleMouseDown}>
           {/* グリッド背景 */}
           <div className="absolute inset-0">
             {/* 縦線（日付の区切り） */}
