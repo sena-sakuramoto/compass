@@ -99,6 +99,13 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
   };
 
+  // 外部からのscrollTop変更を反映（タスクリストとの同期用）
+  useEffect(() => {
+    if (scrollRef.current && scrollRef.current.scrollTop !== scrollTop) {
+      scrollRef.current.scrollTop = scrollTop;
+    }
+  }, [scrollTop]);
+
   // 縦横スクロール位置を処理
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (onScroll) {
@@ -398,8 +405,21 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       </div>
 
       {/* スクロール可能なコンテンツエリア */}
-      <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
-        <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-x-auto overflow-y-auto"
+        onScroll={handleScroll}
+        style={{
+          scrollbarWidth: 'none', // Firefox
+          msOverflowStyle: 'none', // IE/Edge
+        }}
+      >
+        <style>{`
+          .gantt-timeline-scroll::-webkit-scrollbar {
+            display: none; /* Chrome/Safari */
+          }
+        `}</style>
+        <div className="relative gantt-timeline-scroll" style={{ minWidth: `${containerWidth}px` }}>
           {/* タスクバー描画エリア */}
         <div
           className="relative bg-white"

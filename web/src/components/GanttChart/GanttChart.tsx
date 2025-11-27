@@ -194,10 +194,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     const top = e.currentTarget.scrollTop;
     setScrollTop(top);
 
-    // タイムラインの縦スクロールを直接同期
-    if (timelineRef.current) {
-      timelineRef.current.scrollTop = top;
-    }
+    // scrollTopステートを更新することで、GanttTimeline内部のscrollRefに同期される
   };
 
   // タイムライン側でのホイールイベントを処理（縦スクロールをタスクリスト側に転送）
