@@ -391,8 +391,8 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   return (
     <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
       <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
-        {/* 時間軸 */}
-        <div className="sticky top-0 z-10 bg-white">
+        {/* 時間軸（スクロールしても常に表示） */}
+        <div className="sticky top-0 bg-white" style={{ zIndex: 100 }}>
           <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
         </div>
 

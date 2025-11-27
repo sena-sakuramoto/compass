@@ -95,8 +95,8 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
 
   return (
     <div className="border-r border-slate-200 bg-white">
-      {/* ヘッダー（時間軸と同じ64px） */}
-      <div className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 flex items-center px-4 text-xs font-semibold text-slate-600" style={{ height: '64px' }}>
+      {/* ヘッダー（時間軸と同じ64px、スクロールしても常に表示） */}
+      <div className="sticky top-0 border-b border-slate-200 bg-slate-50 flex items-center px-4 text-xs font-semibold text-slate-600" style={{ height: '64px', zIndex: 100 }}>
         <div className="w-8"></div>
         <div className="flex-1">タスク名</div>
         <div className="w-20 text-center">担当</div>
