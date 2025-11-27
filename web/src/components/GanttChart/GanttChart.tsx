@@ -200,10 +200,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     }
   };
 
-  // タスクリスト側でのホイールイベントを処理（縦スクロールをタイムライン側に転送）
+  // タイムライン側でのホイールイベントを処理（縦スクロールをタスクリスト側に転送）
   useEffect(() => {
-    const taskListElement = taskListRef.current;
-    if (!taskListElement) return;
+    const timelineElement = timelineRef.current;
+    if (!timelineElement) return;
 
     const handleWheel = (e: WheelEvent) => {
       // Alt+スクロール（ズーム）とShift+スクロール（横スクロール）は処理しない
@@ -216,16 +216,16 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         return;
       }
 
-      // 縦スクロールの場合、タイムライン側にスクロールを転送
-      if (timelineRef.current && Math.abs(e.deltaY) > 0) {
+      // 縦スクロールの場合、タスクリスト側にスクロールを転送
+      if (taskListRef.current && Math.abs(e.deltaY) > 0) {
         e.preventDefault();
-        timelineRef.current.scrollTop += e.deltaY;
+        taskListRef.current.scrollTop += e.deltaY;
       }
     };
 
-    taskListElement.addEventListener('wheel', handleWheel, { passive: false });
+    timelineElement.addEventListener('wheel', handleWheel, { passive: false });
     return () => {
-      taskListElement.removeEventListener('wheel', handleWheel);
+      timelineElement.removeEventListener('wheel', handleWheel);
     };
   }, []);
 
@@ -385,12 +385,12 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       />
 
       {/* メインコンテンツ */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden" style={{ direction: 'rtl' }}>
         {/* タスク一覧（左側固定） */}
         <div
           ref={taskListRef}
-          className="flex-shrink-0 overflow-y-hidden overflow-x-hidden"
-          style={{ width: `${taskListWidth}px` }}
+          className="flex-shrink-0 overflow-y-auto overflow-x-hidden"
+          style={{ width: `${taskListWidth}px`, direction: 'ltr', order: 2 }}
           onScroll={handleTaskListScroll}
         >
           <GanttTaskList
@@ -409,6 +409,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         <div
           ref={timelineRef}
           className="flex-1 overflow-hidden"
+          style={{ direction: 'ltr', order: 1 }}
         >
           <GanttTimeline
             tasks={tasks}
