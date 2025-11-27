@@ -332,9 +332,9 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     return groups;
   }, [tasks, projectMap, projectMilestones]);
 
-  // タスクの総高さを計算（プロジェクトヘッダー分も含む）
+  // タスクの総高さを計算（プロジェクトヘッダー分も含む + 最後に空白の一行）
   const projectHeaderHeight = 32;
-  const totalHeight = tasks.length * rowHeight + projectGroups.length * projectHeaderHeight;
+  const totalHeight = tasks.length * rowHeight + projectGroups.length * projectHeaderHeight + rowHeight;
 
   // 依存関係を解決
   const dependencies = useMemo(() => resolveDependencies(tasks), [tasks]);
@@ -389,11 +389,58 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [isSelecting, selectionStart, selectionEnd]);
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
+    <div ref={scrollRef} className="flex-1 overflow-auto" onScroll={handleScroll}>
       <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
         {/* 時間軸 */}
         <div className="sticky top-0 z-10 bg-white">
           <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
+
+          {/* プロジェクトマイルストーン（一番上に固定表示） */}
+          <div className="relative" style={{ height: '40px', width: `${containerWidth}px` }}>
+            {projectMilestones.map((milestone, mIndex) => {
+              // マイルストーンのX位置を計算（日単位で計算してグリッドと同期）
+              const totalDaysInclusive = differenceInDays(dateRange.end, dateRange.start) + 1;
+              const dayWidth = containerWidth / totalDaysInclusive;
+
+              const daysFromStart = differenceInDays(milestone.date, dateRange.start);
+
+              // 範囲外のマイルストーンはスキップ
+              if (daysFromStart < 0 || daysFromStart >= totalDaysInclusive) return null;
+
+              // セルの中心に配置
+              const milestoneX = daysFromStart * dayWidth + (dayWidth / 2);
+
+              // マイルストーンの色を種類別に設定
+              let milestoneColor = 'bg-blue-500';
+              if (milestone.type === 'construction_start') milestoneColor = 'bg-green-500';
+              else if (milestone.type === 'completion') milestoneColor = 'bg-orange-500';
+              else if (milestone.type === 'delivery') milestoneColor = 'bg-purple-500';
+              else if (milestone.type === 'survey') milestoneColor = 'bg-cyan-500';
+
+              return (
+                <div
+                  key={`milestone-top-${mIndex}`}
+                  className="absolute pointer-events-none z-10"
+                  style={{
+                    left: `${milestoneX}px`,
+                    top: '20px',
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
+                  {/* ダイヤモンド型のマーカー */}
+                  <div
+                    className={`w-3 h-3 ${milestoneColor} rotate-45 border-2 border-white shadow-md`}
+                  />
+                  {/* ラベル */}
+                  <div
+                    className="absolute top-4 left-1/2 transform -translate-x-1/2 text-xs font-medium whitespace-nowrap bg-white px-1 py-0.5 rounded shadow-sm border border-slate-200"
+                  >
+                    {milestone.label}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* タスクバー描画エリア */}
@@ -452,50 +499,6 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                     }}
                   />
 
-                  {/* プロジェクトマイルストーン（着工日、竣工予定日、引渡し予定日） */}
-                  {projectMilestonesForThisProject.map((milestone, mIndex) => {
-                    // マイルストーンのX位置を計算（日単位で計算してグリッドと同期）
-                    const totalDaysInclusive = differenceInDays(dateRange.end, dateRange.start) + 1;
-                    const dayWidth = containerWidth / totalDaysInclusive;
-
-                    const daysFromStart = differenceInDays(milestone.date, dateRange.start);
-
-                    // 範囲外のマイルストーンはスキップ
-                    if (daysFromStart < 0 || daysFromStart >= totalDaysInclusive) return null;
-
-                    // セルの中心に配置
-                    const milestoneX = daysFromStart * dayWidth + (dayWidth / 2);
-                    const milestoneY = headerTop + projectHeaderHeight / 2;
-
-                    // マイルストーンの色を種類別に設定
-                    let milestoneColor = 'bg-blue-500';
-                    if (milestone.type === 'construction_start') milestoneColor = 'bg-green-500';
-                    else if (milestone.type === 'completion') milestoneColor = 'bg-orange-500';
-                    else if (milestone.type === 'delivery') milestoneColor = 'bg-purple-500';
-
-                    return (
-                      <div
-                        key={`${group.projectId}-milestone-${mIndex}`}
-                        className="absolute pointer-events-none z-10"
-                        style={{
-                          left: `${milestoneX}px`,
-                          top: `${milestoneY}px`,
-                          transform: 'translate(-50%, -50%)',
-                        }}
-                      >
-                        {/* ダイヤモンド型のマーカー */}
-                        <div
-                          className={`w-3 h-3 ${milestoneColor} rotate-45 border-2 border-white shadow-md`}
-                        />
-                        {/* ラベル */}
-                        <div
-                          className="absolute top-4 left-1/2 transform -translate-x-1/2 text-xs font-medium whitespace-nowrap bg-white px-1 py-0.5 rounded shadow-sm border border-slate-200"
-                        >
-                          {milestone.label}
-                        </div>
-                      </div>
-                    );
-                  })}
 
                   {/* プロジェクト内のタスク区切り線 */}
                   {group.tasks.map((_, taskIndex) => {
