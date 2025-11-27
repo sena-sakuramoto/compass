@@ -39,7 +39,7 @@ export async function addProjectMember(
   let member: ProjectMember;
 
   if (user) {
-    // 既存ユーザーの場合
+    // 既存ユーザーの場合 - 直接アクティブ化
     const org = await getOrganization(user.orgId);
 
     const memberId = `${projectId}_${user.id}`;
@@ -56,7 +56,8 @@ export async function addProjectMember(
       permissions,
       invitedBy,
       invitedAt: now,
-      status: 'invited',
+      joinedAt: now, // 既存ユーザーは即座に参加
+      status: 'active',
       createdAt: now,
       updatedAt: now,
     };
@@ -64,7 +65,7 @@ export async function addProjectMember(
     // Top-level collection with composite ID
     await db.collection('project_members').doc(memberId).set(member);
   } else {
-    // 未登録ユーザーの場合、メールアドレスをキーとして招待レコードを作成
+    // 未登録ユーザーの場合 - 招待状態で作成
     // ユーザーが初回ログイン時に、このレコードを自分のUIDに紐付ける
     const userId = `pending_${input.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
     const memberId = `${projectId}_${userId}`;
@@ -81,7 +82,8 @@ export async function addProjectMember(
       permissions,
       invitedBy,
       invitedAt: now,
-      status: 'invited',
+      // joinedAt は招待受諾時に設定
+      status: 'invited', // 未登録ユーザーは招待状態
       createdAt: now,
       updatedAt: now,
     };
@@ -91,11 +93,14 @@ export async function addProjectMember(
   }
 
   // プロジェクトのメンバー数を更新（インクリメント）
-  // 招待段階ではカウントしない（active になった時にカウント）
-  // await updateProjectMemberCount(orgId, projectId, member.orgId, true);
+  // 既存ユーザー（active）の場合のみカウント
+  if (member.status === 'active') {
+    await updateProjectMemberCount(orgId, projectId, member.orgId, true);
+  }
 
-  // メール通知は実装していません（UI上のベル通知のみ）
-  console.log(`Project invitation created for ${input.email} to project ${projectName}`);
+  // メール通知は実装していません
+  const action = user ? 'added' : 'invited';
+  console.log(`Project member ${action}: ${input.email} to project ${projectName}`);
 
   return member;
 }
@@ -264,15 +269,27 @@ export async function acceptProjectInvitation(
 }
 
 /**
- * ユーザーがメンバーとして参加しているプロジェクト一覧を取得
+ * ユーザー がメンバーとして参加しているプロジェクト一覧を取得
+ * 
+ * 【同組織メンバーのデフォルトアクセス】
+ * - memberType === 'member' のユーザーは、同組織の全プロジェクトに自動的にアクセス可能
+ * - memberType === 'guest' のユーザーは、明示的に招待されたプロジェクトのみアクセス可能
+ * - 役職に応じてデフォルトの権限が付与される
+ * 
  * @param orgId - 組織IDでフィルタ（省略可能。省略時は全組織のプロジェクトを取得）
  * @param userId - ユーザーID
  */
 export async function listUserProjects(
   orgId: string | null,
   userId: string
-): Promise<Array<{ projectId: string; member: ProjectMember }>> {
-  // Top-level collection: ユーザーIDでクエリ
+): Promise<Array<{ projectId: string; member: ProjectMember; project?: any }>> {
+  // ユーザー情報を取得
+  const user = await getUser(userId);
+  if (!user) {
+    return [];
+  }
+
+  // 明示的に招待されているプロジェクトを取得
   let query = db
     .collection('project_members')
     .where('userId', '==', userId) as FirebaseFirestore.Query;
@@ -284,13 +301,94 @@ export async function listUserProjects(
 
   const membersSnapshot = await query.get();
 
-  const results: Array<{ projectId: string; member: ProjectMember }> = [];
+  const explicitProjects: Array<{ projectId: string; member: ProjectMember }> = [];
 
   for (const memberDoc of membersSnapshot.docs) {
     const member = memberDoc.data() as ProjectMember;
-    results.push({
+    explicitProjects.push({
       projectId: member.projectId,
       member,
+    });
+  }
+
+  // 同組織のメンバー（memberType === 'member'）の場合、全プロジェクトへのアクセスを追加
+  if (user.memberType === 'member') {
+    const targetOrgId = orgId || user.orgId;
+
+    // 組織の全プロジェクトを取得
+    const projectsSnapshot = await db
+      .collection('orgs')
+      .doc(targetOrgId)
+      .collection('projects')
+      .get();
+
+    const now = Timestamp.now();
+    const explicitProjectIds = new Set(explicitProjects.map(p => p.projectId));
+
+    // 明示的に招待されていないプロジェクトに対して、暗黙的なメンバーシップを追加
+    for (const projectDoc of projectsSnapshot.docs) {
+      const projectId = projectDoc.id;
+
+      // すでに明示的なメンバーシップがある場合はスキップ
+      if (explicitProjectIds.has(projectId)) {
+        continue;
+      }
+
+      // 役職に基づいてデフォルトのプロジェクトロールを決定
+      let defaultProjectRole: ProjectRole = 'viewer';
+      if (user.role === 'super_admin' || user.role === 'admin') {
+        defaultProjectRole = 'manager';
+      } else if (user.role === 'project_manager') {
+        defaultProjectRole = 'manager';
+      } else if (user.role === 'sales' || user.role === 'designer' || user.role === 'site_manager') {
+        defaultProjectRole = 'member';
+      } else {
+        // worker, viewer などはviewerロール
+        defaultProjectRole = 'viewer';
+      }
+
+      // 暗黙的なメンバーシップを作成（Firestoreには保存しない、メモリ上のみ）
+      const implicitMember: ProjectMember = {
+        id: `${projectId}_${userId}`,
+        projectId,
+        userId,
+        email: user.email,
+        displayName: user.displayName,
+        orgId: user.orgId,
+        orgName: '', // 後で取得可能
+        role: defaultProjectRole,
+        職種: user.職種,
+        permissions: getProjectRolePermissions(defaultProjectRole),
+        invitedBy: 'system', // システムによる自動追加
+        invitedAt: now,
+        joinedAt: now,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      explicitProjects.push({
+        projectId,
+        member: implicitMember,
+      });
+    }
+  }
+
+  // プロジェクト情報を含めて返す
+  const results: Array<{ projectId: string; member: ProjectMember; project?: any }> = [];
+
+  for (const item of explicitProjects) {
+    // プロジェクト情報を取得して含める
+    const projectDoc = await db
+      .collection('orgs')
+      .doc(item.member.orgId)
+      .collection('projects')
+      .doc(item.projectId)
+      .get();
+
+    results.push({
+      ...item,
+      project: projectDoc.exists ? projectDoc.data() : null,
     });
   }
 

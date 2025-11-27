@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Bell, Check, X, Mail } from 'lucide-react';
+import { Bell, Check, X, Mail, CheckCheck } from 'lucide-react';
 import { useFirebaseAuth } from '../lib/firebaseClient';
 import { buildAuthHeaders } from '../lib/api';
 
@@ -20,6 +20,7 @@ export function InvitationNotifications() {
   const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -33,17 +34,31 @@ export function InvitationNotifications() {
     try {
       setLoading(true);
       const token = await user.getIdToken(true); // Force refresh
-      const response = await fetch(`${BASE_URL}/users/${user.uid}/invitations`, {
+      const response = await fetch(`${BASE_URL}/users/${user.uid}/projects`, {
         headers: {
           'Content-Type': 'application/json',
           ...buildAuthHeaders(token),
         },
       });
 
-      if (!response.ok) throw new Error('Failed to load invitations');
+      if (!response.ok) throw new Error('Failed to load projects');
 
-      const data = await response.json();
-      setInvitations(data);
+      const projects = await response.json();
+
+      // Filter only invited projects
+      const pendingInvitations = projects
+        .filter((p: any) => p.member?.status === 'invited')
+        .map((p: any) => ({
+          projectId: p.projectId,
+          projectName: p.project?.物件名 || p.projectId,
+          invitedBy: p.member.invitedBy || '',
+          invitedByName: p.member.invitedByName || '不明',
+          role: p.member.role || 'member',
+          invitedAt: p.member.invitedAt || new Date().toISOString(),
+          message: p.member.message,
+        }));
+
+      setInvitations(pendingInvitations);
     } catch (err) {
       console.error('Error loading invitations:', err);
     } finally {
@@ -55,6 +70,7 @@ export function InvitationNotifications() {
     if (!user) return;
 
     try {
+      setProcessing(true);
       const token = await user.getIdToken(true);
       const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${user.uid}/accept`, {
         method: 'POST',
@@ -67,10 +83,88 @@ export function InvitationNotifications() {
       if (!response.ok) throw new Error('Failed to accept invitation');
 
       // 招待一覧を再読み込み
-      loadInvitations();
+      await loadInvitations();
     } catch (err) {
       console.error('Error accepting invitation:', err);
       alert('招待の承認に失敗しました');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleAcceptAll = async () => {
+    if (!user || invitations.length === 0) return;
+    if (!confirm(`${invitations.length}件の招待をすべて承認しますか？`)) return;
+
+    setProcessing(true);
+
+    try {
+      const token = await user.getIdToken(true);
+
+      // Process all invitations in parallel
+      const results = await Promise.allSettled(
+        invitations.map(invitation =>
+          fetch(`${BASE_URL}/projects/${invitation.projectId}/members/${user.uid}/accept`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...buildAuthHeaders(token),
+            },
+          })
+        )
+      );
+
+      const failed = results.filter(r => r.status === 'rejected').length;
+
+      if (failed > 0) {
+        alert(`${invitations.length - failed}件承認しました。${failed}件は失敗しました。`);
+      }
+
+      // Reload invitations
+      await loadInvitations();
+    } catch (err) {
+      console.error('Error accepting all invitations:', err);
+      alert('一括承認に失敗しました');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleDeclineAll = async () => {
+    if (!user || invitations.length === 0) return;
+    if (!confirm(`${invitations.length}件の招待をすべて辞退しますか？`)) return;
+
+    setProcessing(true);
+
+    try {
+      const token = await user.getIdToken(true);
+
+      // Process all invitations in parallel
+      const results = await Promise.allSettled(
+        invitations.map(invitation =>
+          fetch(`${BASE_URL}/projects/${invitation.projectId}/members/${user.uid}`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              ...buildAuthHeaders(token),
+            },
+          })
+        )
+      );
+
+      const failed = results.filter(r => r.status === 'rejected').length;
+
+      if (failed > 0) {
+        alert(`${invitations.length - failed}件辞退しました。${failed}件は失敗しました。`);
+      }
+
+      // Reload invitations
+      await loadInvitations();
+    } catch (err) {
+      console.error('Error declining all invitations:', err);
+      alert('一括辞退に失敗しました');
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -79,6 +173,7 @@ export function InvitationNotifications() {
     if (!confirm('この招待を辞退しますか？')) return;
 
     try {
+      setProcessing(true);
       const token = await user.getIdToken(true);
       const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${user.uid}`, {
         method: 'DELETE',
@@ -88,13 +183,18 @@ export function InvitationNotifications() {
         },
       });
 
-      if (!response.ok) throw new Error('Failed to decline invitation');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to decline invitation');
+      }
 
       // 招待一覧を再読み込み
-      loadInvitations();
+      await loadInvitations();
     } catch (err) {
       console.error('Error declining invitation:', err);
-      alert('招待の辞退に失敗しました');
+      alert('招待の辞退に失敗しました: ' + (err instanceof Error ? err.message : '不明なエラー'));
+    } finally {
+      setProcessing(false);
     }
   };
 
@@ -128,10 +228,36 @@ export function InvitationNotifications() {
           {/* ドロップダウン */}
           <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
             <div className="p-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">プロジェクト招待</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                {unreadCount > 0 ? `${unreadCount}件の招待があります` : '招待はありません'}
-              </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">プロジェクト招待</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {unreadCount > 0 ? `${unreadCount}件の招待があります` : '招待はありません'}
+                  </p>
+                </div>
+                {unreadCount > 1 && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleAcceptAll}
+                      disabled={processing}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="すべて承認"
+                    >
+                      <CheckCheck className="w-4 h-4" />
+                      一括承認
+                    </button>
+                    <button
+                      onClick={handleDeclineAll}
+                      disabled={processing}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="すべて辞退"
+                    >
+                      <X className="w-4 h-4" />
+                      一括辞退
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="max-h-96 overflow-y-auto">
@@ -168,14 +294,16 @@ export function InvitationNotifications() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleAccept(invitation.projectId)}
-                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                          disabled={processing}
+                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Check className="w-4 h-4" />
                           承認
                         </button>
                         <button
                           onClick={() => handleDecline(invitation.projectId)}
-                          className="flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                          disabled={processing}
+                          className="flex items-center justify-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <X className="w-4 h-4" />
                           辞退

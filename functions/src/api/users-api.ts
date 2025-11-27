@@ -89,7 +89,19 @@ router.get('/', authenticate, async (req: any, res) => {
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
     });
 
-    res.json(users);
+    // 組織名を追加
+    const { getOrganization } = await import('../lib/users');
+    const usersWithOrgName = await Promise.all(
+      users.map(async (user) => {
+        const org = await getOrganization(user.orgId);
+        return {
+          ...user,
+          orgName: org?.name || user.orgId,
+        };
+      })
+    );
+
+    res.json(usersWithOrgName);
   } catch (error) {
     console.error('Error listing users:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -149,12 +161,12 @@ router.get('/:userId/invitations', authenticate, async (req: any, res) => {
 router.get('/:userId', authenticate, async (req: any, res) => {
   try {
     const { userId } = req.params;
-    
+
     const user = await getUser(userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     res.json(user);
   } catch (error) {
     console.error('Error getting user:', error);
@@ -172,19 +184,19 @@ router.post('/', authenticate, async (req: any, res) => {
     if (!canManageUsers(req.user)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     const input: UserInput = req.body;
-    
+
     // Firebase Authにユーザーを作成
     const userRecord = await getAuth().createUser({
       email: input.email,
       displayName: input.displayName,
       emailVerified: false,
     });
-    
+
     // Firestoreにユーザー情報を保存
     const user = await createUser(userRecord.uid, input);
-    
+
     res.status(201).json(user);
   } catch (error) {
     console.error('Error creating user:', error);
@@ -265,14 +277,14 @@ router.patch('/:userId', authenticate, async (req: any, res) => {
 router.post('/:userId/deactivate', authenticate, async (req: any, res) => {
   try {
     const { userId } = req.params;
-    
+
     // 権限チェック
     if (!canManageUsers(req.user)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     await deactivateUser(userId);
-    
+
     const updatedUser = await getUser(userId);
     res.json(updatedUser);
   } catch (error) {

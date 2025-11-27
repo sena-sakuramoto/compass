@@ -19,10 +19,10 @@ export function applyQuickFilters(tasks: Task[], filters: QuickFilters): Task[] 
 
   // 期限超過フィルタ
   if (filters.overdue) {
-    const now = new Date();
+    const today = new Date().toISOString().split('T')[0];
     filtered = filtered.filter(task => {
       if (!task.期限 || task.ステータス === '完了') return false;
-      return new Date(task.期限) < now;
+      return task.期限 < today;
     });
   }
 

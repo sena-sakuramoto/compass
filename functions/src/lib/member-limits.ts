@@ -18,7 +18,6 @@ export async function getMemberCounts(orgId: string): Promise<{
     .collection('orgs')
     .doc(orgId)
     .collection('users')
-    .where('isActive', '==', true)
     .get();
 
   let members = 0;
@@ -26,6 +25,10 @@ export async function getMemberCounts(orgId: string): Promise<{
 
   for (const doc of usersSnapshot.docs) {
     const user = doc.data();
+    // isActiveがtrueまたは未定義の場合のみカウント（falseは除外）
+    if (user.isActive === false) {
+      continue;
+    }
     if (user.memberType === 'member') {
       members++;
     } else if (user.memberType === 'guest') {
@@ -111,8 +114,8 @@ export async function canAddMember(
  * 招待権限をチェック
  */
 export function canInviteMembers(userRole: string): boolean {
-  // admin と project_manager のみが招待可能
-  return userRole === 'admin' || userRole === 'project_manager';
+  // super_admin, admin, project_manager が招待可能
+  return userRole === 'super_admin' || userRole === 'admin' || userRole === 'project_manager';
 }
 
 /**
@@ -136,7 +139,7 @@ export function getUserGuestPermissions(user: any) {
 export function canGuestPerform(
   user: any,
   action: 'viewProject' | 'createOwnTasks' | 'editOwnTasks' | 'deleteOwnTasks' |
-          'assignTasksToOthers' | 'editOtherTasks' | 'createProjects'
+    'assignTasksToOthers' | 'editOtherTasks' | 'createProjects'
 ): boolean {
   const permissions = getUserGuestPermissions(user);
 

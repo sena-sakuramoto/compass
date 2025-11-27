@@ -1,7 +1,8 @@
 /**
  * ロール（役割）
  */
-export type Role = 
+export type Role =
+  | 'super_admin'     // スーパー管理者
   | 'admin'           // 管理者
   | 'project_manager' // プロジェクトマネージャー
   | 'sales'           // 営業
@@ -13,7 +14,7 @@ export type Role =
 /**
  * プロジェクトロール
  */
-export type ProjectRole = 
+export type ProjectRole =
   | 'owner'    // オーナー
   | 'manager'  // マネージャー
   | 'member'   // メンバー
@@ -23,6 +24,7 @@ export type ProjectRole =
  * ロールの表示名
  */
 export const ROLE_LABELS: Record<Role, string> = {
+  super_admin: 'スーパー管理者',
   admin: '管理者',
   project_manager: 'プロジェクトマネージャー',
   sales: '営業',

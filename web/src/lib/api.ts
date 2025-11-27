@@ -331,12 +331,14 @@ export async function saveNavigationConfig(navigationItems: NavigationItem[]) {
 
 // ==================== ユーザー管理 API ====================
 
+import type { Role } from './auth-types';
+
 export interface User {
   id: string;
   email: string;
   displayName: string;
   orgId: string;
-  role: 'admin' | 'project_manager' | 'viewer';
+  role: Role;
   memberType?: 'member' | 'guest';
   職種?: string;
   部署?: string;

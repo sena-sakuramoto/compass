@@ -4,6 +4,7 @@
 
 // グローバルロール
 export type Role =
+  | 'super_admin'     // スーパー管理者: システム全体の完全な権限
   | 'admin'           // 組織管理者: 組織全体の管理、メンバー管理
   | 'project_manager' // プロジェクトマネージャー: プロジェクト全体の管理
   | 'sales'           // 営業: 営業関連の閲覧・編集
@@ -13,7 +14,7 @@ export type Role =
   | 'viewer';         // 閲覧者: 閲覧のみ
 
 // プロジェクト内のロール
-export type ProjectRole = 
+export type ProjectRole =
   | 'owner'           // オーナー: プロジェクトの所有者
   | 'manager'         // マネージャー: プロジェクトの管理者
   | 'member'          // メンバー: 通常のメンバー
@@ -50,6 +51,20 @@ export interface ProjectPermissions {
 
 // グローバルロールごとの権限定義
 export const ROLE_PERMISSIONS: Record<Role, RolePermissions> = {
+  super_admin: {
+    canViewAllProjects: true,
+    canEditAllProjects: true,
+    canCreateProjects: true,
+    canDeleteProjects: true,
+    canManageMembers: true,
+    canViewAllTasks: true,
+    canEditAllTasks: true,
+    canCreateTasks: true,
+    canDeleteTasks: true,
+    canViewOwnTasks: true,
+    canEditOwnTasks: true,
+    canManageUsers: true,
+  },
   admin: {
     canViewAllProjects: true,
     canEditAllProjects: true,
@@ -200,6 +215,7 @@ export const PROJECT_ROLE_PERMISSIONS: Record<ProjectRole, ProjectPermissions> =
 
 // ロールのラベル（日本語）
 export const ROLE_LABELS: Record<Role, string> = {
+  super_admin: 'スーパー管理者',
   admin: '組織管理者',
   project_manager: 'プロジェクトマネージャー',
   sales: '営業',
@@ -218,6 +234,7 @@ export const PROJECT_ROLE_LABELS: Record<ProjectRole, string> = {
 
 // ロールの説明
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
+  super_admin: 'システム全体の完全な権限を持ちます',
   admin: '組織全体を管理し、メンバーやゲストを招待・管理できます',
   project_manager: 'プロジェクト全体を管理し、メンバーを追加できます',
   sales: '営業関連のプロジェクトとタスクを管理できます',
@@ -236,7 +253,7 @@ export const PROJECT_ROLE_DESCRIPTIONS: Record<ProjectRole, string> = {
 
 // ヘルパー関数: ロールの権限を取得
 export function getRolePermissions(role: Role): RolePermissions {
-  return ROLE_PERMISSIONS[role];
+  return ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.viewer;
 }
 
 // ヘルパー関数: プロジェクトロールの権限を取得

@@ -30,6 +30,8 @@ interface OrgMemberInvitationModalProps {
     memberType: MemberType;
     message?: string;
   }) => Promise<void>;
+  currentMemberCount?: number;
+  currentGuestCount?: number;
 }
 
 const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
@@ -42,7 +44,13 @@ const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
   { value: 'viewer', label: '閲覧者', description: 'プロジェクトとタスクを閲覧できます' },
 ];
 
-export function OrgMemberInvitationModal({ open, onClose, onSubmit }: OrgMemberInvitationModalProps) {
+export function OrgMemberInvitationModal({
+  open,
+  onClose,
+  onSubmit,
+  currentMemberCount = 0,
+  currentGuestCount = 0
+}: OrgMemberInvitationModalProps) {
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState<Role>('viewer');
@@ -87,6 +95,9 @@ export function OrgMemberInvitationModal({ open, onClose, onSubmit }: OrgMemberI
 
     // 人数制限チェック
     if (stats) {
+      // availableはAPIから取得した値をそのまま使う（サーバー側の制限値）
+      // ただし、表示上の整合性を取るため、currentMemberCountを使って計算し直すことも検討できるが
+      // ここではAPIの制限値を優先する
       if (memberType === 'member' && stats.members.available <= 0) {
         setError(`メンバー数が上限（${stats.members.max}人）に達しています`);
         return;
@@ -126,8 +137,24 @@ export function OrgMemberInvitationModal({ open, onClose, onSubmit }: OrgMemberI
 
   const selectedRole = ROLE_OPTIONS.find(r => r.value === role);
 
+  // 表示用の残り人数を計算（APIの値とpropsの値のズレを補正）
+  // statsがロードされるまでは0を表示しないように注意
+  const displayStats = stats ? {
+    members: {
+      ...stats.members,
+      current: currentMemberCount,
+      // 残り人数は (最大 - 現在) で再計算
+      available: Math.max(0, stats.members.max - currentMemberCount)
+    },
+    guests: {
+      ...stats.guests,
+      current: currentGuestCount,
+      available: Math.max(0, stats.guests.max - currentGuestCount)
+    }
+  } : null;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl max-h-[90vh] overflow-y-auto">
         {/* ヘッダー */}
         <div className="flex items-center justify-between border-b border-slate-200 p-6">
@@ -146,7 +173,7 @@ export function OrgMemberInvitationModal({ open, onClose, onSubmit }: OrgMemberI
         </div>
 
         {/* 現在の人数表示 */}
-        {stats && (
+        {displayStats && (
           <div className="bg-slate-50 p-4 border-b border-slate-200">
             <div className="flex items-center gap-2 mb-2">
               <Users className="h-4 w-4 text-slate-600" />
@@ -156,19 +183,19 @@ export function OrgMemberInvitationModal({ open, onClose, onSubmit }: OrgMemberI
               <div className="bg-white rounded-lg p-3 border border-slate-200">
                 <div className="text-xs text-slate-600 mb-1">メンバー</div>
                 <div className="text-lg font-semibold text-slate-900">
-                  {stats.members.current} / {stats.members.max}人
+                  {displayStats.members.current} / {displayStats.members.max}人
                 </div>
                 <div className="text-xs text-slate-500 mt-1">
-                  残り {stats.members.available}人
+                  残り {displayStats.members.available}人
                 </div>
               </div>
               <div className="bg-white rounded-lg p-3 border border-slate-200">
                 <div className="text-xs text-slate-600 mb-1">ゲスト</div>
                 <div className="text-lg font-semibold text-slate-900">
-                  {stats.guests.current} / {stats.guests.max}人
+                  {displayStats.guests.current} / {displayStats.guests.max}人
                 </div>
                 <div className="text-xs text-slate-500 mt-1">
-                  残り {stats.guests.available}人
+                  残り {displayStats.guests.available}人
                 </div>
               </div>
             </div>
@@ -191,11 +218,10 @@ export function OrgMemberInvitationModal({ open, onClose, onSubmit }: OrgMemberI
                 区分 <span className="text-red-500">*</span>
               </label>
               <div className="grid grid-cols-2 gap-3">
-                <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition ${
-                  memberType === 'guest'
-                    ? 'border-teal-600 bg-teal-50'
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}>
+                <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition ${memberType === 'guest'
+                  ? 'border-teal-600 bg-teal-50'
+                  : 'border-slate-200 hover:border-slate-300'
+                  }`}>
                   <input
                     type="radio"
                     name="memberType"
@@ -214,11 +240,10 @@ export function OrgMemberInvitationModal({ open, onClose, onSubmit }: OrgMemberI
                     </div>
                   </div>
                 </label>
-                <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition ${
-                  memberType === 'member'
-                    ? 'border-teal-600 bg-teal-50'
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}>
+                <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition ${memberType === 'member'
+                  ? 'border-teal-600 bg-teal-50'
+                  : 'border-slate-200 hover:border-slate-300'
+                  }`}>
                   <input
                     type="radio"
                     name="memberType"

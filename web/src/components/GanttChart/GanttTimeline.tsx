@@ -7,6 +7,7 @@ import { GanttMilestone } from './GanttMilestone';
 import { GanttDependencyArrow } from './GanttDependencyArrow';
 import type { GanttTask, DateTick } from './types';
 import { calculateTaskBarPosition, calculateTodayPosition, resolveDependencies } from './utils';
+import { differenceInDays } from 'date-fns';
 
 export interface ProjectMilestone {
   projectId: string;
@@ -35,7 +36,7 @@ interface GanttTimelineProps {
   onClearSelection?: () => void;
   onViewModeToggle?: () => void;
   projectMilestones?: ProjectMilestone[];
-  projectMap?: Record<string, { 物件名?: string; ステータス?: string; [key: string]: any }>;
+  projectMap?: Record<string, { 物件名?: string; ステータス?: string;[key: string]: any }>;
 }
 
 interface GanttTimelinePropsExtended extends GanttTimelineProps {
@@ -98,10 +99,10 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
   };
 
-  // 横スクロール位置のみ処理（縦スクロールは親コンテナで処理）
+  // 縦横スクロール位置を処理
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     if (onScroll) {
-      onScroll(e.currentTarget.scrollLeft, 0);
+      onScroll(e.currentTarget.scrollLeft, e.currentTarget.scrollTop);
     }
   };
 
@@ -388,7 +389,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [isSelecting, selectionStart, selectionEnd]);
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden" onScroll={handleScroll}>
+    <div ref={scrollRef} className="flex-1 overflow-auto" onScroll={handleScroll}>
       <div className="relative" style={{ minWidth: `${containerWidth}px` }}>
         {/* 時間軸 */}
         <div className="sticky top-0 z-10 bg-white">
@@ -453,14 +454,17 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
                   {/* プロジェクトマイルストーン（着工日、竣工予定日、引渡し予定日） */}
                   {projectMilestonesForThisProject.map((milestone, mIndex) => {
-                    // マイルストーンのX位置を計算
-                    const totalMs = dateRange.end.getTime() - dateRange.start.getTime();
-                    const milestoneMs = milestone.date.getTime() - dateRange.start.getTime();
+                    // マイルストーンのX位置を計算（日単位で計算してグリッドと同期）
+                    const totalDaysInclusive = differenceInDays(dateRange.end, dateRange.start) + 1;
+                    const dayWidth = containerWidth / totalDaysInclusive;
+
+                    const daysFromStart = differenceInDays(milestone.date, dateRange.start);
 
                     // 範囲外のマイルストーンはスキップ
-                    if (milestoneMs < 0 || milestoneMs > totalMs) return null;
+                    if (daysFromStart < 0 || daysFromStart >= totalDaysInclusive) return null;
 
-                    const milestoneX = (milestoneMs / totalMs) * containerWidth;
+                    // セルの中心に配置
+                    const milestoneX = daysFromStart * dayWidth + (dayWidth / 2);
                     const milestoneY = headerTop + projectHeaderHeight / 2;
 
                     // マイルストーンの色を種類別に設定

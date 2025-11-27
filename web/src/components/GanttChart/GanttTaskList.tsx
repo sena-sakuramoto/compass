@@ -11,7 +11,7 @@ interface GanttTaskListProps {
   onTaskToggleComplete?: (task: GanttTask) => void;
   onProjectClick?: (projectId: string) => void;
   scrollTop?: number;
-  projectMap?: Record<string, { 物件名?: string; ステータス?: string; [key: string]: any }>;
+  projectMap?: Record<string, { 物件名?: string; ステータス?: string;[key: string]: any }>;
   projectMilestones?: ProjectMilestone[];
 }
 
@@ -96,7 +96,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   return (
     <div className="border-r border-slate-200 bg-white">
       {/* ヘッダー（時間軸と同じ64px） */}
-      <div className="border-b border-slate-200 bg-slate-50 flex items-center px-4 text-xs font-semibold text-slate-600" style={{ height: '64px' }}>
+      <div className="sticky top-0 z-20 border-b border-slate-200 bg-slate-50 flex items-center px-4 text-xs font-semibold text-slate-600" style={{ height: '64px' }}>
         <div className="w-8"></div>
         <div className="flex-1">タスク名</div>
         <div className="w-20 text-center">担当</div>
@@ -116,13 +116,12 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
                 {group.projectName}
               </span>
               {group.projectStatus && (
-                <span className={`text-xs px-2 py-0.5 rounded ${
-                  group.projectStatus === '施工中' || group.projectStatus === '工事中'
+                <span className={`text-xs px-2 py-0.5 rounded ${group.projectStatus === '施工中' || group.projectStatus === '工事中'
                     ? 'bg-blue-100 text-blue-700'
                     : group.projectStatus === '完了'
-                    ? 'bg-green-100 text-green-700'
-                    : 'bg-slate-100 text-slate-600'
-                }`}>
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-slate-100 text-slate-600'
+                  }`}>
                   {group.projectStatus}
                 </span>
               )}
@@ -130,114 +129,110 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
 
             {/* プロジェクト内のタスク */}
             {group.tasks.map((task, index) => {
-          // ローカル状態を優先的に使用
-          const isCompleted = localCompletedStates[task.id] ?? (task.status === 'completed');
-          const incompleteDeps = hasIncompleteDependencies(task);
-          const cannotComplete = !isCompleted && incompleteDeps.length > 0;
-          const isHighlighted = highlightedTaskIds.has(task.id);
+              // ローカル状態を優先的に使用
+              const isCompleted = localCompletedStates[task.id] ?? (task.status === 'completed');
+              const incompleteDeps = hasIncompleteDependencies(task);
+              const cannotComplete = !isCompleted && incompleteDeps.length > 0;
+              const isHighlighted = highlightedTaskIds.has(task.id);
 
-          return (
-            <div
-              key={task.id}
-              id={`task-row-${task.id}`}
-              className={`flex items-center px-4 border-b border-slate-100 transition-all ${
-                isCompleted ? 'opacity-60' : ''
-              } ${
-                isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:bg-slate-50'
-              }`}
-              style={{ height: `${rowHeight}px` }}
-            >
-              {/* チェックボックス */}
-              <div className="w-8 relative group">
-                <input
-                  type="checkbox"
-                  checked={isCompleted}
-                  disabled={cannotComplete}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    if (cannotComplete) return;
-                    // まずローカル状態を即座に更新（UI反映）
-                    const newCompleted = !isCompleted;
-                    setLocalCompletedStates(prev => ({
-                      ...prev,
-                      [task.id]: newCompleted
-                    }));
-                    // その後、非同期で保存処理
-                    setTimeout(() => {
-                      onTaskToggleComplete?.(task);
-                    }, 0);
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (cannotComplete) {
-                      // 依存タスクをハイライト表示
-                      const depIds = new Set(incompleteDeps.map(d => d.id));
-                      setHighlightedTaskIds(depIds);
+              return (
+                <div
+                  key={task.id}
+                  id={`task-row-${task.id}`}
+                  className={`flex items-center px-4 border-b border-slate-100 transition-all ${isCompleted ? 'opacity-60' : ''
+                    } ${isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:bg-slate-50'
+                    }`}
+                  style={{ height: `${rowHeight}px` }}
+                >
+                  {/* チェックボックス */}
+                  <div className="w-8 relative group">
+                    <input
+                      type="checkbox"
+                      checked={isCompleted}
+                      disabled={cannotComplete}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        if (cannotComplete) return;
+                        // まずローカル状態を即座に更新（UI反映）
+                        const newCompleted = !isCompleted;
+                        setLocalCompletedStates(prev => ({
+                          ...prev,
+                          [task.id]: newCompleted
+                        }));
+                        // その後、非同期で保存処理
+                        setTimeout(() => {
+                          onTaskToggleComplete?.(task);
+                        }, 0);
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (cannotComplete) {
+                          // 依存タスクをハイライト表示
+                          const depIds = new Set(incompleteDeps.map(d => d.id));
+                          setHighlightedTaskIds(depIds);
 
-                      // 最初の依存タスクにスクロール
-                      if (incompleteDeps[0]) {
-                        const element = document.getElementById(`task-row-${incompleteDeps[0].id}`);
-                        element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      }
+                          // 最初の依存タスクにスクロール
+                          if (incompleteDeps[0]) {
+                            const element = document.getElementById(`task-row-${incompleteDeps[0].id}`);
+                            element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }
 
-                      // 3秒後にハイライト解除
-                      setTimeout(() => {
-                        setHighlightedTaskIds(new Set());
-                      }, 3000);
-                    }
-                  }}
-                  className={`w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 ${
-                    cannotComplete ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'
-                  }`}
-                />
-                {/* ツールチップ */}
-                {cannotComplete && (
-                  <div className="hidden group-hover:block absolute left-6 top-0 z-50 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-900 shadow-lg whitespace-nowrap">
-                    <div className="font-semibold mb-1">先に完了が必要：</div>
-                    {incompleteDeps.map(dep => (
-                      <div key={dep.id}>・{dep.name}</div>
-                    ))}
-                    <div className="text-[10px] text-amber-700 mt-1">クリックで該当タスクへ移動</div>
+                          // 3秒後にハイライト解除
+                          setTimeout(() => {
+                            setHighlightedTaskIds(new Set());
+                          }, 3000);
+                        }
+                      }}
+                      className={`w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 ${cannotComplete ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'
+                        }`}
+                    />
+                    {/* ツールチップ */}
+                    {cannotComplete && (
+                      <div className="hidden group-hover:block absolute left-6 top-0 z-50 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 text-xs text-amber-900 shadow-lg whitespace-nowrap">
+                        <div className="font-semibold mb-1">先に完了が必要：</div>
+                        {incompleteDeps.map(dep => (
+                          <div key={dep.id}>・{dep.name}</div>
+                        ))}
+                        <div className="text-[10px] text-amber-700 mt-1">クリックで該当タスクへ移動</div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {/* タスク名 */}
-              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskClick?.(task)}>
-                <div className={`text-sm font-medium text-slate-700 truncate ${
-                  isCompleted ? 'line-through' : ''
-                }`}>
-                  {task.name}
-                </div>
-                <div className="text-xs text-slate-500 truncate">
-                  {task.projectName}
-                </div>
-              </div>
-
-              {/* 担当者 */}
-              <div className="w-20 text-center">
-                {task.assigneeAvatar ? (
-                  <img
-                    src={task.assigneeAvatar}
-                    alt={task.assignee}
-                    className="w-6 h-6 rounded-full mx-auto"
-                  />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center mx-auto text-xs font-medium text-slate-600">
-                    {task.assignee ? task.assignee.charAt(0) : '?'}
+                  {/* タスク名 */}
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskClick?.(task)}>
+                    <div className={`text-sm font-medium text-slate-700 truncate ${isCompleted ? 'line-through' : ''
+                      }`}>
+                      {task.name}
+                    </div>
+                    <div className="text-xs text-slate-500 truncate">
+                      {task.projectName}
+                    </div>
                   </div>
-                )}
-              </div>
 
-              {/* 進捗 */}
-              <div className="w-16 text-center">
-                <span className="text-xs font-medium text-slate-600">
-                  {task.progress}%
-                </span>
-              </div>
-            </div>
-          );
-        })}
+                  {/* 担当者 */}
+                  <div className="w-20 text-center">
+                    {task.assigneeAvatar ? (
+                      <img
+                        src={task.assigneeAvatar}
+                        alt={task.assignee}
+                        className="w-6 h-6 rounded-full mx-auto"
+                      />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center mx-auto text-xs font-medium text-slate-600">
+                        {task.assignee ? task.assignee.charAt(0) : '?'}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 進捗 */}
+                  <div className="w-16 text-center">
+                    <span className="text-xs font-medium text-slate-600">
+                      {task.progress}%
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ))}
 

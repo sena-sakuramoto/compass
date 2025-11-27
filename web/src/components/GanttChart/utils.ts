@@ -190,8 +190,9 @@ export function calculateTodayPosition(
 // 期限超過かどうかを判定
 export function isOverdue(task: GanttTask): boolean {
   if (task.status === 'completed') return false;
-  const today = startOfDay(new Date());
-  return task.endDate < today;
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const endDateStr = format(task.endDate, 'yyyy-MM-dd');
+  return endDateStr < todayStr;
 }
 
 // 依存関係の解決

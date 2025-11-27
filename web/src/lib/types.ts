@@ -94,3 +94,9 @@ export interface SnapshotPayload {
   tasks: Task[];
   people: Person[];
 }
+
+export interface CompassState {
+  projects: Project[];
+  tasks: Task[];
+  people: Person[];
+}

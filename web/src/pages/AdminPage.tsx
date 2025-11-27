@@ -53,54 +53,78 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const isSuperAdmin = currentUserRole === 'super_admin';
   const canManage = isSuperAdmin;
 
+  // デバッグログ
+  console.log('========== AdminPage デバッグ情報 ==========');
+  console.log('currentUserRole:', currentUserRole);
+  console.log('isSuperAdmin:', isSuperAdmin);
+  console.log('canManage:', canManage);
+  console.log('user:', user);
+  console.log('==========================================');
+
   useEffect(() => {
     if (canManage) {
+      console.log('[AdminPage] 招待リストを読み込み中...');
       loadInvitations();
       if (isSuperAdmin) {
+        console.log('[AdminPage] 組織リストを読み込み中...');
         loadOrganizations();
       }
+    } else {
+      console.warn('[AdminPage] canManage=false のため、データを読み込みません');
     }
   }, [canManage, isSuperAdmin]);
 
   const loadInvitations = async () => {
     try {
       const token = await user?.getIdToken();
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/org-invitations`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const apiUrl = `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/org-invitations`;
+      console.log('[AdminPage] 招待リスト取得 URL:', apiUrl);
+
+      const response = await fetch(apiUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      console.log('[AdminPage] 招待リスト取得 Response:', response.status, response.statusText);
 
       if (response.ok) {
         const data = await response.json();
+        console.log('[AdminPage] 招待リスト取得成功:', data);
         setInvitations(data);
+      } else {
+        const errorText = await response.text();
+        console.error('[AdminPage] 招待リスト取得失敗:', response.status, errorText);
       }
     } catch (error) {
-      console.error('Failed to load invitations:', error);
+      console.error('[AdminPage] 招待リスト取得エラー:', error);
     }
   };
 
   const loadOrganizations = async () => {
     try {
       const token = await user?.getIdToken();
-      const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/organizations`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const apiUrl = `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/organizations`;
+      console.log('[AdminPage] 組織リスト取得 URL:', apiUrl);
+
+      const response = await fetch(apiUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      console.log('[AdminPage] 組織リスト取得 Response:', response.status, response.statusText);
 
       if (response.ok) {
         const data = await response.json();
+        console.log('[AdminPage] 組織リスト取得成功:', data);
         setOrganizations(data);
+      } else {
+        const errorText = await response.text();
+        console.error('[AdminPage] 組織リスト取得失敗:', response.status, errorText);
       }
     } catch (error) {
-      console.error('Failed to load organizations:', error);
+      console.error('[AdminPage] 組織リスト取得エラー:', error);
     }
   };
 
@@ -243,11 +267,10 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
         <div className="flex gap-4">
           <button
             onClick={() => setActiveTab('invitations')}
-            className={`px-4 py-3 text-sm font-medium border-b-2 transition ${
-              activeTab === 'invitations'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'invitations'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
           >
             <Users className="inline-block h-4 w-4 mr-2" />
             招待管理
@@ -255,11 +278,10 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
           {isSuperAdmin && (
             <button
               onClick={() => setActiveTab('organizations')}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition ${
-                activeTab === 'organizations'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-slate-600 hover:text-slate-900'
-              }`}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'organizations'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
             >
               <Building2 className="inline-block h-4 w-4 mr-2" />
               組織管理
@@ -375,13 +397,12 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                           <p className="text-xs text-slate-500">{invitation.email}</p>
                         </div>
                         <span
-                          className={`px-2 py-1 text-xs font-medium rounded ${
-                            invitation.status === 'pending'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : invitation.status === 'accepted'
+                          className={`px-2 py-1 text-xs font-medium rounded ${invitation.status === 'pending'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : invitation.status === 'accepted'
                               ? 'bg-green-100 text-green-800'
                               : 'bg-slate-100 text-slate-800'
-                          }`}
+                            }`}
                         >
                           {getStatusLabel(invitation.status)}
                         </span>

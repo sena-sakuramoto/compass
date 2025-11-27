@@ -10,6 +10,13 @@ export interface ToastMessage {
   description?: string;
 }
 
+export interface ToastInput {
+  tone: ToastTone;
+  title: string;
+  description?: string;
+  duration?: number;
+}
+
 interface ToastStackProps {
   toasts: ToastMessage[];
   onDismiss(id: string): void;

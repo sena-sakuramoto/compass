@@ -58,7 +58,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       if (err instanceof Error && err.message.toLowerCase().includes('forbidden')) {
         setManageableError('このプロジェクトのメンバーを管理する権限がありません。');
       } else {
-        setManageableError('招待候補の取得に失敗しました。');
+        setManageableError('候補の取得に失敗しました。');
       }
       setManageableUsers([]);
       setManageableLoaded(true);
@@ -74,9 +74,9 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
         headers: buildAuthHeaders(token),
       });
-      
+
       if (!response.ok) throw new Error('Failed to load members');
-      
+
       const data = await response.json();
       setMembers(data);
     } catch (err) {
@@ -98,12 +98,12 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!inviteEmail) {
       setError('メールアドレスを入力してください');
       return;
     }
-    
+
     try {
       setSubmitting(true);
       setError(null);
@@ -123,7 +123,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         },
         body: JSON.stringify(input),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to invite member');
@@ -132,14 +132,14 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       await loadMembers();
       await loadManageableUsers(true);
 
-      setSuccess('メンバーを招待しました');
+      setSuccess('メンバーを追加/招待しました');
       setInviteEmail('');
       setInviteMessage('');
       setSelectedCandidateId('');
       setShowInviteForm(false);
     } catch (err: any) {
       console.error('Error inviting member:', err);
-      setError(err.message || 'メンバーの招待に失敗しました');
+      setError(err.message || 'メンバーの追加/招待に失敗しました');
     } finally {
       setSubmitting(false);
     }
@@ -147,14 +147,14 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
   const handleRemoveMember = async (userId: string) => {
     if (!confirm('このメンバーをプロジェクトから削除しますか？')) return;
-    
+
     try {
       const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
         method: 'DELETE',
         headers: buildAuthHeaders(token),
       });
-      
+
       if (!response.ok) throw new Error('Failed to remove member');
 
       await loadMembers();
@@ -177,9 +177,9 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         },
         body: JSON.stringify({ role: newRole }),
       });
-      
+
       if (!response.ok) throw new Error('Failed to update member');
-      
+
       setSuccess('メンバーのロールを更新しました');
       loadMembers();
     } catch (err) {
@@ -255,7 +255,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
               </button>
             </div>
           )}
-          
+
           {success && (
             <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
               <Check className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
@@ -275,15 +275,15 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
               className="mb-6 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <UserPlus className="w-4 h-4" />
-              メンバーを招待
+              メンバーを追加/招待
             </button>
           )}
 
           {/* 招待フォーム */}
           {showInviteForm && (
             <form onSubmit={handleInvite} className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="text-lg font-semibold mb-4">メンバーを招待</h3>
-              
+              <h3 className="text-lg font-semibold mb-4">メンバーを追加/招待</h3>
+
               <div className="space-y-4">
                 <div>
                   <div className="flex items-center justify-between mb-1">
@@ -308,7 +308,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                     </div>
                   ) : manageableUsers.length === 0 ? (
                     <p className="text-sm text-gray-500">
-                      招待可能な社内メンバーが見つかりません。メールアドレスを直接入力してください。
+                      追加可能なユーザーが見つかりません。メールアドレスを直接入力してください。
                     </p>
                   ) : (
                     <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-52 overflow-y-auto bg-white">
@@ -342,7 +342,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                     </div>
                   )}
                   <p className="mt-2 text-xs text-gray-500">
-                    候補を選択するとメールアドレス欄に自動入力されます。外部ユーザーを招待する場合はメールアドレスを直接入力してください。
+                    候補を選択するとメールアドレス欄に自動入力されます。外部ユーザーを追加する場合はメールアドレスを直接入力してください。
                   </p>
                 </div>
 
@@ -399,7 +399,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                     onChange={(e) => setInviteMessage(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     rows={3}
-                    placeholder="招待メッセージを入力..."
+                    placeholder="メッセージを入力..."
                   />
                 </div>
 
@@ -409,7 +409,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                     disabled={submitting}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {submitting ? '招待中...' : '招待を送信'}
+                    {submitting ? '処理中...' : '追加/招待'}
                   </button>
                   <button
                     type="button"
@@ -438,7 +438,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
             <div className="text-center py-12">
               <UserPlus className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <p className="text-gray-600">まだメンバーがいません</p>
-              <p className="text-sm text-gray-500 mt-1">メンバーを招待してプロジェクトを共有しましょう</p>
+              <p className="text-sm text-gray-500 mt-1">メンバーを追加してプロジェクトを共有しましょう</p>
             </div>
           ) : (
             <div className="space-y-3">

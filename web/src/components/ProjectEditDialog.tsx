@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { format } from 'date-fns';
 import { X, Users, History, Plus } from 'lucide-react';
 import type { Project, Task } from '../lib/types';
 import type { ProjectMember } from '../lib/auth-types';
@@ -551,12 +552,16 @@ export function ProjectEditDialog({ project, onClose, onSave, onTaskCreate, peop
                               )}
                             </div>
                             <div className="text-xs text-slate-400 ml-2 whitespace-nowrap">
-                              {new Date(log.createdAt).toLocaleString('ja-JP', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
+                              {(() => {
+                                try {
+                                  const date = log.createdAt && typeof log.createdAt === 'object' && '_seconds' in log.createdAt
+                                    ? new Date((log.createdAt as any)._seconds * 1000)
+                                    : new Date(log.createdAt);
+                                  return format(date, 'yyyy/MM/dd HH:mm');
+                                } catch (e) {
+                                  return '-';
+                                }
+                              })()}
                             </div>
                           </div>
                         </div>
@@ -571,7 +576,6 @@ export function ProjectEditDialog({ project, onClose, onSave, onTaskCreate, peop
               </div>
             )}
           </div>
-
           <div className="flex-shrink-0 border-t border-slate-200 px-6 py-4 flex justify-end gap-3">
             <button
               type="button"
@@ -594,4 +598,3 @@ export function ProjectEditDialog({ project, onClose, onSave, onTaskCreate, peop
     </div>
   );
 }
-

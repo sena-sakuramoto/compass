@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { listUsers, updateUser, deactivateUser, activateUser, deleteUser, type User } from '../lib/api';
+import { ROLE_LABELS } from '../lib/auth-types';
 import { OrgMemberInvitationModal } from './OrgMemberInvitationModal';
 import { UserEditModal } from './UserEditModal';
 import type { Project } from '../lib/types';
@@ -86,14 +87,14 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     }
   }
 
-  async function handleDeleteUser(user: User) {
-    if (!confirm(`${user.displayName} を完全に削除しますか？この操作は取り消せません。`)) {
-      return;
-    }
-
+  async function handleDeleteUser(userId: string) {
+    // モーダルから呼ばれるため、確認ダイアログはモーダル側で表示済みと想定、
+    // またはここで再度確認してもよいが、モーダル側でconfirmしているのでここは削除のみ実行
     try {
-      await deleteUser(user.id);
+      await deleteUser(userId);
       await loadUsers();
+      setEditModalOpen(false);
+      setEditingUser(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ユーザーの削除に失敗しました');
       console.error('Failed to delete user:', err);
@@ -145,13 +146,20 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">種別</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役割</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">部署</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">組織</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">ステータス</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
             {users.map((user) => (
-              <tr key={user.id} className="hover:bg-slate-50">
+              <tr
+                key={user.id}
+                className="hover:bg-slate-50 cursor-pointer transition-colors"
+                onClick={() => {
+                  setEditingUser(user);
+                  setEditModalOpen(true);
+                }}
+              >
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     {user.photoURL && (
@@ -169,64 +177,45 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                 <td className="px-4 py-3 text-sm text-slate-600">{user.email}</td>
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      (user.memberType || 'guest') === 'member'
-                        ? 'bg-teal-100 text-teal-800'
-                        : 'bg-purple-100 text-purple-800'
-                    }`}
+                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${(user.memberType || 'guest') === 'member'
+                      ? 'bg-teal-100 text-teal-800'
+                      : 'bg-purple-100 text-purple-800'
+                      }`}
                   >
                     {(user.memberType || 'guest') === 'member' ? 'メンバー' : 'ゲスト'}
                   </span>
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      user.role === 'admin'
+                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.role === 'super_admin'
+                      ? 'bg-rose-100 text-rose-800'
+                      : user.role === 'admin'
                         ? 'bg-purple-100 text-purple-800'
                         : user.role === 'project_manager'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-slate-100 text-slate-800'
-                    }`}
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-slate-100 text-slate-800'
+                      }`}
                   >
-                    {user.role === 'admin'
-                      ? '管理者'
-                      : user.role === 'project_manager'
-                      ? 'PM'
-                      : '閲覧者'}
+                    {ROLE_LABELS[user.role] || user.role}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-600">{user.部署 || '-'}</td>
+                <td className="px-4 py-3 text-sm text-slate-600">{(user as any).orgName || user.orgId}</td>
                 <td className="px-4 py-3">
                   <button
-                    onClick={() => handleToggleActive(user)}
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      user.isActive
-                        ? 'bg-teal-100 text-teal-800 hover:bg-teal-200'
-                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    }`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleActive(user);
+                    }}
+                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.isActive
+                      ? 'bg-teal-100 text-teal-800 hover:bg-teal-200'
+                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                      }`}
                   >
                     {user.isActive ? 'アクティブ' : '非アクティブ'}
                   </button>
                 </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setEditingUser(user);
-                        setEditModalOpen(true);
-                      }}
-                      className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:underline"
-                    >
-                      編集
-                    </button>
-                    <button
-                      onClick={() => handleDeleteUser(user)}
-                      className="px-2 py-1 text-xs text-rose-600 hover:text-rose-800 hover:underline"
-                    >
-                      削除
-                    </button>
-                  </div>
-                </td>
+
               </tr>
             ))}
           </tbody>
@@ -238,6 +227,8 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
         open={invitationModalOpen}
         onClose={() => setInvitationModalOpen(false)}
         onSubmit={handleCreateInvitation}
+        currentMemberCount={users.filter(u => (u.memberType || 'guest') === 'member').length}
+        currentGuestCount={users.filter(u => (u.memberType || 'guest') === 'guest').length}
       />
 
       {/* 編集モーダル */}
@@ -249,7 +240,8 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
           setEditingUser(null);
         }}
         onSubmit={handleUpdateUser}
+        onDelete={handleDeleteUser}
       />
-    </div>
+    </div >
   );
 }

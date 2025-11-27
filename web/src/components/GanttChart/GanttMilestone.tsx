@@ -42,7 +42,7 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
         width: `${milestoneSize}px`,
         top: `${milestoneTop}px`,
         height: `${milestoneSize}px`,
-        zIndex: 10
+        zIndex: isHovered ? 9999 : 10
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -73,7 +73,7 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
 
       {/* ホバー時のツールチップ */}
       {isHovered && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 min-w-[220px] rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none">
+        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-[9999] min-w-[220px] rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none">
           <div className="flex items-center gap-2">
             <div
               className="w-3 h-3"

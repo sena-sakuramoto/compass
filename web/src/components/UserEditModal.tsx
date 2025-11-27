@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import type { User } from '../lib/api';
+import { ROLE_LABELS } from '../lib/auth-types';
 
 interface UserEditModalProps {
   open: boolean;
   user: User | null;
   onClose: () => void;
   onSubmit: (userId: string, updates: Partial<User>) => Promise<void>;
+  onDelete?: (userId: string) => Promise<void> | void;
 }
 
-export function UserEditModal({ open, user, onClose, onSubmit }: UserEditModalProps) {
+export function UserEditModal({ open, user, onClose, onSubmit, onDelete }: UserEditModalProps) {
   const [formData, setFormData] = useState({
     email: '',
     displayName: '',
@@ -112,22 +114,20 @@ export function UserEditModal({ open, user, onClose, onSubmit }: UserEditModalPr
                 <button
                   type="button"
                   onClick={() => setFormData({ ...formData, memberType: 'member' })}
-                  className={`rounded-lg border-2 p-3 text-sm font-medium transition ${
-                    formData.memberType === 'member'
-                      ? 'border-teal-600 bg-teal-50 text-teal-900'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
+                  className={`rounded-lg border-2 p-3 text-sm font-medium transition ${formData.memberType === 'member'
+                    ? 'border-teal-600 bg-teal-50 text-teal-900'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
                 >
                   メンバー
                 </button>
                 <button
                   type="button"
                   onClick={() => setFormData({ ...formData, memberType: 'guest' })}
-                  className={`rounded-lg border-2 p-3 text-sm font-medium transition ${
-                    formData.memberType === 'guest'
-                      ? 'border-purple-600 bg-purple-50 text-purple-900'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
+                  className={`rounded-lg border-2 p-3 text-sm font-medium transition ${formData.memberType === 'guest'
+                    ? 'border-purple-600 bg-purple-50 text-purple-900'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
                 >
                   ゲスト
                 </button>
@@ -144,9 +144,13 @@ export function UserEditModal({ open, user, onClose, onSubmit }: UserEditModalPr
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
                 required
               >
-                <option value="admin">組織管理者</option>
-                <option value="project_manager">プロジェクトマネージャー</option>
-                <option value="viewer">閲覧者</option>
+                {Object.entries(ROLE_LABELS)
+                  .filter(([role]) => role !== 'super_admin') // スーパー管理者は除外
+                  .map(([role, label]) => (
+                    <option key={role} value={role}>
+                      {label}
+                    </option>
+                  ))}
               </select>
             </div>
           </div>
@@ -189,22 +193,37 @@ export function UserEditModal({ open, user, onClose, onSubmit }: UserEditModalPr
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              disabled={loading}
-            >
-              キャンセル
-            </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
-              disabled={loading}
-            >
-              {loading ? '更新中...' : '更新'}
-            </button>
+          <div className="flex justify-between pt-4 border-t border-slate-200">
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm('このユーザーを削除しますか？この操作は取り消せません。')) {
+                    onDelete(user.id);
+                  }
+                }}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 transition"
+              >
+                削除
+              </button>
+            )}
+            <div className="flex gap-3 ml-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                disabled={loading}
+              >
+                キャンセル
+              </button>
+              <button
+                type="submit"
+                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
+                disabled={loading}
+              >
+                {loading ? '更新中...' : '更新'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

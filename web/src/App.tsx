@@ -280,10 +280,9 @@ function AppLayout({
                   key={link.path}
                   to={link.path}
                   className={({ isActive }) =>
-                    `rounded-full px-4 py-2 text-sm font-medium transition ${
-                      isActive
-                        ? 'bg-slate-900 text-white shadow-sm'
-                        : 'bg-white text-slate-600 hover:bg-slate-100'
+                    `rounded-full px-4 py-2 text-sm font-medium transition ${isActive
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'bg-white text-slate-600 hover:bg-slate-100'
                     }`
                   }
                 >
@@ -594,9 +593,8 @@ function BottomBar({
 
         {/* 追加ボタンメニュー */}
         <div
-          className={`fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white shadow-2xl transition-transform duration-300 ${
-            isOpen ? 'translate-y-0' : 'translate-y-full'
-          }`}
+          className={`fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white shadow-2xl transition-transform duration-300 ${isOpen ? 'translate-y-0' : 'translate-y-full'
+            }`}
         >
           <div className="px-4 py-4 space-y-4">
             {/* ヘッダー */}
@@ -1048,11 +1046,10 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
         </div>
 
         {/* マイルストーンチェックボックス */}
-        <div className={`flex items-center gap-2 p-2 rounded-lg border ${
-          isMilestoneCheckboxEnabled
-            ? 'bg-red-50 border-red-200'
-            : 'bg-gray-50 border-gray-200'
-        }`}>
+        <div className={`flex items-center gap-2 p-2 rounded-lg border ${isMilestoneCheckboxEnabled
+          ? 'bg-red-50 border-red-200'
+          : 'bg-gray-50 border-gray-200'
+          }`}>
           <input
             type="checkbox"
             id="milestone"
@@ -1066,19 +1063,17 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
                 setEndDate(startDate);
               }
             }}
-            className={`w-4 h-4 rounded focus:ring-red-500 flex-shrink-0 ${
-              isMilestoneCheckboxEnabled
-                ? 'text-red-600 cursor-pointer'
-                : 'text-gray-400 cursor-not-allowed'
-            }`}
+            className={`w-4 h-4 rounded focus:ring-red-500 flex-shrink-0 ${isMilestoneCheckboxEnabled
+              ? 'text-red-600 cursor-pointer'
+              : 'text-gray-400 cursor-not-allowed'
+              }`}
           />
           <label
             htmlFor="milestone"
-            className={`text-xs ${
-              isMilestoneCheckboxEnabled
-                ? 'text-red-900 cursor-pointer'
-                : 'text-gray-400 cursor-not-allowed'
-            }`}
+            className={`text-xs ${isMilestoneCheckboxEnabled
+              ? 'text-red-900 cursor-pointer'
+              : 'text-gray-400 cursor-not-allowed'
+              }`}
           >
             ◆ マイルストーン（重要な1日の予定）
             {!isMilestoneCheckboxEnabled && (
@@ -1715,8 +1710,8 @@ function DashboardPage({
             stat.accent === 'primary'
               ? 'border-transparent bg-slate-900 text-white'
               : stat.accent === 'alert'
-              ? 'border-rose-100 bg-rose-50 text-rose-700'
-              : 'border-slate-200 bg-white text-slate-900';
+                ? 'border-rose-100 bg-rose-50 text-rose-700'
+                : 'border-slate-200 bg-white text-slate-900';
           const iconColor = stat.accent === 'primary' ? 'text-slate-200' : stat.accent === 'alert' ? 'text-rose-500' : 'text-slate-500';
           const noteColor = stat.accent === 'primary' ? 'text-slate-200/80' : 'text-slate-500';
           return (
@@ -1779,7 +1774,7 @@ function DashboardPage({
             ))}
           </div>
         ) : null}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
           {projects.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
               条件に一致するプロジェクトがありません。フィルタを調整するか、新しいプロジェクトを追加してください。
@@ -2465,106 +2460,106 @@ function SchedulePage({
               });
             }
           }}
-            onTaskCopy={(task, newStartDate, newEndDate) => {
-              // タスクコピー処理
-              const originalTask = filteredTasks.find(t => t.id === task.id);
-              if (originalTask) {
-                const startStr = formatDate(newStartDate);
-                const endStr = formatDate(newEndDate);
-                if (startStr && endStr) {
-                  // 新しいタスクのデータを作成
-                  const newTaskData: Partial<Task> = {
-                    タスク名: `${originalTask.タスク名} (コピー)`,
-                    予定開始日: startStr,
-                    期限: endStr,
-                    担当者: originalTask.担当者 || originalTask.assignee,
-                    ステータス: '未着手',
-                    projectId: originalTask.projectId,
+          onTaskCopy={(task, newStartDate, newEndDate) => {
+            // タスクコピー処理
+            const originalTask = filteredTasks.find(t => t.id === task.id);
+            if (originalTask) {
+              const startStr = formatDate(newStartDate);
+              const endStr = formatDate(newEndDate);
+              if (startStr && endStr) {
+                // 新しいタスクのデータを作成
+                const newTaskData: Partial<Task> = {
+                  タスク名: `${originalTask.タスク名} (コピー)`,
+                  予定開始日: startStr,
+                  期限: endStr,
+                  担当者: originalTask.担当者 || originalTask.assignee,
+                  ステータス: '未着手',
+                  projectId: originalTask.projectId,
+                };
+
+                // ローカルモードの場合
+                if (!canSync) {
+                  const newTask: Task = {
+                    ...originalTask,
+                    ...newTaskData,
+                    id: `local-task-copy-${Date.now()}`,
+                    createdAt: todayString(),
+                    updatedAt: todayString(),
                   };
-
-                  // ローカルモードの場合
-                  if (!canSync) {
-                    const newTask: Task = {
-                      ...originalTask,
-                      ...newTaskData,
-                      id: `local-task-copy-${Date.now()}`,
-                      createdAt: todayString(),
-                      updatedAt: todayString(),
-                    };
-                    setState((current) => ({
-                      ...current,
-                      tasks: [...current.tasks, newTask],
-                    }));
-                    pushToast({ tone: 'success', title: 'タスクをコピーしました（ローカル保存）' });
-                    return;
-                  }
-
-                  // サーバーに保存
-                  console.log('Copying task with data:', newTaskData);
-                  pushToast({ tone: 'info', title: 'タスクをコピー中...', description: 'サーバー連携機能は未実装です' });
+                  setState((current) => ({
+                    ...current,
+                    tasks: [...current.tasks, newTask],
+                  }));
+                  pushToast({ tone: 'success', title: 'タスクをコピーしました（ローカル保存）' });
+                  return;
                 }
+
+                // サーバーに保存
+                console.log('Copying task with data:', newTaskData);
+                pushToast({ tone: 'info', title: 'タスクをコピー中...', description: 'サーバー連携機能は未実装です' });
               }
-            }}
-            onTaskSave={(updatedTask) => {
-              // モーダルからのタスク保存処理
-              console.log('onTaskSave called with:', updatedTask);
+            }
+          }}
+          onTaskSave={(updatedTask) => {
+            // モーダルからのタスク保存処理
+            console.log('onTaskSave called with:', updatedTask);
 
-              // ステータスを日本語に変換
-              let statusJa = '未着手';
-              if (updatedTask.status === 'completed') statusJa = '完了';
-              else if (updatedTask.status === 'in_progress') statusJa = '進行中';
-              else if (updatedTask.status === 'on_hold') statusJa = '保留';
-              else if (updatedTask.status === 'overdue') statusJa = '進行中'; // 期限超過は進行中として保存
+            // ステータスを日本語に変換
+            let statusJa = '未着手';
+            if (updatedTask.status === 'completed') statusJa = '完了';
+            else if (updatedTask.status === 'in_progress') statusJa = '進行中';
+            else if (updatedTask.status === 'on_hold') statusJa = '保留';
+            else if (updatedTask.status === 'overdue') statusJa = '進行中'; // 期限超過は進行中として保存
 
-              const formattedStartDate = formatDate(updatedTask.startDate);
-              const formattedEndDate = formatDate(updatedTask.endDate);
+            const formattedStartDate = formatDate(updatedTask.startDate);
+            const formattedEndDate = formatDate(updatedTask.endDate);
 
-              const updates: Partial<Task> = {
-                タスク名: updatedTask.name,
-                予定開始日: formattedStartDate,
-                期限: formattedEndDate,
-                start: formattedStartDate, // startフィールドも更新
-                end: formattedEndDate, // endフィールドも更新
-                担当者: updatedTask.assignee,
-                担当者メール: updatedTask.assigneeEmail || '', // 担当者メールも保存
-                ステータス: statusJa,
-                進捗率: updatedTask.progress,
-                '依存タスク': updatedTask.dependencies || [],
-                マイルストーン: updatedTask.milestone || false,
-                優先度: updatedTask.priority || '中',
-                '工数見積(h)': updatedTask.estimatedHours || 0,
-                '通知設定': updatedTask.notificationSettings || {
-                  開始日: false,
-                  期限前日: false,
-                  期限当日: false,
-                  超過: false,
-                },
-              };
+            const updates: Partial<Task> = {
+              タスク名: updatedTask.name,
+              予定開始日: formattedStartDate,
+              期限: formattedEndDate,
+              start: formattedStartDate, // startフィールドも更新
+              end: formattedEndDate, // endフィールドも更新
+              担当者: updatedTask.assignee,
+              担当者メール: updatedTask.assigneeEmail || '', // 担当者メールも保存
+              ステータス: statusJa,
+              進捗率: updatedTask.progress,
+              '依存タスク': updatedTask.dependencies || [],
+              マイルストーン: updatedTask.milestone || false,
+              優先度: updatedTask.priority || '中',
+              '工数見積(h)': updatedTask.estimatedHours || 0,
+              '通知設定': updatedTask.notificationSettings || {
+                開始日: false,
+                期限前日: false,
+                期限当日: false,
+                超過: false,
+              },
+            };
 
-              console.log('Updates to apply:', updates);
+            console.log('Updates to apply:', updates);
 
-              // onTaskUpdateコールバックに委譲
-              if (onTaskUpdate) {
-                onTaskUpdate(updatedTask.id, updates);
-              }
-            }}
-            onProjectClick={(projectId) => {
-              // プロジェクト名クリックでプロジェクト編集ダイアログを開く
-              const project = projects.find((p: Project) => p.id === projectId);
-              if (project) {
-                onEditProject(project);
-              }
-            }}
-            onTaskDelete={async (task) => {
-              try {
-                await deleteTask(task.id);
-                pushToast({ title: `タスク「${task.name}」を削除しました`, tone: 'success' });
-              } catch (error) {
-                console.error('タスクの削除に失敗しました:', error);
-                pushToast({ title: 'タスクの削除に失敗しました', tone: 'error' });
-              }
-            }}
-          />
+            // onTaskUpdateコールバックに委譲
+            if (onTaskUpdate) {
+              onTaskUpdate(updatedTask.id, updates);
+            }
+          }}
+          onProjectClick={(projectId) => {
+            // プロジェクト名クリックでプロジェクト編集ダイアログを開く
+            const project = projects.find((p: Project) => p.id === projectId);
+            if (project) {
+              onEditProject(project);
+            }
+          }}
+          onTaskDelete={async (task) => {
+            try {
+              await deleteTask(task.id);
+              pushToast({ title: `タスク「${task.name}」を削除しました`, tone: 'success' });
+            } catch (error) {
+              console.error('タスクの削除に失敗しました:', error);
+              pushToast({ title: 'タスクの削除に失敗しました', tone: 'error' });
+            }
+          }}
+        />
       </section>
     </div>
   );
@@ -2633,16 +2628,16 @@ function buildGantt(items: GanttItemInput[], options: BuildGanttOptions = {}) {
   }
 
   const spanDays = Math.max(1, Math.ceil((maxDate.getTime() - minDate.getTime()) / DAY_MS));
-  
+
   // 日付ラベルの重なりを防ぐため、期間に応じてより広い間隔を設定
-  const autoTickStep = 
+  const autoTickStep =
     spanDays > 365 ? 60 :  // 1年以上 → 60日間隔
-    spanDays > 180 ? 30 :  // 半年以上 → 30日間隔
-    spanDays > 90 ? 14 :   // 3ヶ月以上 → 14日間隔
-    spanDays > 60 ? 7 :    // 2ヶ月以上 → 7日間隔
-    spanDays > 30 ? 3 :    // 1ヶ月以上 → 3日間隔
-    1;                     // 1ヶ月以下 → 1日間隔
-  
+      spanDays > 180 ? 30 :  // 半年以上 → 30日間隔
+        spanDays > 90 ? 14 :   // 3ヶ月以上 → 14日間隔
+          spanDays > 60 ? 7 :    // 2ヶ月以上 → 7日間隔
+            spanDays > 30 ? 3 :    // 1ヶ月以上 → 3日間隔
+              1;                     // 1ヶ月以下 → 1日間隔
+
   let tickStep = autoTickStep;
 
   switch (timeScale) {
@@ -3061,11 +3056,11 @@ function App() {
         tasks: current.tasks.map((item) =>
           item.id === task.id
             ? {
-                ...item,
-                ステータス: done ? '完了' : item.ステータス === '完了' ? '進行中' : item.ステータス,
-                progress: done ? 1 : item.progress ?? 0,
-                updatedAt: todayString(),
-              }
+              ...item,
+              ステータス: done ? '完了' : item.ステータス === '完了' ? '進行中' : item.ステータス,
+              progress: done ? 1 : item.progress ?? 0,
+              updatedAt: todayString(),
+            }
             : item
         ),
       }));
@@ -3866,4 +3861,4 @@ function App() {
 }
 
 export default App;
- 
+

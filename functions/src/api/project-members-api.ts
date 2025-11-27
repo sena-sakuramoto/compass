@@ -66,19 +66,19 @@ router.get('/projects/:projectId/members', authenticate, async (req: any, res) =
   try {
     const { projectId } = req.params;
     const { role, status, orgId } = req.query;
-    
+
     // プロジェクトを取得
     const project = await getProject(req.user.orgId, projectId);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    
+
     const members = await listProjectMembers(req.user.orgId, projectId, {
       role,
       status,
       orgId,
     });
-    
+
     res.json(members);
   } catch (error) {
     console.error('Error listing project members:', error);
@@ -106,7 +106,7 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
 
     const [members, users] = await Promise.all([
       listProjectMembers(req.user.orgId, projectId),
-      listUsers({ orgId: req.user.orgId, isActive: true }),
+      listUsers({ isActive: true }), // 全組織のアクティブユーザーを取得（ゲストユーザーも含む）
     ]);
 
     const memberUserIds = new Set(members.map(member => member.userId));
@@ -269,7 +269,7 @@ router.patch('/projects/:projectId/members/:userId', authenticate, async (req: a
 
 /**
  * DELETE /api/projects/:projectId/members/:userId
- * プロジェクトメンバーを削除
+ * プロジェクトメンバーを削除または招待を辞退
  */
 router.delete('/projects/:projectId/members/:userId', authenticate, async (req: any, res) => {
   try {
@@ -287,10 +287,14 @@ router.delete('/projects/:projectId/members/:userId', authenticate, async (req: 
       return res.status(404).json({ error: 'Member not found in this project' });
     }
 
-    // 権限チェック
+    // 権限チェック: 管理者または本人が自分の招待を辞退する場合
     const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
-    if (!canManage) {
-      return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
+    const isSelfDecline = req.uid === userId && existingMember.status === 'invited';
+
+    if (!canManage && !isSelfDecline) {
+      return res.status(403).json({
+        error: 'Forbidden: You do not have permission to remove this member'
+      });
     }
 
     // プロジェクトオーナーを削除しようとしていないかチェック
@@ -358,14 +362,14 @@ router.post('/projects/:projectId/members/:userId/accept', authenticate, async (
 router.get('/users/:userId/projects', authenticate, async (req: any, res) => {
   try {
     const { userId } = req.params;
-    
+
     // 自分自身または管理者のみ取得可能
     if (req.uid !== userId && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    
+
     const projects = await listUserProjects(req.user.orgId, userId);
-    
+
     res.json(projects);
   } catch (error) {
     console.error('Error listing user projects:', error);

@@ -257,7 +257,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         width: `${Math.max(displayPosition.width, 4)}px`,
         top: `${barTop}px`,
         height: `${barHeight}px`,
-        zIndex: isDragging ? 1000 : 10
+        zIndex: isDragging ? 10000 : (isHovered ? 9999 : 10)
       }}
       onMouseEnter={() => !isDragging && setIsHovered(true)}
       onMouseLeave={() => !isDragging && setIsHovered(false)}
@@ -265,11 +265,9 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     >
       {/* バーの本体 */}
       <div
-        className={`h-full rounded-lg flex items-center px-3 text-white text-xs font-medium shadow-sm transition-all duration-200 ${
-          interactive ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'
-        } ${isHovered || isDragging ? 'shadow-md transform -translate-y-0.5' : ''} ${
-          isCopyMode ? 'ring-2 ring-blue-400' : ''
-        }`}
+        className={`h-full rounded-lg flex items-center px-3 text-white text-xs font-medium shadow-sm transition-all duration-200 ${interactive ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'
+          } ${isHovered || isDragging ? 'shadow-md transform -translate-y-0.5' : ''} ${isCopyMode ? 'ring-2 ring-blue-400' : ''
+          }`}
         style={{
           backgroundColor: color,
           opacity: task.status === 'completed' ? 0.6 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1
@@ -292,7 +290,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
       {/* ホバー時のツールチップ（ドラッグ中は非表示） */}
       {isHovered && !isDragging && (
-        <div className="absolute top-full left-0 mt-2 z-50 min-w-[220px] rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none">
+        <div className="absolute top-full left-0 mt-2 z-[9999] min-w-[220px] rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none">
           <div className="text-sm font-semibold text-slate-800">{task.name}</div>
           <div className="mt-1 text-[11px] text-slate-500">
             {task.startDate.toLocaleDateString('ja-JP')} → {task.endDate.toLocaleDateString('ja-JP')}
