@@ -241,6 +241,9 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
             タスクがありません
           </div>
         )}
+
+        {/* 一番下に空白のプロジェクト行を追加（マイルストーンのラベルが見切れるのを防ぐ） */}
+        <div className="bg-slate-100/50 border-b border-slate-200" style={{ height: '32px' }}></div>
       </div>
     </div>
   );

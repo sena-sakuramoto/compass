@@ -332,9 +332,9 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     return groups;
   }, [tasks, projectMap, projectMilestones]);
 
-  // タスクの総高さを計算（プロジェクトヘッダー分も含む）
+  // タスクの総高さを計算（プロジェクトヘッダー分も含む + 最後に空白のプロジェクト行）
   const projectHeaderHeight = 32;
-  const totalHeight = tasks.length * rowHeight + projectGroups.length * projectHeaderHeight;
+  const totalHeight = tasks.length * rowHeight + projectGroups.length * projectHeaderHeight + projectHeaderHeight;
 
   // 依存関係を解決
   const dependencies = useMemo(() => resolveDependencies(tasks), [tasks]);
