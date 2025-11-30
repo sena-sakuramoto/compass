@@ -255,29 +255,31 @@ function AppLayout({
 
   return (
     <div className="h-screen flex flex-col bg-slate-50">
-      <Sidebar />
+      <Sidebar user={user} onSignOut={onSignOut} />
       <div className="flex-1 flex flex-col lg:pl-64 min-h-0">
         <header className="flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2 lg:px-8">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div className="lg:ml-0">
+              <div className="hidden lg:block lg:ml-0">
                 <h1 className="text-lg font-bold text-slate-900">APDW Project Compass</h1>
                 <p className="text-xs text-slate-500">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
               </div>
-              <HeaderActions
-                user={user}
-                authSupported={authSupported}
-                authReady={authReady}
-                onSignIn={onSignIn}
-                onSignOut={onSignOut}
-                authError={authError}
-                canSync={canSync}
-                onExportSnapshot={onExportSnapshot}
-                onExportExcel={onExportExcel}
-                onImportSnapshot={onImportSnapshot}
-                onImportExcel={onImportExcel}
-                onNotify={onNotify}
-              />
+              <div className="hidden lg:block">
+                <HeaderActions
+                  user={user}
+                  authSupported={authSupported}
+                  authReady={authReady}
+                  onSignIn={onSignIn}
+                  onSignOut={onSignOut}
+                  authError={authError}
+                  canSync={canSync}
+                  onExportSnapshot={onExportSnapshot}
+                  onExportExcel={onExportExcel}
+                  onImportSnapshot={onImportSnapshot}
+                  onImportExcel={onImportExcel}
+                  onNotify={onNotify}
+                />
+              </div>
             </div>
             <nav className="hidden flex-wrap gap-2">
               {navLinks.map((link) => (
@@ -572,20 +574,6 @@ function BottomBar({
 
   return (
     <>
-      {/* 右上のログアウトボタン（モバイル） */}
-      {authSupported && user && (
-        <div className="fixed top-4 right-4 z-40 md:hidden">
-          <button
-            type="button"
-            className="flex items-center gap-2 rounded-full bg-white border-2 border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 shadow-lg hover:bg-slate-50 transition-colors"
-            onClick={onSignOut}
-          >
-            <LogOut className="h-4 w-4" />
-            <span className="text-xs">ログアウト</span>
-          </button>
-        </div>
-      )}
-
       {/* 開閉可能な追加ボタンメニュー（モバイル） */}
       <div className="md:hidden">
         {/* オーバーレイ */}

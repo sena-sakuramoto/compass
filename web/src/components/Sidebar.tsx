@@ -11,7 +11,9 @@ import {
   ChevronRight,
   Settings,
   HelpCircle,
+  LogOut,
 } from 'lucide-react';
+import type { User } from 'firebase/auth';
 
 export interface NavigationItem {
   id: string;
@@ -25,6 +27,8 @@ export interface NavigationItem {
 interface SidebarProps {
   navigationItems?: NavigationItem[];
   onNavigationChange?: (items: NavigationItem[]) => void;
+  user?: User | null;
+  onSignOut?: () => void;
 }
 
 const iconMap = {
@@ -37,7 +41,7 @@ const iconMap = {
   HelpCircle,
 };
 
-export function Sidebar({ navigationItems, onNavigationChange }: SidebarProps) {
+export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut }: SidebarProps) {
   const location = useLocation();
   const [isConfigMode, setIsConfigMode] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => {
@@ -201,7 +205,19 @@ export function Sidebar({ navigationItems, onNavigationChange }: SidebarProps) {
             )}
           </nav>
 
-          <div className="border-t border-slate-200 px-6 py-4">
+          <div className="border-t border-slate-200 px-6 py-4 space-y-3">
+            {user && onSignOut && (
+              <button
+                onClick={() => {
+                  onSignOut();
+                  setIsOpen(false);
+                }}
+                className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 transition"
+              >
+                <LogOut size={18} />
+                <span>ログアウト</span>
+              </button>
+            )}
             <div className="text-xs text-slate-500">Project Compass v1.0</div>
           </div>
         </div>
