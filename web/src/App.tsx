@@ -259,26 +259,37 @@ function AppLayout({
       <div className="flex-1 flex flex-col lg:pl-64 min-h-0">
         <header className="flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2 lg:px-8">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div className="hidden lg:block lg:ml-0">
-                <h1 className="text-lg font-bold text-slate-900">APDW Project Compass</h1>
-                <p className="text-xs text-slate-500">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
+            <div className="flex items-center justify-between gap-2">
+              {/* モバイル：ハンバーガーメニュー用のスペース + タイトル */}
+              <div className="flex items-center gap-2 flex-1 min-w-0 lg:ml-0 pl-12 lg:pl-0">
+                <div>
+                  <h1 className="text-base lg:text-lg font-bold text-slate-900 truncate">APDW Project Compass</h1>
+                  <p className="hidden lg:block text-xs text-slate-500">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
+                </div>
               </div>
-              <div className="hidden lg:block">
-                <HeaderActions
-                  user={user}
-                  authSupported={authSupported}
-                  authReady={authReady}
-                  onSignIn={onSignIn}
-                  onSignOut={onSignOut}
-                  authError={authError}
-                  canSync={canSync}
-                  onExportSnapshot={onExportSnapshot}
-                  onExportExcel={onExportExcel}
-                  onImportSnapshot={onImportSnapshot}
-                  onImportExcel={onImportExcel}
-                  onNotify={onNotify}
-                />
+
+              {/* 右側：通知とその他のアクション */}
+              <div className="flex items-center gap-2">
+                {/* 通知は常に表示 */}
+                {authSupported && user && <InvitationNotifications />}
+
+                {/* その他のアクションはPCのみ */}
+                <div className="hidden lg:block">
+                  <HeaderActions
+                    user={user}
+                    authSupported={authSupported}
+                    authReady={authReady}
+                    onSignIn={onSignIn}
+                    onSignOut={onSignOut}
+                    authError={authError}
+                    canSync={canSync}
+                    onExportSnapshot={onExportSnapshot}
+                    onExportExcel={onExportExcel}
+                    onImportSnapshot={onImportSnapshot}
+                    onImportExcel={onImportExcel}
+                    onNotify={onNotify}
+                  />
+                </div>
               </div>
             </div>
             <nav className="hidden flex-wrap gap-2">

@@ -168,24 +168,35 @@ router.delete('/:id', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
+    // ユーザーがメンバーとなっているプロジェクトを検索して、プロジェクトの実際のorgIdを見つける
+    const { listUserProjects } = await import('../lib/project-members');
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const membership = userProjectMemberships.find(m => m.projectId === req.params.id);
+
+    if (!membership) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const projectOrgId = membership.member.orgId;
+
     // プロジェクトの存在と権限をチェック
-    const project = await getProject(user.orgId, req.params.id);
+    const project = await getProject(projectOrgId, req.params.id);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
     // 削除権限をチェック（型アサーション: serialize によって適切な形式に変換済み）
-    const hasPermission = await canDeleteProject(user, project as any, user.orgId);
+    const hasPermission = await canDeleteProject(user, project as any, projectOrgId);
     if (!hasPermission) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to delete this project' });
     }
 
     // プロジェクトを削除
-    await deleteProjectRepo(req.params.id, user.orgId);
+    await deleteProjectRepo(req.params.id, projectOrgId);
 
     // 活動ログに記録
     await logActivity({
-      orgId: user.orgId,
+      orgId: projectOrgId,
       projectId: req.params.id,
       type: 'project.deleted',
       userId: user.id,
