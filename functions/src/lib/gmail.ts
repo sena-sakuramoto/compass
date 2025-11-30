@@ -38,12 +38,15 @@ export async function sendEmail(params: {
 
   const gmail = getGmailClient(from);
 
+  // 日本語の件名をMIMEエンコード
+  const encodedSubject = `=?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
+
   // メールのMIME形式を構築
   const contentType = html ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8';
   const message = [
     `From: ${from}`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodedSubject}`,
     `Content-Type: ${contentType}`,
     '',
     body,
@@ -162,5 +165,99 @@ ${taskUrl ? `詳細: ${taskUrl}` : ''}
     subject,
     body,
   });
+}
+
+/**
+ * 招待メールを送信
+ */
+export async function sendInvitationEmail(params: {
+  to: string;
+  inviterName: string;
+  organizationName?: string;
+  projectName?: string;
+  role: string;
+  inviteUrl?: string;
+  message?: string;
+}): Promise<void> {
+  const { to, inviterName, organizationName, projectName, role, inviteUrl, message } = params;
+
+  const sender = process.env.NOTIFICATION_SENDER || 'no-reply@archi-prisma.co.jp';
+  const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+
+  const roleNames: Record<string, string> = {
+    'admin': '管理者',
+    'project_manager': 'プロジェクトマネージャー',
+    'viewer': '閲覧者',
+    'owner': 'オーナー',
+    'manager': 'マネージャー',
+    'member': 'メンバー',
+  };
+
+  const roleName = roleNames[role] || role;
+
+  let subject = '';
+  let body = '';
+
+  if (projectName) {
+    // プロジェクト招待
+    subject = `[Compass] プロジェクト「${projectName}」への招待`;
+    body = `
+${to} さま
+
+${inviterName} さんから、プロジェクト「${projectName}」に招待されました。
+
+【招待内容】
+プロジェクト: ${projectName}
+${organizationName ? `組織: ${organizationName}` : ''}
+ロール: ${roleName}
+
+${message ? `メッセージ:\n${message}\n` : ''}
+以下のリンクからログインして、プロジェクトにアクセスできます。
+
+${inviteUrl || appUrl}
+
+※このメールは自動送信されています。
+
+---
+Compass - プロジェクト管理システム
+${appUrl}
+`;
+  } else {
+    // 組織招待
+    subject = `[Compass] ${organizationName || '組織'}への招待`;
+    body = `
+${to} さま
+
+${inviterName} さんから、${organizationName || '組織'}に招待されました。
+
+【招待内容】
+${organizationName ? `組織: ${organizationName}` : ''}
+ロール: ${roleName}
+
+${message ? `メッセージ:\n${message}\n` : ''}
+以下のリンクからログインして、組織にアクセスできます。
+
+${inviteUrl || appUrl}
+
+※このメールは自動送信されています。
+
+---
+Compass - プロジェクト管理システム
+${appUrl}
+`;
+  }
+
+  try {
+    await sendEmail({
+      from: sender,
+      to,
+      subject,
+      body,
+    });
+    console.log(`[Gmail] Sent invitation email to ${to}`);
+  } catch (error) {
+    console.error(`[Gmail] Failed to send invitation email to ${to}:`, error);
+    // メール送信失敗でもエラーを投げない（招待自体は成功させる）
+  }
 }
 

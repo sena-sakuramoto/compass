@@ -152,7 +152,47 @@ router.post('/', async (req: any, res, next) => {
 
     await invitationRef.set(invitation);
 
-    // TODO: メール送信
+    // メール送信
+    try {
+      const { sendInvitationEmail } = await import('../lib/gmail');
+      await sendInvitationEmail({
+        to: email,
+        inviterName: user.displayName || user.email,
+        organizationName: user.orgId,
+        role: role as string,
+        inviteUrl: invitation.inviteLink,
+        message: message,
+      });
+    } catch (error) {
+      console.error('[OrgInvitations] Failed to send invitation email:', error);
+      // メール送信失敗でも招待は成功とする
+    }
+
+    // アプリ内通知を作成（招待されたユーザーがログイン済みの場合）
+    try {
+      const { getUserByEmail } = await import('../lib/users');
+      const invitedUser = await getUserByEmail(email);
+
+      if (invitedUser) {
+        const { createNotification } = await import('./notifications-api');
+        await createNotification({
+          userId: invitedUser.id,
+          type: 'invitation',
+          title: `${user.orgId}への招待`,
+          message: `${user.displayName || user.email}さんから組織に招待されました`,
+          actionUrl: invitation.inviteLink,
+          metadata: {
+            invitationId: invitationRef.id,
+            inviterName: user.displayName || user.email,
+            organizationName: user.orgId,
+            role: role as string,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('[OrgInvitations] Failed to create in-app notification:', error);
+      // 通知作成失敗でも招待は成功とする
+    }
 
     res.status(201).json({
       id: invitationRef.id,

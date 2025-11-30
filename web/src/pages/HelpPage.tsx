@@ -1,7 +1,7 @@
 // ヘルプページ - Compassの使い方と権限説明
 
 import React, { useState } from 'react';
-import { HelpCircle, Users, Shield, UserCheck, ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { HelpCircle, Users, Shield, UserCheck, ChevronDown, ChevronRight, Info, Database, RefreshCw } from 'lucide-react';
 
 export function HelpPage() {
   const [expandedSection, setExpandedSection] = useState<string | null>('getting-started');
@@ -381,6 +381,110 @@ export function HelpPage() {
           </div>
         </Section>
 
+        {/* データの安全性 */}
+        <Section id="data-safety" title="データの安全性とバックアップ" icon={Database}>
+          <div className="space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <Database className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                <div>
+                  <h3 className="font-semibold text-green-900 mb-1">自動バックアップ</h3>
+                  <p className="text-sm text-green-800">
+                    Compassでは、すべてのデータが毎日自動的にバックアップされています。
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">バックアップの詳細</h3>
+              <div className="space-y-3 text-sm text-slate-700">
+                <div className="border-l-4 border-teal-500 pl-4">
+                  <p className="font-medium text-slate-900 mb-1">⏰ 毎日自動実行</p>
+                  <p>毎朝2:00（日本時間）にFirestoreデータベース全体のバックアップが自動作成されます。</p>
+                </div>
+
+                <div className="border-l-4 border-blue-500 pl-4">
+                  <p className="font-medium text-slate-900 mb-1">📦 30日間保持</p>
+                  <p>過去30日分のバックアップが保持されます。それ以前のバックアップは自動的に削除されます。</p>
+                </div>
+
+                <div className="border-l-4 border-purple-500 pl-4">
+                  <p className="font-medium text-slate-900 mb-1">🔒 安全な保存</p>
+                  <p>バックアップはFirebase Cloud Storageに暗号化されて保存されます。</p>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 text-teal-600" />
+                削除の猶予期間
+              </h3>
+              <div className="space-y-3 text-sm text-slate-700">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="font-medium text-blue-900 mb-2">プロジェクトやタスクを削除しても、すぐには完全削除されません</p>
+                  <ul className="space-y-2 text-blue-800">
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-600 mt-1">•</span>
+                      <span><strong>30日間の猶予期間:</strong> 削除後30日間はシステム内に保持されます</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-600 mt-1">•</span>
+                      <span><strong>復元可能:</strong> 誤って削除した場合、管理者に連絡すれば復元できます</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-blue-600 mt-1">•</span>
+                      <span><strong>自動クリーンアップ:</strong> 30日経過後、自動的に完全削除されます</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div className="flex items-start gap-2">
+                    <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <h4 className="font-semibold text-amber-900 mb-1">復元が必要な場合</h4>
+                      <p className="text-amber-800">
+                        誤ってプロジェクトやタスクを削除してしまった場合は、30日以内であれば復元可能です。
+                        管理者にお問い合わせください。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">自動スケジュール</h3>
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <table className="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">時刻</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">処理内容</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 bg-white">
+                    <tr>
+                      <td className="px-4 py-3 whitespace-nowrap font-mono text-slate-900">02:00</td>
+                      <td className="px-4 py-3 text-slate-700">Firestoreデータのバックアップ</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 whitespace-nowrap font-mono text-slate-900">03:00</td>
+                      <td className="px-4 py-3 text-slate-700">30日以上前の削除済みアイテムを完全削除</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 whitespace-nowrap font-mono text-slate-900">09:00</td>
+                      <td className="px-4 py-3 text-slate-700">タスクリマインダーの送信</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </Section>
+
         {/* よくある質問 */}
         <Section id="faq" title="よくある質問" icon={HelpCircle}>
           <div className="space-y-4">
@@ -399,9 +503,17 @@ export function HelpPage() {
             </div>
 
             <div>
-              <h3 className="font-semibold text-slate-900 mb-2">Q: プロジェクトを削除するには？</h3>
+              <h3 className="font-semibold text-slate-900 mb-2">Q: プロジェクトやタスクを削除したらどうなりますか？</h3>
               <p className="text-sm text-slate-600">
-                A: プロジェクト詳細ページの設定メニューから削除できます（組織管理者のみ）。
+                A: 削除後30日間はシステム内に保持され、復元可能です。30日経過後は自動的に完全削除されます。
+                詳しくは「データの安全性とバックアップ」セクションをご覧ください。
+              </p>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">Q: 誤って削除したデータを復元できますか？</h3>
+              <p className="text-sm text-slate-600">
+                A: はい、削除後30日以内であれば復元可能です。管理者にお問い合わせください。
               </p>
             </div>
 

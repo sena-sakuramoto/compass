@@ -203,6 +203,51 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
       req.user.displayName || req.user.email
     );
 
+    // メール送信
+    try {
+      const { sendInvitationEmail } = await import('../lib/gmail');
+      const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+      await sendInvitationEmail({
+        to: normalizedEmail,
+        inviterName: req.user.displayName || req.user.email,
+        organizationName: req.user.orgId,
+        projectName: (project as any).物件名 || projectId,
+        role: input.role,
+        inviteUrl: `${appUrl}/projects/${projectId}`,
+        message: input.message,
+      });
+    } catch (error) {
+      console.error('[ProjectMembers] Failed to send invitation email:', error);
+      // メール送信失敗でも招待は成功とする
+    }
+
+    // アプリ内通知を作成（招待されたユーザーがログイン済みの場合）
+    try {
+      const { getUserByEmail } = await import('../lib/users');
+      const invitedUser = await getUserByEmail(normalizedEmail);
+
+      if (invitedUser) {
+        const { createNotification } = await import('./notifications-api');
+        const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+        await createNotification({
+          userId: invitedUser.id,
+          type: 'invitation',
+          title: `プロジェクト「${(project as any).物件名 || projectId}」への招待`,
+          message: `${req.user.displayName || req.user.email}さんからプロジェクトに招待されました`,
+          actionUrl: `${appUrl}/projects/${projectId}`,
+          metadata: {
+            projectId: projectId,
+            projectName: (project as any).物件名 || projectId,
+            inviterName: req.user.displayName || req.user.email,
+            role: input.role,
+          },
+        });
+      }
+    } catch (error) {
+      console.error('[ProjectMembers] Failed to create in-app notification:', error);
+      // 通知作成失敗でも招待は成功とする
+    }
+
     res.status(201).json(member);
   } catch (error) {
     console.error('Error adding project member:', error);
@@ -290,6 +335,16 @@ router.delete('/projects/:projectId/members/:userId', authenticate, async (req: 
     // 権限チェック: 管理者または本人が自分の招待を辞退する場合
     const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
     const isSelfDecline = req.uid === userId && existingMember.status === 'invited';
+
+    console.log('[DELETE Member] Permission check:', {
+      userId: req.uid,
+      targetUserId: userId,
+      userRole: req.user.role,
+      canManage,
+      isSelfDecline,
+      existingMemberRole: existingMember.role,
+      existingMemberStatus: existingMember.status,
+    });
 
     if (!canManage && !isSelfDecline) {
       return res.status(403).json({

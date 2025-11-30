@@ -11,10 +11,13 @@ import {
   TaskInput,
   recordTaskCreator,
   canEditTask,
-  getUser,
+  getProject,
 } from '../lib/firestore';
+import { getUser } from '../lib/users';
 import { enqueueNotificationSeed } from '../lib/jobs';
 import { listUserProjects } from '../lib/project-members';
+import { canDeleteTask } from '../lib/access-control';
+import { logActivity } from '../lib/activity-log';
 
 const router = Router();
 
@@ -109,6 +112,8 @@ const taskSchema = z.object({
   'カレンダーイベントID': z.string().optional().nullable(),
   '通知設定': notificationSchema,
   マイルストーン: z.boolean().optional().nullable(),
+  スプリント: z.string().optional().nullable(),
+  フェーズ: z.string().optional().nullable(),
 });
 
 router.post('/', async (req: any, res, next) => {
@@ -125,18 +130,25 @@ router.post('/', async (req: any, res, next) => {
 
     // プロジェクトメンバーシップをチェック
     const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const projectIds = userProjectMemberships.map(m => m.projectId);
+    const membership = userProjectMemberships.find(m => m.projectId === payload.projectId);
 
-    if (!projectIds.includes(payload.projectId)) {
+    if (!membership) {
       return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
     }
 
-    // プロジェクトメンバーであれば誰でもタスクを作成可能
+    // 権限チェック
+    const { getProjectMemberPermissions } = await import('../lib/project-members');
+    const permissions = await getProjectMemberPermissions(user.orgId, payload.projectId, req.uid);
+
+    if (!permissions || !permissions.canCreateTasks) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to create tasks' });
+    }
+
     const id = await createTask(payload, user.orgId);
     console.log('[POST /tasks] Task created with ID:', id);
 
     // タスク作成者を記録
-    await recordTaskCreator(id, user.email, user.orgId);
+    await recordTaskCreator(id, user.id, user.orgId);
 
     res.status(201).json({ id });
   } catch (error) {
@@ -164,13 +176,31 @@ router.patch('/:id', async (req: any, res, next) => {
 
     // プロジェクトメンバーシップをチェック
     const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const projectIds = userProjectMemberships.map(m => m.projectId);
+    const membership = userProjectMemberships.find(m => m.projectId === task.projectId);
 
-    if (!projectIds.includes(task.projectId)) {
+    if (!membership) {
       return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
     }
 
-    // プロジェクトメンバーであれば誰でも編集可能
+    // 権限チェック
+    const { getProjectMemberPermissions } = await import('../lib/project-members');
+    const permissions = await getProjectMemberPermissions(user.orgId, task.projectId, req.uid);
+
+    if (!permissions || !permissions.canEditTasks) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to edit tasks' });
+    }
+
+    // memberロールの場合は自分が担当者のタスクのみ編集可能
+    if (membership.member.role === 'member') {
+      const isAssignee = task.担当者 === user.displayName ||
+                        task.担当者 === user.email ||
+                        task.assignee === req.uid;
+
+      if (!isAssignee) {
+        return res.status(403).json({ error: 'Forbidden: Members can only edit their own tasks' });
+      }
+    }
+
     await updateTask(req.params.id, payload, user.orgId);
     res.json({ ok: true });
   } catch (error) {
@@ -274,16 +304,35 @@ router.delete('/:id', async (req: any, res, next) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // プロジェクトメンバーシップをチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const projectIds = userProjectMemberships.map(m => m.projectId);
-
-    if (!projectIds.includes(task.projectId)) {
-      return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
+    // プロジェクト情報を取得
+    const project = await getProject(user.orgId, task.projectId);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
     }
 
-    // プロジェクトメンバーであれば誰でも削除可能
+    // 削除権限をチェック（admin、タスク作成者、canDeleteTasks権限を持つメンバー）
+    const hasPermission = await canDeleteTask(user, task as any, project as any, user.orgId);
+    if (!hasPermission) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to delete this task' });
+    }
+
+    // タスクを削除
     await deleteTaskRepo(req.params.id, user.orgId);
+
+    // アクティビティログを記録
+    await logActivity({
+      orgId: user.orgId,
+      projectId: task.projectId,
+      type: 'task.deleted',
+      userId: user.id,
+      userName: user.displayName || '',
+      userEmail: user.email || '',
+      targetType: 'task',
+      targetId: req.params.id,
+      targetName: task.タスク名,
+      action: '削除',
+    });
+
     res.json({ ok: true });
   } catch (error) {
     next(error);

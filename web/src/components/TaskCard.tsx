@@ -1,4 +1,4 @@
-import { BellRing, CalendarPlus, CheckCircle2 } from 'lucide-react';
+import { BellRing, CalendarPlus, CheckCircle2, Trash2 } from 'lucide-react';
 import React from 'react';
 import { STATUS_PROGRESS } from '../lib/constants';
 
@@ -11,6 +11,7 @@ interface TaskCardProps {
   status: string;
   progress?: number;
   onComplete(): void;
+  onDelete?(): void;
   onSeedReminders?(): void;
   onCalendarSync?(): void;
   seedBusy?: boolean;
@@ -25,6 +26,7 @@ export function TaskCard({
   progress,
   status,
   onComplete,
+  onDelete,
   onSeedReminders,
   onCalendarSync,
   seedBusy,
@@ -55,7 +57,7 @@ export function TaskCard({
       <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
         <div className="h-2 rounded-full bg-slate-800" style={{ width: `${pct}%` }} />
       </div>
-      {(onSeedReminders || onCalendarSync) ? (
+      {(onSeedReminders || onCalendarSync || onDelete) ? (
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
           {onSeedReminders ? (
             <button
@@ -75,6 +77,16 @@ export function TaskCard({
               disabled={calendarBusy}
             >
               <CalendarPlus className="h-3.5 w-3.5" /> カレンダー
+            </button>
+          ) : null}
+          {onDelete ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-rose-200 px-2.5 py-1 text-rose-600 transition hover:bg-rose-50"
+              onClick={onDelete}
+              title="タスクを削除"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> 削除
             </button>
           ) : null}
         </div>

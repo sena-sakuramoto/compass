@@ -4,6 +4,14 @@ import { getCachedIdToken } from './authToken';
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
+// カスタムエラークラス（ステータスコードを保持）
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public statusText: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 export function buildAuthHeaders(token?: string): Record<string, string> {
   if (!token) return {};
   const value = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
@@ -69,18 +77,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const text = await res.text();
-    console.error(`[api] ${options.method || 'GET'} ${path} failed:`, {
-      status: res.status,
-      statusText: res.statusText,
-      response: text,
-      hasAuthHeader: !!token,
-    });
 
-    if (res.status === 401) {
-      throw new Error(`認証エラー (401): ログインしていないか、トークンが無効です。\n${text || res.statusText}`);
+    // 404エラーはdebugレベルで記録（プロジェクトがFirestoreに存在しない可能性）
+    if (res.status === 404) {
+      console.debug(`[api] ${options.method || 'GET'} ${path} not found (404)`);
+    } else {
+      console.error(`[api] ${options.method || 'GET'} ${path} failed:`, {
+        status: res.status,
+        statusText: res.statusText,
+        response: text,
+        hasAuthHeader: !!token,
+      });
     }
 
-    throw new Error(text || res.statusText);
+    if (res.status === 401) {
+      throw new ApiError(`認証エラー (401): ログインしていないか、トークンが無効です。\n${text || res.statusText}`, res.status, res.statusText);
+    }
+
+    throw new ApiError(text || res.statusText, res.status, res.statusText);
   }
 
   console.debug(`[api] ${options.method || 'GET'} ${path} succeeded (${res.status})`);

@@ -3,6 +3,7 @@ import { Routes, Route, NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   BarChart3,
+  Banknote,
   Download,
   FileJson,
   FileSpreadsheet,
@@ -27,6 +28,7 @@ import {
   updatePerson,
   updateTask,
   deleteTask,
+  deleteProject,
   completeTask,
   importExcel,
   exportExcel,
@@ -36,6 +38,7 @@ import {
   seedTaskReminders,
   syncTaskCalendar,
   listProjectMembers,
+  ApiError,
 } from './lib/api';
 import { Filters } from './components/Filters';
 import { ProjectCard } from './components/ProjectCard';
@@ -734,10 +737,11 @@ interface TaskModalProps extends ModalProps {
     '通知設定'?: TaskNotificationSettings;
   }): Promise<void>;
   onUpdate?(taskId: string, updates: Partial<Task>): Promise<void>;
+  onDelete?(taskId: string): Promise<void>;
   onNotify?(message: ToastInput): void;
 }
 
-function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit, onUpdate, onNotify }: TaskModalProps) {
+function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit, onUpdate, onDelete, onNotify }: TaskModalProps) {
   const [project, setProject] = useState('');
   const [assignee, setAssignee] = useState('');
   const [assigneeEmail, setAssigneeEmail] = useState('');
@@ -1188,13 +1192,41 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
             </label>
           </div>
         </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className="rounded-2xl border px-4 py-1.5 text-sm" onClick={() => onOpenChange(false)}>
-            キャンセル
-          </button>
-          <button type="submit" className="rounded-2xl bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white">
-            {editingTask ? '保存' : '追加'}
-          </button>
+        <div className="flex items-center justify-between pt-2">
+          {/* 削除ボタン（編集モード時のみ表示） */}
+          {editingTask && onDelete ? (
+            <button
+              type="button"
+              onClick={async () => {
+                if (!editingTask) return;
+                if (!confirm(`タスク「${editingTask.タスク名}」を削除しますか？この操作は取り消せません。`)) {
+                  return;
+                }
+                try {
+                  await onDelete(editingTask.id);
+                  onOpenChange(false);
+                } catch (err) {
+                  console.error(err);
+                  onNotify?.({ tone: 'error', title: 'タスクの削除に失敗しました' });
+                }
+              }}
+              className="rounded-2xl bg-red-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
+            >
+              削除
+            </button>
+          ) : (
+            <div />
+          )}
+
+          {/* キャンセル・保存ボタン */}
+          <div className="flex gap-2">
+            <button type="button" className="rounded-2xl border px-4 py-1.5 text-sm" onClick={() => onOpenChange(false)}>
+              キャンセル
+            </button>
+            <button type="submit" className="rounded-2xl bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white">
+              {editingTask ? '保存' : '追加'}
+            </button>
+          </div>
         </div>
       </form>
     </Modal>
@@ -1578,6 +1610,7 @@ function DashboardPage({
   canEdit,
   canSync,
   setManagingMembersProject,
+  allProjectMembers,
 }: {
   projects: ProjectWithDerived[];
   filteredTasks: Task[];
@@ -1592,6 +1625,7 @@ function DashboardPage({
   canEdit: boolean;
   canSync: boolean;
   setManagingMembersProject: (project: Project | null) => void;
+  allProjectMembers: Map<string, ProjectMember[]>;
 }) {
   const today = new Date();
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -1608,10 +1642,10 @@ function DashboardPage({
     [filteredTasks, startOfToday]
   );
   const averageProgress = useMemo(() => {
-    if (!filteredTasks.length) return 0;
-    const total = filteredTasks.reduce((sum, task) => sum + computeProgress(task.progress, task.ステータス), 0);
-    return Math.round((total / filteredTasks.length) * 100);
-  }, [filteredTasks]);
+    if (!projects.length) return 0;
+    const total = projects.reduce((sum, project) => sum + (project.progressAggregate ?? 0), 0);
+    return Math.round((total / projects.length) * 100);
+  }, [projects]);
   const activeMembersCount = useMemo(() => {
     const members = new Set<string>();
     filteredTasks.forEach((task) => {
@@ -1620,6 +1654,9 @@ function DashboardPage({
     });
     return members.size;
   }, [filteredTasks]);
+  const totalConstructionCost = useMemo(() => {
+    return projects.reduce((sum, project) => sum + (project.施工費 ?? 0), 0);
+  }, [projects]);
 
   const stats = useMemo(
     () => [
@@ -1645,18 +1682,18 @@ function DashboardPage({
         label: '平均進捗',
         value: `${averageProgress}%`,
         accent: 'neutral' as const,
-        note: '表示中タスクの平均値',
+        note: 'プロジェクトの平均値',
       },
       {
-        id: 'active_members',
-        icon: Users,
-        label: '稼働メンバー',
-        value: activeMembersCount.toString(),
+        id: 'construction_cost',
+        icon: Banknote,
+        label: '施工費合計',
+        value: totalConstructionCost.toLocaleString() + '円',
         accent: 'neutral' as const,
-        note: '',
+        note: `${projects.length}件のプロジェクト`,
       },
     ],
-    [filteredTasks.length, openTaskCount, overdueCount, averageProgress, activeMembersCount, filtersProps.hasActiveFilters, filtersProps.assignees.length]
+    [filteredTasks.length, openTaskCount, overdueCount, averageProgress, totalConstructionCost, projects.length, filtersProps.hasActiveFilters, filtersProps.assignees.length]
   );
 
   const activeFilterChips = useMemo(() => {
@@ -1774,7 +1811,7 @@ function DashboardPage({
             ))}
           </div>
         ) : null}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-7">
           {projects.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
               条件に一致するプロジェクトがありません。フィルタを調整するか、新しいプロジェクトを追加してください。
@@ -1784,33 +1821,67 @@ function DashboardPage({
               // プロジェクトに関連するタスクを取得
               const relatedTasks = allTasks.filter((task) => task.projectId === project.id);
 
-              // 遅延タスクをチェック（期限超過 & 未完了 & 非マイルストーン）
-              const overdueTasks = relatedTasks.filter((task) => {
-                if (task.ステータス === '完了' || task.マイルストーン) return false;
-                const deadline = parseDate(task.期限);
-                if (!deadline) return false;
-                return deadline < today;
-              });
-
               let dueLabel: string | undefined;
               let overdue = false;
 
-              if (overdueTasks.length > 0) {
-                // 遅延タスクがある場合
-                dueLabel = `${overdueTasks.length} 件のタスクが遅延`;
-                overdue = true;
+              // プロジェクトが完了している場合は期限超過判定をスキップ
+              const isProjectCompleted = project.ステータス === '完了';
+
+              if (isProjectCompleted) {
+                // 完了済みプロジェクトは期限表示なし
+                dueLabel = undefined;
+                overdue = false;
               } else {
-                // 遅延タスクがない場合、最も近い期限を表示
-                const dueCandidate = parseDate(project.nearestDue ?? project.予定完了日 ?? project.span?.end ?? null);
-                if (dueCandidate) {
-                  const diffDays = Math.ceil((dueCandidate.getTime() - today.getTime()) / DAY_MS);
-                  if (diffDays > 0) {
-                    dueLabel = `残り ${diffDays} 日`;
-                  } else if (diffDays === 0) {
-                    dueLabel = '今日が期限';
+                // 期限超過タスクをチェック（サマリーと同じロジック）
+                const overdueTasks = relatedTasks.filter((task) => {
+                  const deadline = parseDate(task.end ?? task.期限 ?? task.実績完了日);
+                  return deadline ? deadline.getTime() < startOfToday.getTime() && task.ステータス !== '完了' : false;
+                });
+
+                if (overdueTasks.length > 0) {
+                  // 期限超過タスクがある場合
+                  dueLabel = `${overdueTasks.length} 件が期限超過`;
+                  overdue = true;
+                } else {
+                  // 期限超過なし：最も近い期限を表示
+                  const projectDueDate = parseDate(project.予定完了日 ?? project.span?.end ?? null);
+                  if (projectDueDate) {
+                    const diffDays = Math.ceil((projectDueDate.getTime() - startOfToday.getTime()) / DAY_MS);
+                    if (diffDays > 0) {
+                      dueLabel = `残り ${diffDays} 日`;
+                    } else if (diffDays === 0) {
+                      dueLabel = '今日が期限';
+                    } else if (diffDays < 0) {
+                      // プロジェクト自体が期限超過
+                      dueLabel = `${Math.abs(diffDays)} 日超過`;
+                      overdue = true;
+                    }
                   }
                 }
               }
+
+              // プロジェクトメンバーから主要役割を抽出（複数人対応）
+              const members = allProjectMembers.get(project.id) || [];
+
+              // 役職の優先順位
+              const roleOrder: Record<string, number> = {
+                'owner': 1,
+                'manager': 2,
+                'member': 3,
+                'viewer': 4,
+              };
+
+              // 役職順にソートしてから名前を結合
+              const sortByRole = (filtered: ProjectMember[]) =>
+                filtered
+                  .sort((a, b) => (roleOrder[a.role] || 999) - (roleOrder[b.role] || 999))
+                  .map(m => m.displayName)
+                  .join('、');
+
+              const 営業 = sortByRole(members.filter((m: ProjectMember) => m.職種 === '営業'));
+              const PM = sortByRole(members.filter((m: ProjectMember) => m.職種 === 'PM'));
+              const 設計 = sortByRole(members.filter((m: ProjectMember) => m.職種 === '設計'));
+              const 施工管理 = sortByRole(members.filter((m: ProjectMember) => m.職種 === '施工管理'));
 
               return (
                 <motion.div key={project.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
@@ -1826,8 +1897,13 @@ function DashboardPage({
                     openTasks={project.openTaskCount}
                     dueLabel={dueLabel}
                     overdue={overdue}
+                    folderUrl={project['フォルダURL']}
+                    施工費={project.施工費}
+                    営業={営業}
+                    PM={PM}
+                    設計={設計}
+                    施工管理={施工管理}
                     onClick={() => onEditProject(project)}
-                    onManageMembers={canSync ? () => setManagingMembersProject(project) : undefined}
                   />
                 </motion.div>
               );
@@ -1869,6 +1945,7 @@ function TasksPage({
   people,
   onComplete,
   onTaskUpdate: updateTask,
+  onDeleteTask,
   onOpenTask,
   onOpenProject,
   onOpenPerson,
@@ -1884,6 +1961,7 @@ function TasksPage({
   people: Person[];
   onComplete(task: Task, done: boolean): void;
   onTaskUpdate(taskId: string, updates: Partial<Task>): void;
+  onDeleteTask(taskId: string): Promise<void>;
   onOpenTask(): void;
   onOpenProject(): void;
   onOpenPerson(): void;
@@ -2803,6 +2881,7 @@ function App() {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
+  const [allProjectMembers, setAllProjectMembers] = useState<Map<string, ProjectMember[]>>(new Map());
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
   const toastTimers = useRef<Map<string, number>>(new Map());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -2848,6 +2927,35 @@ function App() {
 
   const canSync = authSupported && Boolean(user);
   const canEdit = true;
+
+  // プロジェクトメンバーを一括取得
+  useEffect(() => {
+    if (!canSync) return;
+
+    const loadAllMembers = async () => {
+      const newMembersMap = new Map<string, ProjectMember[]>();
+
+      for (const project of state.projects) {
+        try {
+          const members = await listProjectMembers(project.id, { status: 'active' });
+          newMembersMap.set(project.id, members);
+        } catch (error: any) {
+          // 404エラーの場合は警告レベルを下げる（プロジェクトがまだFirestoreに保存されていない可能性）
+          if (error?.status === 404) {
+            console.debug(`Project ${project.id} not found in Firestore, skipping member load`);
+          } else {
+            console.warn(`Failed to load members for project ${project.id}:`, error);
+          }
+          newMembersMap.set(project.id, []);
+        }
+      }
+
+      setAllProjectMembers(newMembersMap);
+    };
+
+    loadAllMembers();
+  }, [state.projects, canSync]);
+
   const generateLocalId = useCallback((prefix: string) => {
     return `local-${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   }, []);
@@ -3234,6 +3342,59 @@ function App() {
     } catch (error) {
       console.error('[Project] Failed to create project:', error);
       const errorMessage = error instanceof Error ? error.message : 'プロジェクトの追加に失敗しました';
+      pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
+    }
+  };
+
+  const handleDeleteProject = async (project: Project) => {
+    if (!confirm(`プロジェクト「${project.物件名}」を削除しますか？この操作は取り消せません。`)) {
+      return;
+    }
+
+    if (!canSync) {
+      setState((current) => ({
+        ...current,
+        projects: current.projects.filter((p) => p.id !== project.id),
+      }));
+      pushToast({ tone: 'success', title: 'プロジェクトを削除しました（ローカル保存）' });
+      return;
+    }
+
+    try {
+      await deleteProject(project.id);
+      pushToast({ tone: 'success', title: `プロジェクト「${project.物件名}」を削除しました` });
+      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+    } catch (error) {
+      console.error('[Project] Failed to delete project:', error);
+      const errorMessage = error instanceof Error ? error.message : 'プロジェクトの削除に失敗しました';
+      pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    const task = state.tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    if (!confirm(`タスク「${task.タスク名}」を削除しますか？この操作は取り消せません。`)) {
+      return;
+    }
+
+    if (!canSync) {
+      setState((current) => ({
+        ...current,
+        tasks: current.tasks.filter((t) => t.id !== taskId),
+      }));
+      pushToast({ tone: 'success', title: 'タスクを削除しました（ローカル保存）' });
+      return;
+    }
+
+    try {
+      await deleteTask(taskId);
+      pushToast({ tone: 'success', title: `タスク「${task.タスク名}」を削除しました` });
+      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+    } catch (error) {
+      console.error('[Task] Failed to delete task:', error);
+      const errorMessage = error instanceof Error ? error.message : 'タスクの削除に失敗しました';
       pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
     }
   };
@@ -3738,6 +3899,7 @@ function App() {
                 canEdit={canEdit}
                 canSync={canSync}
                 setManagingMembersProject={setManagingMembersProject}
+                allProjectMembers={allProjectMembers}
               />
             }
           />
@@ -3751,6 +3913,7 @@ function App() {
                 people={state.people}
                 onComplete={handleComplete}
                 onTaskUpdate={handleTaskUpdate}
+                onDeleteTask={handleDeleteTask}
                 onOpenTask={() => setTaskModalOpen(true)}
                 onOpenProject={() => {
                   setProjectDialogMode('create');
@@ -3819,6 +3982,7 @@ function App() {
         editingTask={editingTask}
         onSubmit={handleCreateTask}
         onUpdate={handleTaskUpdate}
+        onDelete={handleDeleteTask}
         onNotify={pushToast}
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
@@ -3831,6 +3995,7 @@ function App() {
             setEditingProject(null);
           }}
           onSave={handleSaveProject}
+          onDelete={handleDeleteProject}
           onTaskCreate={async (taskData) => {
             await handleCreateTask({
               projectId: taskData.projectId || '',

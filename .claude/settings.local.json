@@ -53,7 +53,8 @@
       "Bash(set GIT_COMMITTER_NAME=櫻本聖成)",
       "Bash(set GIT_COMMITTER_EMAIL=s.sakuramoto@archi-prisma.co.jp)",
       "Bash(users-api.ts)",
-      "Bash(git revert:*)"
+      "Bash(git revert:*)",
+      "Bash(gsutil mb:*)"
     ],
     "deny": [],
     "ask": []

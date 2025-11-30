@@ -1,5 +1,5 @@
 import React from 'react';
-import { BellRing, CalendarPlus } from 'lucide-react';
+import { BellRing, CalendarPlus, Trash2 } from 'lucide-react';
 import { computeProgress } from './TaskCard';
 
 export interface TaskTableRow {
@@ -18,14 +18,15 @@ interface TaskTableProps {
   rows: TaskTableRow[];
   onToggle(id: string, checked: boolean): void;
   onRowClick?(id: string): void;
+  onDelete?(id: string): void;
   onSeedReminders?(id: string): Promise<void> | void;
   onCalendarSync?(id: string): Promise<void> | void;
   seedBusyIds?: ReadonlySet<string>;
   calendarBusyIds?: ReadonlySet<string>;
 }
 
-export function TaskTable({ rows, onToggle, onRowClick, onSeedReminders, onCalendarSync, seedBusyIds, calendarBusyIds }: TaskTableProps) {
-  const showActions = Boolean(onSeedReminders || onCalendarSync);
+export function TaskTable({ rows, onToggle, onRowClick, onDelete, onSeedReminders, onCalendarSync, seedBusyIds, calendarBusyIds }: TaskTableProps) {
+  const showActions = Boolean(onSeedReminders || onCalendarSync || onDelete);
   return (
     <div className="overflow-auto rounded-2xl border border-slate-200">
       <table className="min-w-full text-sm">
@@ -40,7 +41,7 @@ export function TaskTable({ rows, onToggle, onRowClick, onSeedReminders, onCalen
             <th className="p-3 text-left">進捗</th>
             <th className="p-3 text-left">優先度</th>
             <th className="p-3 text-left">ステータス</th>
-            {showActions ? <th className="p-3 text-left">通知/同期</th> : null}
+            {showActions ? <th className="p-3 text-left">操作</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -107,6 +108,16 @@ export function TaskTable({ rows, onToggle, onRowClick, onSeedReminders, onCalen
                           title="Google カレンダーに同期"
                         >
                           <CalendarPlus className="h-3.5 w-3.5" /> カレンダー
+                        </button>
+                      ) : null}
+                      {onDelete ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-full border border-rose-200 px-2.5 py-1 text-xs text-rose-600 transition hover:bg-rose-50"
+                          onClick={() => onDelete(row.id)}
+                          title="タスクを削除"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> 削除
                         </button>
                       ) : null}
                     </div>

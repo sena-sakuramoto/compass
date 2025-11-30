@@ -52,7 +52,7 @@ export async function addProjectMember(
       orgId: user.orgId,
       orgName: org?.name || user.orgId,
       role: input.role,
-      職種: user.職種,
+      職種: input.職種 || user.職種, // 招待時に指定された職種を優先、なければユーザーの職種
       permissions,
       invitedBy,
       invitedAt: now,
@@ -79,6 +79,7 @@ export async function addProjectMember(
       orgId,
       orgName: '',
       role: input.role,
+      職種: input.職種, // 招待時に指定された職種
       permissions,
       invitedBy,
       invitedAt: now,
@@ -166,7 +167,7 @@ export async function updateProjectMember(
   orgId: string,
   projectId: string,
   userId: string,
-  updates: Partial<Pick<ProjectMember, 'role' | 'permissions' | 'status'>>
+  updates: Partial<Pick<ProjectMember, 'role' | 'permissions' | 'status' | '職種'>>
 ): Promise<void> {
   // 入力バリデーション
   if (!orgId || !projectId || !userId) {

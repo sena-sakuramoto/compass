@@ -1,8 +1,23 @@
 import { useState, useEffect } from 'react';
-import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle } from 'lucide-react';
-import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS } from '../lib/auth-types';
+import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase } from 'lucide-react';
+import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, 職種Type } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
 import { buildAuthHeaders, listManageableProjectUsers } from '../lib/api';
+
+// 職種の選択肢
+const JOB_TYPE_OPTIONS: (職種Type | '')[] = [
+  '',
+  '営業',
+  'PM',
+  '設計',
+  '施工管理',
+  '設備（給排水）',
+  '設備（電気）',
+  '厨房',
+  '看板',
+  '家具',
+  'その他',
+];
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
@@ -17,6 +32,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<ProjectRole>('member');
+  const [inviteJob, setInviteJob] = useState<職種Type | ''>('');
   const [inviteMessage, setInviteMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,6 +127,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       const input: ProjectMemberInput = {
         email: inviteEmail,
         role: inviteRole,
+        職種: inviteJob || undefined,
         message: inviteMessage || undefined,
       };
 
@@ -185,6 +202,28 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     } catch (err) {
       console.error('Error updating member:', err);
       setError('メンバーの更新に失敗しました');
+    }
+  };
+
+  const handleUpdateJobType = async (userId: string, newJobType: 職種Type | '') => {
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...buildAuthHeaders(token),
+        },
+        body: JSON.stringify({ 職種: newJobType || null }),
+      });
+
+      if (!response.ok) throw new Error('Failed to update member');
+
+      setSuccess('メンバーの職種を更新しました');
+      loadMembers();
+    } catch (err) {
+      console.error('Error updating member job type:', err);
+      setError('職種の更新に失敗しました');
     }
   };
 
@@ -372,21 +411,43 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    ロール *
-                  </label>
-                  <div className="relative">
-                    <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                    <select
-                      value={inviteRole}
-                      onChange={(e) => setInviteRole(e.target.value as ProjectRole)}
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
-                    >
-                      {Object.entries(PROJECT_ROLE_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
-                      ))}
-                    </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      ロール *
+                    </label>
+                    <div className="relative">
+                      <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <select
+                        value={inviteRole}
+                        onChange={(e) => setInviteRole(e.target.value as ProjectRole)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
+                      >
+                        {Object.entries(PROJECT_ROLE_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      職種
+                    </label>
+                    <div className="relative">
+                      <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <select
+                        value={inviteJob}
+                        onChange={(e) => setInviteJob(e.target.value as 職種Type | '')}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
+                      >
+                        {JOB_TYPE_OPTIONS.map((job) => (
+                          <option key={job || 'none'} value={job}>
+                            {job || '未設定'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
 
@@ -416,6 +477,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                     onClick={() => {
                       setShowInviteForm(false);
                       setInviteEmail('');
+                      setInviteJob('');
                       setInviteMessage('');
                       setSelectedCandidateId('');
                     }}
@@ -460,17 +522,30 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      <select
-                        value={member.role}
-                        onChange={(e) => handleUpdateRole(member.userId, e.target.value as ProjectRole)}
-                        className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={member.role === 'owner'}
-                      >
-                        {Object.entries(PROJECT_ROLE_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>{label}</option>
-                        ))}
-                      </select>
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-2">
+                        <select
+                          value={member.role}
+                          onChange={(e) => handleUpdateRole(member.userId, e.target.value as ProjectRole)}
+                          className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          disabled={member.role === 'owner'}
+                        >
+                          {Object.entries(PROJECT_ROLE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={member.職種 || ''}
+                          onChange={(e) => handleUpdateJobType(member.userId, e.target.value as 職種Type | '')}
+                          className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          {JOB_TYPE_OPTIONS.map((job) => (
+                            <option key={job || 'none'} value={job}>
+                              {job || '未設定'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
                       {member.role !== 'owner' && (
                         <button

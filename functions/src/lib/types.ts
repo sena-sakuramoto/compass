@@ -17,6 +17,7 @@ export interface Project {
   '所在地/現地'?: string | null;
   フォルダURL?: string | null;
   備考?: string | null;
+  施工費?: number | null;
   createdAt: FirebaseFirestore.Timestamp;
   updatedAt: FirebaseFirestore.Timestamp;
 }
@@ -46,6 +47,9 @@ export interface Task {
   '依存タスク'?: string[] | null;
   'カレンダーイベントID'?: string | null;
   '通知設定'?: TaskNotificationSettings | null;
+  スプリント?: string | null;
+  フェーズ?: string | null;
+  マイルストーン?: boolean | null;
   createdAt: FirebaseFirestore.Timestamp;
   updatedAt: FirebaseFirestore.Timestamp;
 }

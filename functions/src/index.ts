@@ -17,8 +17,12 @@ import invitationsRouter from './api/invitations';
 import activityLogsRouter from './api/activity-logs';
 import orgInvitationsRouter from './api/org-invitations';
 import adminCleanupRouter from './api/admin-cleanup';
+import notificationsRouter from './api/notifications-api';
+import clientsRouter from './api/clients-api';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
+import { cleanupDeletedItems } from './cleanupDeletedItems';
+import { firestoreBackup } from './firestoreBackup';
 
 const app = express();
 
@@ -60,6 +64,8 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/invitations', invitationsRouter);
 app.use('/api/org-invitations', orgInvitationsRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/clients', clientsRouter);
 app.use('/api', projectMembersRouter);
 app.use('/api', activityLogsRouter);
 app.use('/api', excelRouter);
@@ -125,3 +131,9 @@ export const taskReminderScheduler = onSchedule({
   }
   await runDailyTaskReminders();
 });
+
+// 削除済みアイテムの自動クリーンアップ（毎日3:00に実行）
+export { cleanupDeletedItems };
+
+// Firestoreバックアップ（毎日2:00に実行）
+export { firestoreBackup };

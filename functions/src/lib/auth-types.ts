@@ -154,11 +154,27 @@ export interface UserInput {
 }
 
 /**
+ * 職種の選択肢
+ */
+export type 職種Type =
+  | '営業'
+  | 'PM'
+  | '設計'
+  | '施工管理'
+  | '設備（給排水）'
+  | '設備（電気）'
+  | '厨房'
+  | '看板'
+  | '家具'
+  | 'その他';
+
+/**
  * プロジェクトメンバー招待時の入力データ
  */
 export interface ProjectMemberInput {
   email: string;
   role: ProjectRole;
+  職種?: 職種Type | string;     // 職種（オプション）
   permissions?: Partial<ProjectPermissions>; // カスタム権限（オプション）
   message?: string;              // 招待メッセージ（オプション）
 }

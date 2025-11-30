@@ -46,12 +46,23 @@ export async function verifyToken(token?: string) {
       uid: decoded.uid,
       email: decoded.email,
     });
-    if (!isAllowedEmail(decoded.email)) {
-      console.warn('[Auth] Email not in allow list:', decoded.email, 'Allow list:', allowList);
-      return null;
+
+    // ALLOW_EMAILSに含まれているかチェック
+    if (isAllowedEmail(decoded.email)) {
+      console.log('[Auth] Email is in allow list:', decoded.email);
+      return decoded;
     }
-    console.log('[Auth] Email is allowed:', decoded.email);
-    return decoded;
+
+    // ALLOW_EMAILSに含まれていない場合、招待されているかチェック
+    console.log('[Auth] Email not in allow list, checking for invitations:', decoded.email);
+    const hasInvitation = await checkUserHasInvitation(decoded.email);
+    if (hasInvitation) {
+      console.log('[Auth] User has valid invitation:', decoded.email);
+      return decoded;
+    }
+
+    console.warn('[Auth] Email not in allow list and no invitation found:', decoded.email, 'Allow list:', allowList);
+    return null;
   } catch (err) {
     console.warn('[Auth] Failed to verify token:', err);
     return null;
@@ -73,6 +84,183 @@ function isAllowedEmail(email?: string | null) {
     }
     return rule.toLowerCase() === email.toLowerCase();
   });
+}
+
+/**
+ * ユーザーが有効な招待を持っているかチェック
+ */
+async function checkUserHasInvitation(email?: string | null): Promise<boolean> {
+  if (!email) return false;
+
+  try {
+    const db = admin.firestore();
+
+    // 全ての組織の招待をチェック
+    const orgsSnapshot = await db.collection('orgs').get();
+
+    for (const orgDoc of orgsSnapshot.docs) {
+      // 組織メンバー招待をチェック
+      const orgInvitationsSnapshot = await db
+        .collection('orgs')
+        .doc(orgDoc.id)
+        .collection('invitations')
+        .where('email', '==', email)
+        .where('status', '==', 'pending')
+        .get();
+
+      if (!orgInvitationsSnapshot.empty) {
+        // 有効期限をチェック
+        for (const invDoc of orgInvitationsSnapshot.docs) {
+          const invData = invDoc.data();
+          const expiresAt = invData.expiresAt?.toMillis?.() || 0;
+          if (expiresAt > Date.now()) {
+            console.log('[Auth] Found valid org invitation for:', email);
+            return true;
+          }
+        }
+      }
+    }
+
+    // プロジェクトメンバー招待をチェック
+    const projectMembersSnapshot = await db
+      .collection('project_members')
+      .where('email', '==', email)
+      .where('status', '==', 'invited')
+      .get();
+
+    if (!projectMembersSnapshot.empty) {
+      console.log('[Auth] Found valid project member invitation for:', email);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('[Auth] Error checking invitations:', error);
+    return false;
+  }
+}
+
+/**
+ * 招待情報からユーザードキュメントを作成（共通ヘルパー）
+ */
+export async function ensureUserDocument(uid: string, email: string): Promise<any | null> {
+  try {
+    const db = admin.firestore();
+    const FieldValue = admin.firestore.FieldValue;
+
+    // 既存のユーザードキュメントをチェック
+    const userDoc = await db.collection('users').doc(uid).get();
+    if (userDoc.exists) {
+      return userDoc.data();
+    }
+
+    console.log('[Auth] User document not found, checking for invitations:', email);
+
+    // 組織招待をチェック
+    const orgsSnapshot = await db.collection('orgs').get();
+
+    for (const orgDoc of orgsSnapshot.docs) {
+      const orgInvitationsSnapshot = await db
+        .collection('orgs')
+        .doc(orgDoc.id)
+        .collection('invitations')
+        .where('email', '==', email)
+        .where('status', '==', 'pending')
+        .get();
+
+      if (!orgInvitationsSnapshot.empty) {
+        const invDoc = orgInvitationsSnapshot.docs[0];
+        const invData = invDoc.data();
+
+        // 有効期限をチェック
+        const expiresAt = invData.expiresAt?.toMillis?.() || 0;
+        if (expiresAt < Date.now()) {
+          console.log('[Auth] Invitation expired for:', email);
+          continue;
+        }
+
+        // ユーザードキュメントを作成
+        const user = {
+          id: uid,
+          email: email,
+          displayName: invData.displayName || email.split('@')[0],
+          orgId: invData.orgId,
+          orgName: invData.orgId,
+          role: invData.role || 'viewer',
+          memberType: invData.memberType || 'guest',
+          職種: null,
+          部署: null,
+          電話番号: null,
+          photoURL: null,
+          isActive: true,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          lastLogin: FieldValue.serverTimestamp(),
+        };
+
+        await db.collection('users').doc(uid).set(user);
+
+        // 招待のステータスを更新
+        await invDoc.ref.update({
+          status: 'accepted',
+          acceptedAt: FieldValue.serverTimestamp(),
+          acceptedBy: uid,
+        });
+
+        console.log('[Auth] User created from org invitation:', email);
+        return { ...user, id: uid };
+      }
+    }
+
+    // プロジェクトメンバー招待をチェック
+    const projectMembersSnapshot = await db
+      .collection('project_members')
+      .where('email', '==', email)
+      .where('status', '==', 'invited')
+      .limit(1)
+      .get();
+
+    if (!projectMembersSnapshot.empty) {
+      const memberDoc = projectMembersSnapshot.docs[0];
+      const memberData = memberDoc.data();
+
+      // ユーザードキュメントを作成
+      const user = {
+        id: uid,
+        email: email,
+        displayName: memberData.displayName || email.split('@')[0],
+        orgId: memberData.orgId || 'archi-prisma',
+        orgName: memberData.orgName || memberData.orgId || 'archi-prisma',
+        role: memberData.role || 'viewer',
+        memberType: 'guest',
+        職種: memberData.職種 || null,
+        部署: null,
+        電話番号: null,
+        photoURL: null,
+        isActive: true,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        lastLogin: FieldValue.serverTimestamp(),
+      };
+
+      await db.collection('users').doc(uid).set(user);
+
+      // プロジェクトメンバーのステータスを更新
+      await memberDoc.ref.update({
+        userId: uid,
+        status: 'active',
+        joinedAt: FieldValue.serverTimestamp(),
+      });
+
+      console.log('[Auth] User created from project member invitation:', email);
+      return { ...user, id: uid };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[Auth] Error ensuring user document:', error);
+    return null;
+  }
 }
 
 export function authMiddleware(): (req: AuthedRequest, res: Response, next: NextFunction) => Promise<void> {
@@ -98,9 +286,13 @@ export function authMiddleware(): (req: AuthedRequest, res: Response, next: Next
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
+
+    // ユーザードキュメントを確保（存在しない場合は招待から作成）
+    await ensureUserDocument(decoded.uid, decoded.email || '');
+
     console.log('[Auth] Authentication successful for:', decoded.email);
     req.user = decoded;
-    req.uid = decoded.uid; // req.uidとしてもアクセスできるようにする
+    req.uid = decoded.uid;
     next();
   };
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users } from 'lucide-react';
+import { FolderOpen, ExternalLink, Users2, Briefcase, Pencil, HardHat, Banknote } from 'lucide-react';
 
 interface ProjectCardProps {
   id: string;
@@ -13,33 +13,35 @@ interface ProjectCardProps {
   dueLabel?: string;
   overdue?: boolean;
   openTasks?: number;
+  folderUrl?: string;
+  施工費?: number;
+  営業?: string;
+  PM?: string;
+  設計?: string;
+  施工管理?: string;
   onClick?: () => void;
-  onManageMembers?: (e: React.MouseEvent) => void;
 }
 
 const statusTone: Record<string, string> = {
-  完了: 'bg-emerald-100 text-emerald-700',
-  進行中: 'bg-sky-100 text-sky-700',
-  未着手: 'bg-slate-100 text-slate-700',
-  確認待ち: 'bg-amber-100 text-amber-700',
-  保留: 'bg-amber-100 text-amber-700',
-  計画中: 'bg-slate-100 text-slate-700',
-  見積: 'bg-purple-100 text-purple-700',
-  実施中: 'bg-sky-100 text-sky-700',
-  設計中: 'bg-sky-100 text-sky-700',
+  完了: 'bg-slate-200 text-slate-700',
+  進行中: 'bg-slate-200 text-slate-700',
+  未着手: 'bg-slate-100 text-slate-600',
+  確認待ち: 'bg-slate-200 text-slate-700',
+  保留: 'bg-slate-100 text-slate-600',
+  計画中: 'bg-slate-100 text-slate-600',
+  見積: 'bg-slate-200 text-slate-700',
+  実施中: 'bg-slate-200 text-slate-700',
+  設計中: 'bg-slate-200 text-slate-700',
 };
 
 const priorityTone: Record<string, string> = {
   高: 'bg-rose-100 text-rose-700',
-  中: 'bg-amber-100 text-amber-700',
-  低: 'bg-slate-100 text-slate-600',
+  中: 'bg-slate-100 text-slate-600',
+  低: 'bg-slate-50 text-slate-500',
 };
 
 function progressColor(pct: number) {
-  if (pct >= 90) return 'bg-emerald-500';
-  if (pct >= 60) return 'bg-sky-500';
-  if (pct >= 30) return 'bg-amber-500';
-  return 'bg-rose-500';
+  return 'bg-slate-700';
 }
 
 export function ProjectCard({
@@ -53,8 +55,13 @@ export function ProjectCard({
   dueLabel,
   overdue,
   openTasks,
+  folderUrl,
+  施工費,
+  営業,
+  PM,
+  設計,
+  施工管理,
   onClick,
-  onManageMembers,
 }: ProjectCardProps) {
   const pct = Math.round(progress * 100);
   const statusClass = statusTone[status] ?? 'bg-slate-100 text-slate-600';
@@ -98,17 +105,57 @@ export function ProjectCard({
           </div>
         ) : null}
       </div>
-      {onManageMembers && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onManageMembers(e);
-          }}
-          className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+
+      {/* 施工費 */}
+      {施工費 !== undefined && 施工費 !== null && (
+        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700 bg-slate-50 px-3 py-2 rounded-lg">
+          <Banknote className="w-4 h-4 text-slate-500" />
+          <span>{施工費.toLocaleString()}円</span>
+        </div>
+      )}
+
+      {/* メンバー情報 */}
+      {(営業 || PM || 設計 || 施工管理) && (
+        <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+          {営業 && (
+            <div className="flex items-center gap-1 truncate">
+              <Briefcase className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+              <span className="truncate">営業：{営業}</span>
+            </div>
+          )}
+          {PM && (
+            <div className="flex items-center gap-1 truncate">
+              <Users2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+              <span className="truncate">PM：{PM}</span>
+            </div>
+          )}
+          {設計 && (
+            <div className="flex items-center gap-1 truncate">
+              <Pencil className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+              <span className="truncate">設計：{設計}</span>
+            </div>
+          )}
+          {施工管理 && (
+            <div className="flex items-center gap-1 truncate">
+              <HardHat className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+              <span className="truncate">施工管理：{施工管理}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {folderUrl && (
+        <a
+          href={folderUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-slate-600 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
         >
-          <Users className="w-4 h-4" />
-          メンバー管理
-        </button>
+          <FolderOpen className="w-4 h-4" />
+          フォルダを開く
+          <ExternalLink className="w-3 h-3" />
+        </a>
       )}
     </div>
   );

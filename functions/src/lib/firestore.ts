@@ -74,16 +74,41 @@ function normalizeAssigneeEmail(value?: string | null): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-export async function listProjects(orgId?: string) {
+export async function listProjects(orgId?: string, includeDeleted = false) {
   const targetOrgId = orgId ?? ORG_ID;
   const snap = await db.collection('orgs').doc(targetOrgId).collection('projects').orderBy('updatedAt', 'desc').get();
-  return snap.docs.map((doc) => serialize<ProjectDoc>(doc));
+  const projects = snap.docs.map((doc) => serialize<ProjectDoc>(doc));
+
+  // 削除済みプロジェクトを除外（includeDeletedがfalseの場合）
+  if (!includeDeleted) {
+    return projects.filter((p) => !p.deletedAt);
+  }
+  return projects;
 }
 
-export async function getProject(orgId: string, projectId: string) {
+/**
+ * 削除済みプロジェクトのみを取得
+ */
+export async function listDeletedProjects(orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const snap = await db.collection('orgs').doc(targetOrgId).collection('projects').orderBy('deletedAt', 'desc').get();
+  return snap.docs
+    .map((doc) => serialize<ProjectDoc>(doc))
+    .filter((p) => p.deletedAt); // deletedAtがあるもののみ
+}
+
+export async function getProject(orgId: string, projectId: string, includeDeleted = false) {
   const doc = await db.collection('orgs').doc(orgId).collection('projects').doc(projectId).get();
   if (!doc.exists) return null;
-  return serialize<ProjectDoc>(doc as admin.firestore.QueryDocumentSnapshot);
+
+  const project = serialize<ProjectDoc>(doc as admin.firestore.QueryDocumentSnapshot);
+
+  // 削除済みプロジェクトを除外（includeDeletedがfalseの場合）
+  if (!includeDeleted && project.deletedAt) {
+    return null;
+  }
+
+  return project;
 }
 
 export async function listPeople(orgId?: string) {
@@ -102,7 +127,7 @@ export interface TaskListFilters {
   to?: string;
 }
 
-export async function listTasks(filters: TaskListFilters & { orgId?: string }) {
+export async function listTasks(filters: TaskListFilters & { orgId?: string; includeDeleted?: boolean }) {
   const targetOrgId = filters.orgId ?? ORG_ID;
   let ref: FirebaseFirestore.Query = db.collection('orgs').doc(targetOrgId).collection('tasks');
   if (filters.projectId) ref = ref.where('projectId', '==', filters.projectId);
@@ -113,6 +138,11 @@ export async function listTasks(filters: TaskListFilters & { orgId?: string }) {
   ref = ref.orderBy('updatedAt', 'desc');
   const snap = await ref.get();
   let results = snap.docs.map((doc) => serialize<TaskDoc>(doc));
+
+  // 削除済みタスクを除外（includeDeletedがfalseの場合）
+  if (!filters.includeDeleted) {
+    results = results.filter((t) => !t.deletedAt);
+  }
 
   const normalizeDateString = (value?: string | null): string | null => {
     if (!value) return null;
@@ -184,6 +214,17 @@ export async function listTasks(filters: TaskListFilters & { orgId?: string }) {
   }
 
   return results;
+}
+
+/**
+ * 削除済みタスクのみを取得
+ */
+export async function listDeletedTasks(orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const snap = await db.collection('orgs').doc(targetOrgId).collection('tasks').orderBy('deletedAt', 'desc').get();
+  return snap.docs
+    .map((doc) => serialize<TaskDoc>(doc))
+    .filter((t) => t.deletedAt); // deletedAtがあるもののみ
 }
 
 async function generateProjectId(orgId: string) {
@@ -356,6 +397,37 @@ export async function deleteProject(projectId: string, orgId?: string) {
   const ref = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new Error('Project not found');
+
+  // ソフトデリート: deletedAtタイムスタンプを設定
+  await ref.update({
+    deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * プロジェクトを復元（ソフトデリートを取り消し）
+ */
+export async function restoreProject(projectId: string, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new Error('Project not found');
+
+  await ref.update({
+    deletedAt: admin.firestore.FieldValue.delete(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * プロジェクトを完全削除（物理削除）
+ */
+export async function permanentlyDeleteProject(projectId: string, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new Error('Project not found');
   await ref.delete();
 }
 
@@ -442,6 +514,37 @@ export async function updateTask(taskId: string, payload: Partial<TaskInput>, or
 }
 
 export async function deleteTask(taskId: string, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new Error('Task not found');
+
+  // ソフトデリート: deletedAtタイムスタンプを設定
+  await ref.update({
+    deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * タスクを復元（ソフトデリートを取り消し）
+ */
+export async function restoreTask(taskId: string, orgId?: string) {
+  const targetOrgId = orgId ?? ORG_ID;
+  const ref = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) throw new Error('Task not found');
+
+  await ref.update({
+    deletedAt: admin.firestore.FieldValue.delete(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * タスクを完全削除（物理削除）
+ */
+export async function permanentlyDeleteTask(taskId: string, orgId?: string) {
   const targetOrgId = orgId ?? ORG_ID;
   const ref = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
   const snapshot = await ref.get();
@@ -610,6 +713,7 @@ export interface ProjectInput {
   所在地_現地?: string | null;  // Sanitized field name
   'フォルダURL'?: string | null;
   '備考'?: string | null;
+  施工費?: number | null;
 }
 
 export interface TaskInput {
@@ -639,6 +743,8 @@ export interface TaskInput {
   'カレンダーイベントID'?: string | null;
   '通知設定'?: TaskNotificationSettings | null;
   マイルストーン?: boolean | null;
+  スプリント?: string | null;
+  フェーズ?: string | null;
 }
 
 export interface PersonInput {
@@ -660,8 +766,8 @@ export interface PersonDoc {
   updatedAt?: string;
 }
 
-export type ProjectDoc = WithTimestamps<ProjectInput> & { id: string };
-export type TaskDoc = WithTimestamps<TaskInput> & { id: string };
+export type ProjectDoc = WithTimestamps<ProjectInput> & { id: string; deletedAt?: string };
+export type TaskDoc = WithTimestamps<TaskInput> & { id: string; deletedAt?: string };
 
 export interface SnapshotPayload {
   generated_at?: string;
@@ -857,7 +963,7 @@ export async function deleteInvitation(invitationId: string, orgId?: string): Pr
  */
 export async function recordTaskCreator(
   taskId: string,
-  creatorEmail: string,
+  creatorId: string,
   orgId?: string
 ): Promise<void> {
   const targetOrgId = orgId ?? ORG_ID;
@@ -868,8 +974,7 @@ export async function recordTaskCreator(
     .doc(taskId)
     .set({
       taskId,
-      createdBy: creatorEmail,
-      createdByEmail: creatorEmail,
+      createdBy: creatorId,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 }

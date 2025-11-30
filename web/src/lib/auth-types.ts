@@ -21,6 +21,21 @@ export type ProjectRole =
   | 'viewer';  // 閲覧者
 
 /**
+ * 職種
+ */
+export type 職種Type =
+  | '営業'
+  | 'PM'
+  | '設計'
+  | '施工管理'
+  | '設備（給排水）'
+  | '設備（電気）'
+  | '厨房'
+  | '看板'
+  | '家具'
+  | 'その他';
+
+/**
  * ロールの表示名
  */
 export const ROLE_LABELS: Record<Role, string> = {
@@ -106,6 +121,7 @@ export interface ProjectMember {
 export interface ProjectMemberInput {
   email: string;
   role: ProjectRole;
+  職種?: 職種Type | string;
   permissions?: Partial<ProjectPermissions>;
   message?: string;
 }

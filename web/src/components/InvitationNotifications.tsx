@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Bell, Check, X, Mail, CheckCheck } from 'lucide-react';
 import { useFirebaseAuth } from '../lib/firebaseClient';
 import { buildAuthHeaders } from '../lib/api';
+import { useLocation } from 'react-router-dom';
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
@@ -21,12 +22,44 @@ export function InvitationNotifications() {
   const [loading, setLoading] = useState(true);
   const [showDropdown, setShowDropdown] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
 
   useEffect(() => {
     if (user) {
       loadInvitations();
     }
   }, [user]);
+
+  // 外部クリックで閉じる
+  useEffect(() => {
+    if (!showDropdown) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [showDropdown]);
+
+  // ページ遷移時に閉じる
+  useEffect(() => {
+    setShowDropdown(false);
+  }, [location]);
 
   const loadInvitations = async () => {
     if (!user) return;
@@ -203,7 +236,7 @@ export function InvitationNotifications() {
   const unreadCount = invitations.length;
 
   return (
-    <div className="relative">
+    <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setShowDropdown(!showDropdown)}
         className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
@@ -218,15 +251,7 @@ export function InvitationNotifications() {
       </button>
 
       {showDropdown && (
-        <>
-          {/* オーバーレイ */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setShowDropdown(false)}
-          />
-
-          {/* ドロップダウン */}
-          <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
+        <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
             <div className="p-4 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <div>
@@ -315,7 +340,6 @@ export function InvitationNotifications() {
               )}
             </div>
           </div>
-        </>
       )}
     </div>
   );

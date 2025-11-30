@@ -83,6 +83,7 @@ const projectSchema = z.object({
   '所在地/現地': z.string().optional().nullable(),
   'フォルダURL': z.string().optional().nullable(),
   '備考': z.string().optional().nullable(),
+  施工費: z.number().optional().nullable(),
 });
 
 router.post('/', async (req: any, res, next) => {

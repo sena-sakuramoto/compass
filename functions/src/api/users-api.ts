@@ -12,7 +12,7 @@ import {
 } from '../lib/users';
 import { UserInput, MemberType } from '../lib/auth-types';
 import { canManageUsers } from '../lib/access-control';
-import { resolveAuthHeader, verifyToken } from '../lib/auth';
+import { resolveAuthHeader, verifyToken, ensureUserDocument } from '../lib/auth';
 import { canAddMember, getMemberCounts, getOrganizationLimits } from '../lib/member-limits';
 
 const router = Router();
@@ -44,8 +44,12 @@ async function authenticate(req: any, res: any, next: any) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = await getUser(decodedToken.uid);
+    // ユーザードキュメントを確保（存在しない場合は招待から作成）
+    await ensureUserDocument(decodedToken.uid, decodedToken.email || '');
+
+    let user = await getUser(decodedToken.uid);
     if (!user) {
+      console.warn('[Users][Auth] User not found and no invitation available');
       return res.status(401).json({ error: 'User not found' });
     }
 

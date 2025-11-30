@@ -99,6 +99,18 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   };
 
 
+  // Alt+スクロールでズーム
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.altKey && onZoom) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      // スクロール方向でズームイン/ズームアウト
+      const direction = e.deltaY < 0 ? 'in' : 'out';
+      onZoom(direction);
+    }
+  };
+
   // 範囲選択開始
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     // Alt+クリックで表示モード切り替え
@@ -346,12 +358,12 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   return (
     <div style={{ width: `${containerWidth}px`, minWidth: `${containerWidth}px` }}>
       {/* 時間軸（sticky固定、高さ64px） */}
-      <div className="sticky top-0 bg-white border-b border-slate-200" style={{ height: '64px', zIndex: 10 }}>
+      <div className="sticky top-0 bg-white border-b border-slate-200" style={{ height: '64px', zIndex: 30 }}>
         <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
       </div>
 
       {/* タスクバー描画エリア */}
-      <div className="relative bg-white" style={{ height: `${totalHeight}px` }} onMouseDown={handleMouseDown}>
+      <div className="relative bg-white" style={{ height: `${totalHeight}px` }} onMouseDown={handleMouseDown} onWheel={handleWheel}>
           {/* グリッド背景 */}
           <div className="absolute inset-0">
             {/* 縦線（日付の区切り） */}
@@ -413,9 +425,9 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                     // 範囲外のマイルストーンはスキップ
                     if (daysFromStart < 0 || daysFromStart >= totalDaysInclusive) return null;
 
-                    // セルの中心に配置
+                    // セルの中心に配置（マイルストーンはプロジェクトヘッダーの下部、タスク行の直前に表示）
                     const milestoneX = daysFromStart * dayWidth + (dayWidth / 2);
-                    const milestoneY = headerTop + projectHeaderHeight / 2;
+                    const milestoneY = headerTop + projectHeaderHeight * 0.85; // 下部に表示（タスク行の直前）
 
                     // マイルストーンの色を種類別に設定
                     let milestoneColor = 'bg-blue-500';
@@ -431,7 +443,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                           left: `${milestoneX}px`,
                           top: `${milestoneY}px`,
                           transform: 'translate(-50%, -50%)',
-                          zIndex: 50,
+                          zIndex: 5,
                         }}
                       >
                         {/* ダイヤモンド型のマーカー */}
@@ -441,7 +453,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                         {/* ラベル */}
                         <div
                           className="absolute top-4 left-1/2 transform -translate-x-1/2 text-xs font-medium whitespace-nowrap bg-white px-1 py-0.5 rounded shadow-sm border border-slate-200"
-                          style={{ zIndex: 51 }}
+                          style={{ zIndex: 6 }}
                         >
                           {milestone.label}
                         </div>

@@ -96,7 +96,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   return (
     <div className="border-r border-slate-200 bg-white">
       {/* ヘッダー（時間軸と同じ64px、スクロールしても常に表示） */}
-      <div className="sticky top-0 border-b border-slate-200 bg-slate-50 flex items-center px-4 text-xs font-semibold text-slate-600" style={{ height: '64px', zIndex: 10 }}>
+      <div className="sticky top-0 border-b border-slate-200 bg-slate-50 flex items-center px-4 text-xs font-semibold text-slate-600" style={{ height: '64px', zIndex: 30 }}>
         <div className="w-8"></div>
         <div className="flex-1">タスク名</div>
         <div className="w-20 text-center">担当</div>
@@ -108,7 +108,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
         {projectGroups.map((group) => (
           <div key={group.projectId}>
             {/* プロジェクトヘッダー（タイムラインと同じ32px） */}
-            <div className="bg-slate-100/50 border-b border-slate-200 flex items-center justify-between px-4 sticky z-10" style={{ height: '32px' }}>
+            <div className="bg-slate-100/50 border-b border-slate-200 flex items-center justify-between px-4" style={{ height: '32px' }}>
               <span
                 className={`text-xs font-semibold text-slate-700 ${onProjectClick ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}
                 onClick={() => onProjectClick && onProjectClick(group.projectId)}
