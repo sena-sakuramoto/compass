@@ -65,14 +65,13 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     if (canManage) {
       console.log('[AdminPage] 招待リストを読み込み中...');
       loadInvitations();
-      if (isSuperAdmin) {
-        console.log('[AdminPage] 組織リストを読み込み中...');
-        loadOrganizations();
-      }
+      // 組織リストは招待フォームで使用するため、常に読み込む
+      console.log('[AdminPage] 組織リストを読み込み中...');
+      loadOrganizations();
     } else {
       console.warn('[AdminPage] canManage=false のため、データを読み込みません');
     }
-  }, [canManage, isSuperAdmin]);
+  }, [canManage]);
 
   const loadInvitations = async () => {
     try {
@@ -324,16 +323,21 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    組織ID <span className="text-rose-500">*</span>
+                    組織 <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={inviteForm.orgId}
                     onChange={(e) => setInviteForm({ ...inviteForm, orgId: e.target.value })}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    placeholder="archi-prisma"
                     required
-                  />
+                  >
+                    <option value="">組織を選択してください</option>
+                    {organizations.map((org) => (
+                      <option key={org.id} value={org.id}>
+                        {org.name} ({org.id})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
