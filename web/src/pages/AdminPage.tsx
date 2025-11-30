@@ -348,7 +348,12 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                   </label>
                   <select
                     value={inviteForm.role}
-                    onChange={(e) => setInviteForm({ ...inviteForm, role: e.target.value })}
+                    onChange={(e) => {
+                      const newRole = e.target.value;
+                      // 管理者とPMは必ず正式メンバー
+                      const newMemberType = (newRole === 'admin' || newRole === 'project_manager') ? 'member' : inviteForm.memberType;
+                      setInviteForm({ ...inviteForm, role: newRole, memberType: newMemberType });
+                    }}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="admin">組織管理者</option>
@@ -361,19 +366,22 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    メンバータイプ <span className="text-rose-500">*</span>
-                  </label>
-                  <select
-                    value={inviteForm.memberType}
-                    onChange={(e) => setInviteForm({ ...inviteForm, memberType: e.target.value })}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  >
-                    <option value="member">正式メンバー</option>
-                    <option value="guest">ゲスト</option>
-                  </select>
-                </div>
+                {/* 管理者とPM以外のみメンバータイプを選択可能 */}
+                {inviteForm.role !== 'admin' && inviteForm.role !== 'project_manager' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      メンバータイプ <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={inviteForm.memberType}
+                      onChange={(e) => setInviteForm({ ...inviteForm, memberType: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="member">正式メンバー</option>
+                      <option value="guest">ゲスト</option>
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">有効期限（日数）</label>
