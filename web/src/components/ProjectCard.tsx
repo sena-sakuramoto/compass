@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, ExternalLink, Users2, Briefcase, Pencil, HardHat, Banknote } from 'lucide-react';
+import { FolderOpen, ExternalLink, Users2, Briefcase, Pencil, HardHat, Banknote, Building2 } from 'lucide-react';
 
 interface ProjectCardProps {
   id: string;
@@ -15,6 +15,7 @@ interface ProjectCardProps {
   openTasks?: number;
   folderUrl?: string;
   施工費?: number;
+  クライアント?: string;
   営業?: string;
   PM?: string;
   設計?: string;
@@ -57,6 +58,7 @@ export function ProjectCard({
   openTasks,
   folderUrl,
   施工費,
+  クライアント,
   営業,
   PM,
   設計,
@@ -111,6 +113,14 @@ export function ProjectCard({
         <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700 bg-slate-50 px-3 py-2 rounded-lg">
           <Banknote className="w-4 h-4 text-slate-500" />
           <span>{施工費.toLocaleString()}円</span>
+        </div>
+      )}
+
+      {/* クライアント */}
+      {クライアント && (
+        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700 bg-blue-50 px-3 py-2 rounded-lg">
+          <Building2 className="w-4 h-4 text-blue-600" />
+          <span>{クライアント}</span>
         </div>
       )}
 
