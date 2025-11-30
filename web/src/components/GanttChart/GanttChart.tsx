@@ -49,12 +49,27 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const [scrollTop, setScrollTop] = useState(0);
   const [containerWidth, setContainerWidth] = useState(1200);
   const [zoomLevel, setZoomLevel] = useState(1.0); // ズームレベル（0.5～3.0）
-  const [taskListWidth] = useState(350); // タスク一覧の固定幅
   const [selectedTask, setSelectedTask] = useState<GanttTask | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // タスク一覧の幅（レスポンシブ）
+  const [taskListWidth, setTaskListWidth] = useState(() => {
+    if (typeof window === 'undefined') return 350;
+    return window.innerWidth < 768 ? 180 : 350; // モバイルでは180px、デスクトップでは350px
+  });
+
+  // ウィンドウサイズ変更時にタスク一覧の幅を調整
+  useEffect(() => {
+    const handleResize = () => {
+      setTaskListWidth(window.innerWidth < 768 ? 180 : 350);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // 行の高さ
   const rowHeight = 48;

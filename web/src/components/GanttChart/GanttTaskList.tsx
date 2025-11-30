@@ -99,8 +99,8 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
       <div className="sticky top-0 border-b border-slate-200 bg-slate-50 flex items-center px-4 text-xs font-semibold text-slate-600" style={{ height: '64px', zIndex: 30 }}>
         <div className="w-8"></div>
         <div className="flex-1">タスク名</div>
-        <div className="w-20 text-center">担当</div>
-        <div className="w-16 text-center">進捗</div>
+        <div className="hidden md:block w-20 text-center">担当</div>
+        <div className="hidden md:block w-16 text-center">進捗</div>
       </div>
 
       {/* タスクリスト（プロジェクトごとにグループ化） */}
@@ -210,7 +210,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
                   </div>
 
                   {/* 担当者 */}
-                  <div className="w-20 text-center">
+                  <div className="hidden md:block w-20 text-center">
                     {task.assigneeAvatar ? (
                       <img
                         src={task.assigneeAvatar}
@@ -225,7 +225,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
                   </div>
 
                   {/* 進捗 */}
-                  <div className="w-16 text-center">
+                  <div className="hidden md:block w-16 text-center">
                     <span className="text-xs font-medium text-slate-600">
                       {task.progress}%
                     </span>
