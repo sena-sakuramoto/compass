@@ -2444,8 +2444,8 @@ function SchedulePage({
 
   return (
     <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-6 md:-my-8 lg:-mx-8">
-      {/* 極小ヘッダー - フィルター統合 */}
-      <section className="border-b border-slate-200 bg-white p-2 flex-shrink-0">
+      {/* 極小ヘッダー - フィルター統合 (モバイルでは非表示) */}
+      <section className="hidden lg:block border-b border-slate-200 bg-white p-2 flex-shrink-0">
         <div className="flex flex-col gap-1.5">
           {/* タイトル、フィルター、ボタンを1行に */}
           <div className="flex items-center gap-2">
@@ -2491,9 +2491,9 @@ function SchedulePage({
         </div>
       </section>
 
-      {/* 予定開始日がないタスクの警告 - 極小化 */}
+      {/* 予定開始日がないタスクの警告 - 極小化 (モバイルでは非表示) */}
       {filteredTasks.some(task => !task.start && !task.予定開始日) && (
-        <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 flex items-center gap-1.5 flex-shrink-0">
+        <div className="hidden lg:flex rounded border border-amber-200 bg-amber-50 px-2 py-1 items-center gap-1.5 flex-shrink-0">
           <svg className="h-3 w-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
