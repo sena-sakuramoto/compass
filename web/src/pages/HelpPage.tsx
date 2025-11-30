@@ -70,7 +70,7 @@ export function HelpPage() {
               <ul className="space-y-2 text-sm">
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>プロジェクト管理:</strong> 物件ごとにプロジェクトを作成し、ステータスや進捗を管理</span>
+                  <span><strong>プロジェクト管理:</strong> 物件ごとにプロジェクトを作成し、施主（クライアント）、施工費、ステータス、進捗を管理</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
@@ -78,11 +78,15 @@ export function HelpPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>工程表:</strong> ガントチャートで全体の工程を可視化</span>
+                  <span><strong>工程表:</strong> ガントチャートで全体の工程を可視化（モバイルでは自動的にシンプル表示）</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
                   <span><strong>人員管理:</strong> チームメンバーとゲストを管理</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-teal-600 mt-1">•</span>
+                  <span><strong>モバイル対応:</strong> スマホでも快適に使えるレスポンシブデザイン</span>
                 </li>
               </ul>
             </div>
@@ -90,11 +94,33 @@ export function HelpPage() {
             <div>
               <h3 className="font-semibold text-slate-900 mb-2">はじめ方</h3>
               <ol className="space-y-2 text-sm list-decimal list-inside">
-                <li>左サイドバーから「プロジェクト」を選択</li>
+                <li>左上のハンバーガーメニュー（三）から「プロジェクト」を選択</li>
                 <li>プロジェクト一覧から既存のプロジェクトを選択、または新規作成</li>
                 <li>プロジェクト内でタスクを作成し、担当者を割り当て</li>
                 <li>工程表やタスク一覧で進捗を確認・更新</li>
               </ol>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">スマホでの使い方</h3>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2">
+                  <span className="text-teal-600 mt-1">•</span>
+                  <span><strong>メニューを開く:</strong> 左上のハンバーガーアイコン（三）をタップ</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-teal-600 mt-1">•</span>
+                  <span><strong>ログアウト:</strong> ハンバーガーメニューを開いて、下部の「ログアウト」をタップ</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-teal-600 mt-1">•</span>
+                  <span><strong>工程表:</strong> モバイルではヘッダーが非表示になり、ガントチャートが見やすく表示されます</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-teal-600 mt-1">•</span>
+                  <span><strong>編集画面:</strong> プロジェクトやタスクの編集画面は全画面表示で使いやすくなっています</span>
+                </li>
+              </ul>
             </div>
           </div>
         </Section>
