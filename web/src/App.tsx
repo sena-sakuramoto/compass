@@ -39,6 +39,7 @@ import {
   syncTaskCalendar,
   listProjectMembers,
   ApiError,
+  getCurrentUser,
 } from './lib/api';
 import { Filters } from './components/Filters';
 import { ProjectCard } from './components/ProjectCard';
@@ -55,6 +56,7 @@ import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { InvitationNotifications } from './components/InvitationNotifications';
 import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
+import { AdminPage } from './pages/AdminPage';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -1811,7 +1813,7 @@ function DashboardPage({
             ))}
           </div>
         ) : null}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-7">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {projects.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
               条件に一致するプロジェクトがありません。フィルタを調整するか、新しいプロジェクトを追加してください。
@@ -2883,6 +2885,7 @@ function App() {
   const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
   const [allProjectMembers, setAllProjectMembers] = useState<Map<string, ProjectMember[]>>(new Map());
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
+  const [currentUserRole, setCurrentUserRole] = useState<string | undefined>(undefined);
   const toastTimers = useRef<Map<string, number>>(new Map());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -2955,6 +2958,26 @@ function App() {
 
     loadAllMembers();
   }, [state.projects, canSync]);
+
+  // 現在のユーザーのロールを取得
+  useEffect(() => {
+    if (!user) {
+      setCurrentUserRole(undefined);
+      return;
+    }
+
+    const fetchUserRole = async () => {
+      try {
+        const userData = await getCurrentUser();
+        setCurrentUserRole(userData.role);
+      } catch (error) {
+        console.error('Failed to fetch user role:', error);
+        setCurrentUserRole(undefined);
+      }
+    };
+
+    fetchUserRole();
+  }, [user]);
 
   const generateLocalId = useCallback((prefix: string) => {
     return `local-${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -3964,6 +3987,7 @@ function App() {
           <Route path="/workload" element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} />} />
           <Route path="/users" element={<UserManagement projects={state.projects} />} />
           <Route path="/help" element={<HelpPage />} />
+          <Route path="/admin" element={<AdminPage user={user} currentUserRole={currentUserRole} />} />
         </Routes>
       </AppLayout>
       <TaskModal

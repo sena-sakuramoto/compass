@@ -160,7 +160,7 @@ export function ClientSelector({
               setNewClientName('');
               onChange('');
             }}
-            className="p-1.5 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors"
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors"
           >
             <X className="w-4 h-4" />
           </button>

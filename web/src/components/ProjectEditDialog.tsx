@@ -509,8 +509,8 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] rounded-2xl bg-white shadow-xl flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-0 lg:p-4">
+      <div className="w-full h-full lg:h-auto lg:max-w-2xl lg:max-h-[90vh] lg:rounded-2xl bg-white shadow-xl flex flex-col">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">
             {project ? 'プロジェクト編集' : 'プロジェクト作成'}
@@ -518,7 +518,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-1 transition hover:bg-slate-100"
+            className="rounded-full p-2 min-w-[44px] min-h-[44px] flex items-center justify-center transition hover:bg-slate-100"
           >
             <X className="h-5 w-5 text-slate-500" />
           </button>
