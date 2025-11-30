@@ -118,8 +118,8 @@ export function ProjectCard({
 
       {/* クライアント */}
       {クライアント && (
-        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700 bg-blue-50 px-3 py-2 rounded-lg">
-          <Building2 className="w-4 h-4 text-blue-600" />
+        <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700 bg-slate-50 px-3 py-2 rounded-lg">
+          <Building2 className="w-4 h-4 text-slate-500" />
           <span>{クライアント}</span>
         </div>
       )}
