@@ -32,6 +32,7 @@ interface OrgMemberInvitationModalProps {
   }) => Promise<void>;
   currentMemberCount?: number;
   currentGuestCount?: number;
+  currentUserRole?: string;
 }
 
 const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
@@ -49,7 +50,8 @@ export function OrgMemberInvitationModal({
   onClose,
   onSubmit,
   currentMemberCount = 0,
-  currentGuestCount = 0
+  currentGuestCount = 0,
+  currentUserRole
 }: OrgMemberInvitationModalProps) {
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -59,6 +61,16 @@ export function OrgMemberInvitationModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [stats, setStats] = useState<MemberStats | null>(null);
+
+  // 招待者のロールに応じてロール選択肢をフィルタリング
+  const availableRoleOptions = ROLE_OPTIONS.filter(option => {
+    // admin は admin や super_admin を招待できない
+    if (currentUserRole === 'admin') {
+      return option.value !== 'admin';
+    }
+    // それ以外（super_admin や project_manager）は全て招待可能
+    return true;
+  });
 
   useEffect(() => {
     if (open) {
@@ -135,7 +147,7 @@ export function OrgMemberInvitationModal({
 
   if (!open) return null;
 
-  const selectedRole = ROLE_OPTIONS.find(r => r.value === role);
+  const selectedRole = availableRoleOptions.find(r => r.value === role);
 
   // 表示用の残り人数を計算（APIの値とpropsの値のズレを補正）
   // statsがロードされるまでは0を表示しないように注意
@@ -308,7 +320,7 @@ export function OrgMemberInvitationModal({
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200"
                 required
               >
-                {ROLE_OPTIONS.map((option) => (
+                {availableRoleOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>

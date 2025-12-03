@@ -443,3 +443,71 @@ export async function listActivityLogs(params?: { projectId?: string; taskId?: s
   const suffix = qs ? `?${qs}` : '';
   return request<{ logs: ActivityLog[] }>(`/activity-logs${suffix}`);
 }
+
+// ==================== クライアント管理 API ====================
+
+export interface Client {
+  id: string;
+  name: string;
+  createdAt: any;
+  createdBy: string;
+  updatedAt: any;
+}
+
+export async function listClients() {
+  return request<{ clients: Client[] }>('/clients');
+}
+
+export async function createClient(name: string) {
+  return request<Client>('/clients', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function updateClient(clientId: string, name: string) {
+  return request<Client>(`/clients/${clientId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteClient(clientId: string) {
+  return request<{ success: boolean }>(`/clients/${clientId}`, {
+    method: 'DELETE',
+  });
+}
+
+// ==================== 協力者管理 API ====================
+
+export interface Collaborator {
+  id: string;
+  name: string;
+  createdAt: any;
+  createdBy: string;
+  updatedAt: any;
+}
+
+export async function listCollaborators() {
+  return request<{ collaborators: Collaborator[] }>('/collaborators');
+}
+
+export async function createCollaborator(name: string) {
+  return request<Collaborator>('/collaborators', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function updateCollaborator(collaboratorId: string, name: string) {
+  return request<Collaborator>(`/collaborators/${collaboratorId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteCollaborator(collaboratorId: string) {
+  return request<{ success: boolean }>(`/collaborators/${collaboratorId}`, {
+    method: 'DELETE',
+  });
+}

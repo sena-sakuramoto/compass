@@ -48,6 +48,9 @@ Compassは、建築業界に特化したプロジェクト・工程管理サー�
 ### Google API連携
 - Google Maps API（住所自動補完）
 - Google Drive API（フォルダピッカー）
+- Gmail API（タスク通知・招待メール送信）※Google Workspaceアカウント必須
+- Google Calendar API（タスク同期）※Google Workspaceアカウント必須
+
 
 ## 技術スタック
 

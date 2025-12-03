@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Building2, Link as LinkIcon, Copy, Check } from 'lucide-react';
+import { Users, Building2, Link as LinkIcon, Copy, Check, Trash2 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
 interface AdminPageProps {
@@ -28,11 +28,13 @@ interface Organization {
 }
 
 export function AdminPage({ user, currentUserRole }: AdminPageProps) {
-  const [activeTab, setActiveTab] = useState<'invitations' | 'organizations'>('invitations');
+  const [activeTab, setActiveTab] = useState<'invitations' | 'organizations' | 'migration'>('invitations');
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [migrationResult, setMigrationResult] = useState<any>(null);
+  const [migrating, setMigrating] = useState(false);
 
   // 招待フォームの状態
   const [inviteForm, setInviteForm] = useState({
@@ -206,10 +208,77 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     }
   };
 
+  const handleMigrateClients = async () => {
+    if (!confirm('クライアントデータを移行しますか？この操作は元に戻せません。')) {
+      return;
+    }
+
+    setMigrating(true);
+    setMigrationResult(null);
+
+    try {
+      const token = await user?.getIdToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/admin/migrate-clients`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        setMigrationResult(result);
+        alert(`移行完了！移行: ${result.stats.migrated}件、スキップ: ${result.stats.skipped}件`);
+      } else {
+        const error = await response.json();
+        alert(`エラー: ${error.error || '移行に失敗しました'}`);
+      }
+    } catch (error) {
+      console.error('Failed to migrate clients:', error);
+      alert('移行に失敗しました');
+    } finally {
+      setMigrating(false);
+    }
+  };
+
   const copyInviteLink = (link: string, id: string) => {
     navigator.clipboard.writeText(link);
     setCopiedLink(id);
     setTimeout(() => setCopiedLink(null), 2000);
+  };
+
+  const handleDeleteInvitation = async (invitationId: string) => {
+    if (!confirm('この招待を削除しますか？')) {
+      return;
+    }
+
+    try {
+      const token = await user?.getIdToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/org-invitations/${invitationId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.ok) {
+        setInvitations(invitations.filter(inv => inv.id !== invitationId));
+        alert('招待を削除しました');
+      } else {
+        const error = await response.json();
+        alert(`エラー: ${error.error || '削除に失敗しました'}`);
+      }
+    } catch (error) {
+      console.error('Failed to delete invitation:', error);
+      alert('削除に失敗しました');
+    }
   };
 
   const formatDate = (timestamp: any) => {
@@ -288,6 +357,15 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
               組織管理
             </button>
           )}
+          <button
+            onClick={() => setActiveTab('migration')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'migration'
+              ? 'border-blue-600 text-blue-600'
+              : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+          >
+            データ移行
+          </button>
         </div>
       </div>
 
@@ -447,23 +525,34 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                         <div>招待者: {invitation.invitedByName}</div>
                         <div>期限: {formatDate(invitation.expiresAt)}</div>
                       </div>
-                      {invitation.inviteLink && invitation.status === 'pending' && (
-                        <button
-                          onClick={() => copyInviteLink(invitation.inviteLink!, invitation.id)}
-                          className="w-full flex items-center justify-center gap-2 rounded bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
-                        >
-                          {copiedLink === invitation.id ? (
-                            <>
-                              <Check className="h-3 w-3" />
-                              コピーしました
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" />
-                              招待リンクをコピー
-                            </>
+                      {invitation.status === 'pending' && (
+                        <div className="flex gap-2">
+                          {invitation.inviteLink && (
+                            <button
+                              onClick={() => copyInviteLink(invitation.inviteLink!, invitation.id)}
+                              className="flex-1 flex items-center justify-center gap-2 rounded bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-200"
+                            >
+                              {copiedLink === invitation.id ? (
+                                <>
+                                  <Check className="h-3 w-3" />
+                                  コピーしました
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-3 w-3" />
+                                  招待リンクをコピー
+                                </>
+                              )}
+                            </button>
                           )}
-                        </button>
+                          <button
+                            onClick={() => handleDeleteInvitation(invitation.id)}
+                            className="flex items-center justify-center gap-2 rounded bg-red-100 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-200"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            削除
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))
@@ -535,6 +624,45 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                   ))
                 )}
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'migration' && (
+          <div className="max-w-2xl mx-auto">
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">クライアントデータ移行</h2>
+              <p className="text-sm text-slate-600 mb-6">
+                既存の `/api/clients` に保存されているクライアントデータを、新しい People 管理システム（type='client'）に移行します。
+              </p>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                <p className="text-sm text-amber-800 font-medium">注意事項：</p>
+                <ul className="text-sm text-amber-700 mt-2 space-y-1 list-disc list-inside">
+                  <li>この操作は元に戻せません</li>
+                  <li>既に移行済みのクライアントはスキップされます</li>
+                  <li>元のデータは削除されず、保持されます</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={handleMigrateClients}
+                disabled={migrating}
+                className="w-full rounded-lg bg-blue-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {migrating ? '移行中...' : 'クライアントデータを移行する'}
+              </button>
+
+              {migrationResult && (
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm font-medium text-green-800">✅ 移行完了</p>
+                  <div className="text-sm text-green-700 mt-2 space-y-1">
+                    <p>総数: {migrationResult.stats.total}件</p>
+                    <p>移行: {migrationResult.stats.migrated}件</p>
+                    <p>スキップ: {migrationResult.stats.skipped}件</p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

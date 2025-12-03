@@ -52,7 +52,10 @@ router.get('/', async (req: any, res, next) => {
           if (snapshot.exists) {
             // getProject と同じように serialize を使用して型を整える
             const project = serialize(snapshot as any);
-            projectsMap.set(snapshot.id, project);
+            // 削除済みプロジェクトを除外
+            if (!project.deletedAt) {
+              projectsMap.set(snapshot.id, project);
+            }
           }
         });
       } catch (error) {

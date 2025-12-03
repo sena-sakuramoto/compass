@@ -172,7 +172,8 @@ export type 職種Type =
  * プロジェクトメンバー招待時の入力データ
  */
 export interface ProjectMemberInput {
-  email: string;
+  email?: string;                // メールアドレス（システム登録ユーザーの場合）
+  displayName?: string;          // 表示名（システム未登録ユーザーの場合）
   role: ProjectRole;
   職種?: 職種Type | string;     // 職種（オプション）
   permissions?: Partial<ProjectPermissions>; // カスタム権限（オプション）

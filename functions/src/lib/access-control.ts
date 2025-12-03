@@ -11,21 +11,23 @@ export async function canAccessProject(
   project: Project & { ownerUserId?: string; ownerOrgId?: string; visibility?: string },
   orgId: string
 ): Promise<boolean> {
-  // 1. 管理者は常にアクセス可能
+  // 1. 組織レベルの権限が優先（super_admin, admin, project_manager）
+  if (user.role === 'super_admin') return true;
   if (user.role === 'admin') return true;
-  
+  if (user.role === 'project_manager') return true;
+
   // 2. プロジェクトオーナーは常にアクセス可能
   if (project.ownerUserId && project.ownerUserId === user.id) return true;
-  
+
   // 3. プロジェクトメンバーはアクセス可能
   const isMember = await isProjectMember(orgId, project.id, user.id);
   if (isMember) return true;
-  
+
   // 4. 組織内公開の場合、同じ組織のユーザーはアクセス可能
   if (project.visibility === 'organization' && project.ownerOrgId === user.orgId) {
     return true;
   }
-  
+
   return false;
 }
 
@@ -37,19 +39,21 @@ export async function canEditProject(
   project: Project & { ownerUserId?: string; ownerOrgId?: string; visibility?: string },
   orgId: string
 ): Promise<boolean> {
-  // アクセス権限がない場合は編集もできない
-  if (!await canAccessProject(user, project, orgId)) return false;
-  
-  // 管理者は常に編集可能
+  // 組織レベルの権限が優先（super_admin, admin, project_manager）
+  if (user.role === 'super_admin') return true;
   if (user.role === 'admin') return true;
-  
+  if (user.role === 'project_manager') return true;
+
   // プロジェクトオーナーは常に編集可能
   if (project.ownerUserId && project.ownerUserId === user.id) return true;
-  
+
+  // アクセス権限がない場合は編集もできない
+  if (!await canAccessProject(user, project, orgId)) return false;
+
   // プロジェクトメンバーの権限を確認
   const permissions = await getProjectMemberPermissions(orgId, project.id, user.id);
   if (permissions && permissions.canEditProject) return true;
-  
+
   return false;
 }
 
@@ -61,16 +65,18 @@ export async function canDeleteProject(
   project: Project & { ownerUserId?: string },
   orgId: string
 ): Promise<boolean> {
-  // 管理者は常に削除可能
+  // 組織レベルの権限が優先（super_admin, admin, project_manager）
+  if (user.role === 'super_admin') return true;
   if (user.role === 'admin') return true;
-  
+  if (user.role === 'project_manager') return true;
+
   // プロジェクトオーナーは常に削除可能
   if (project.ownerUserId && project.ownerUserId === user.id) return true;
-  
+
   // プロジェクトメンバーの権限を確認
   const permissions = await getProjectMemberPermissions(orgId, project.id, user.id);
   if (permissions && permissions.canDeleteProject) return true;
-  
+
   return false;
 }
 
@@ -82,19 +88,43 @@ export async function canManageProjectMembers(
   project: Project & { ownerUserId?: string },
   orgId: string
 ): Promise<boolean> {
-  // 管理者は常に管理可能
-  if (user.role === 'admin') return true;
+  console.log('[canManageProjectMembers] Checking:', {
+    userId: user.id,
+    userRole: user.role,
+    projectId: project.id,
+    projectOwner: project.ownerUserId,
+    orgId
+  });
 
-  // プロジェクトマネージャーは自組織のプロジェクトを管理可能
-  if (user.role === 'project_manager' && user.orgId === orgId) return true;
+  // 組織レベルの権限が優先（super_admin, admin, project_manager）
+  if (user.role === 'super_admin') {
+    console.log('[canManageProjectMembers] Allowed: super_admin');
+    return true;
+  }
+  if (user.role === 'admin') {
+    console.log('[canManageProjectMembers] Allowed: admin');
+    return true;
+  }
+  if (user.role === 'project_manager') {
+    console.log('[canManageProjectMembers] Allowed: project_manager');
+    return true;
+  }
 
   // プロジェクトオーナーは常に管理可能
-  if (project.ownerUserId && project.ownerUserId === user.id) return true;
+  if (project.ownerUserId && project.ownerUserId === user.id) {
+    console.log('[canManageProjectMembers] Allowed: project owner');
+    return true;
+  }
 
   // プロジェクトメンバーの権限を確認
   const permissions = await getProjectMemberPermissions(orgId, project.id, user.id);
-  if (permissions && permissions.canManageMembers) return true;
+  console.log('[canManageProjectMembers] Member permissions:', permissions);
+  if (permissions && permissions.canManageMembers) {
+    console.log('[canManageProjectMembers] Allowed: member permissions');
+    return true;
+  }
 
+  console.log('[canManageProjectMembers] Denied');
   return false;
 }
 
@@ -107,11 +137,13 @@ export async function canAccessTask(
   project: Project & { ownerUserId?: string; ownerOrgId?: string; visibility?: string },
   orgId: string
 ): Promise<boolean> {
+  // 組織レベルの権限が優先（super_admin, admin, project_manager）
+  if (user.role === 'super_admin') return true;
+  if (user.role === 'admin') return true;
+  if (user.role === 'project_manager') return true;
+
   // プロジェクトにアクセスできない場合、タスクにもアクセスできない
   if (!await canAccessProject(user, project, orgId)) return false;
-  
-  // 管理者は常にアクセス可能
-  if (user.role === 'admin') return true;
   
   // タスクの作成者は常にアクセス可能
   if (task.createdBy && task.createdBy === user.id) return true;
@@ -146,11 +178,13 @@ export async function canEditTask(
   project: Project & { ownerUserId?: string; ownerOrgId?: string; visibility?: string },
   orgId: string
 ): Promise<boolean> {
+  // 組織レベルの権限が優先（super_admin, admin, project_manager）
+  if (user.role === 'super_admin') return true;
+  if (user.role === 'admin') return true;
+  if (user.role === 'project_manager') return true;
+
   // アクセス権限がない場合は編集もできない
   if (!await canAccessTask(user, task, project, orgId)) return false;
-  
-  // 管理者は常に編集可能
-  if (user.role === 'admin') return true;
   
   // タスクの作成者は常に編集可能
   if (task.createdBy && task.createdBy === user.id) return true;
@@ -173,11 +207,13 @@ export async function canCreateTask(
   project: Project & { ownerUserId?: string; ownerOrgId?: string; visibility?: string },
   orgId: string
 ): Promise<boolean> {
+  // 組織レベルの権限が優先（super_admin, admin, project_manager）
+  if (user.role === 'super_admin') return true;
+  if (user.role === 'admin') return true;
+  if (user.role === 'project_manager') return true;
+
   // プロジェクトにアクセスできない場合、タスクも作成できない
   if (!await canAccessProject(user, project, orgId)) return false;
-  
-  // 管理者は常に作成可能
-  if (user.role === 'admin') return true;
   
   // グローバルロールの権限を確認
   const globalPermissions = getRolePermissions(user.role);
@@ -202,8 +238,10 @@ export async function canDeleteTask(
   project: Project & { ownerUserId?: string; ownerOrgId?: string; visibility?: string },
   orgId: string
 ): Promise<boolean> {
-  // 管理者は常に削除可能
+  // 組織レベルの権限が優先（super_admin, admin, project_manager）
+  if (user.role === 'super_admin') return true;
   if (user.role === 'admin') return true;
+  if (user.role === 'project_manager') return true;
   
   // タスクの作成者は常に削除可能
   if (task.createdBy && task.createdBy === user.id) return true;

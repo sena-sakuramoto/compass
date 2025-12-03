@@ -9,6 +9,7 @@ import { canInviteMembers, canAddMember, getMemberCounts, getOrganizationLimits 
 import type { MemberType } from '../lib/auth-types';
 import type { Role } from '../lib/roles';
 import { db, FieldValue } from '../lib/firestore';
+import { getAuth } from 'firebase-admin/auth';
 
 const router = express.Router();
 
@@ -85,7 +86,28 @@ router.post('/', async (req: any, res, next) => {
       return;
     }
 
-    const { email, displayName, role, memberType, message, expiresInDays = 7 } = req.body;
+    const { email, displayName, role, memberType, message, expiresInDays = 7, orgId: targetOrgId } = req.body;
+
+    // 別組織への招待はsuper_adminのみ可能
+    if (targetOrgId && targetOrgId !== user.orgId && user.role !== 'super_admin') {
+      res.status(403).json({
+        error: 'Forbidden: Only super_admin can invite users to a different organization',
+      });
+      return;
+    }
+
+    // super_adminは別組織に招待できる、それ以外は自分の組織のみ
+    const targetOrg = user.role === 'super_admin' && targetOrgId ? targetOrgId : user.orgId;
+
+    // 組織管理者は super_admin を招待できない、admin は admin を招待できない
+    if (user.role === 'admin' && (role === 'super_admin' || role === 'admin')) {
+      res.status(403).json({ error: 'Forbidden: Admin cannot invite super_admin or admin' });
+      return;
+    }
+
+    // 組織のドキュメントを取得
+    const orgDoc = await db.collection('orgs').doc(targetOrg).get();
+    const orgName = orgDoc.exists && orgDoc.data()?.name ? orgDoc.data()!.name : targetOrg;
 
     // 必須フィールドのチェック
     if (!email || !role || !memberType) {
@@ -100,7 +122,7 @@ router.post('/', async (req: any, res, next) => {
     }
 
     // 人数制限チェック
-    const limitCheck = await canAddMember(user.orgId, memberType);
+    const limitCheck = await canAddMember(targetOrg, memberType);
     if (!limitCheck.canAdd) {
       res.status(400).json({
         error: limitCheck.reason,
@@ -113,7 +135,7 @@ router.post('/', async (req: any, res, next) => {
     // 既存の招待または既存ユーザーをチェック
     const existingUserSnapshot = await db
       .collection('orgs')
-      .doc(user.orgId)
+      .doc(targetOrg)
       .collection('users')
       .where('email', '==', email)
       .get();
@@ -130,14 +152,14 @@ router.post('/', async (req: any, res, next) => {
     // 招待を作成
     const invitationRef = db
       .collection('orgs')
-      .doc(user.orgId)
+      .doc(targetOrg)
       .collection('invitations')
       .doc();
 
     const invitation: Omit<OrgInvitation, 'id'> = {
       email,
       displayName: displayName || undefined,
-      orgId: user.orgId,
+      orgId: targetOrg,
       role: role as Role,
       memberType: memberType as MemberType,
       invitedBy: req.uid,
@@ -152,13 +174,87 @@ router.post('/', async (req: any, res, next) => {
 
     await invitationRef.set(invitation);
 
+    // Firebase Authユーザーを作成してパスワードリセットメールを送信
+    let firebaseUserCreated = false;
+    try {
+      const auth = getAuth();
+
+      // 既存のFirebase Authユーザーをチェック
+      let firebaseUser;
+      try {
+        firebaseUser = await auth.getUserByEmail(email);
+        console.log(`[OrgInvitations] Firebase Auth user already exists: ${email}`);
+      } catch (err: any) {
+        // ユーザーが存在しない場合、新規作成
+        if (err.code === 'auth/user-not-found') {
+          console.log(`[OrgInvitations] Creating new Firebase Auth user: ${email}`);
+
+          // 一時的なランダムパスワードを生成
+          const tempPassword = Math.random().toString(36).slice(-16) + Math.random().toString(36).slice(-16);
+
+          firebaseUser = await auth.createUser({
+            email: email,
+            password: tempPassword,
+            displayName: displayName || email.split('@')[0],
+            emailVerified: false,
+          });
+
+          firebaseUserCreated = true;
+          console.log(`[OrgInvitations] Created Firebase Auth user: ${firebaseUser.uid}`);
+
+          // パスワードリセットリンクを生成
+          const resetLink = await auth.generatePasswordResetLink(email);
+          console.log(`[OrgInvitations] Generated password reset link for: ${email}`);
+
+          // パスワード設定メールを送信
+          try {
+            const { sendPasswordSetupEmail } = await import('../lib/gmail');
+            await sendPasswordSetupEmail({
+              to: email,
+              displayName: displayName,
+              organizationName: orgName,
+              resetLink: resetLink,
+            });
+            console.log(`[OrgInvitations] Sent password setup email to: ${email}`);
+          } catch (emailError) {
+            console.error(`[OrgInvitations] Failed to send password setup email:`, emailError);
+            // パスワード設定メール送信失敗でも継続
+          }
+        } else {
+          throw err;
+        }
+      }
+
+      // Firestoreにユーザードキュメントを作成（存在しない場合）
+      const userRef = db.collection('users').doc(firebaseUser.uid);
+      const userDoc = await userRef.get();
+
+      if (!userDoc.exists) {
+        await userRef.set({
+          email: email,
+          displayName: displayName || email.split('@')[0],
+          orgId: targetOrg,
+          role: role,
+          memberType: memberType,
+          isActive: true,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        console.log(`[OrgInvitations] Created Firestore user document: ${firebaseUser.uid}`);
+      }
+
+    } catch (error) {
+      console.error('[OrgInvitations] Failed to create Firebase Auth user:', error);
+      // Firebase Auth作成失敗でも招待は継続（招待メールは送る）
+    }
+
     // メール送信
     try {
       const { sendInvitationEmail } = await import('../lib/gmail');
       await sendInvitationEmail({
         to: email,
         inviterName: user.displayName || user.email,
-        organizationName: user.orgId,
+        organizationName: orgName,
         role: role as string,
         inviteUrl: invitation.inviteLink,
         message: message,
@@ -178,13 +274,13 @@ router.post('/', async (req: any, res, next) => {
         await createNotification({
           userId: invitedUser.id,
           type: 'invitation',
-          title: `${user.orgId}への招待`,
+          title: `${orgName}への招待`,
           message: `${user.displayName || user.email}さんから組織に招待されました`,
           actionUrl: invitation.inviteLink,
           metadata: {
             invitationId: invitationRef.id,
             inviterName: user.displayName || user.email,
-            organizationName: user.orgId,
+            organizationName: orgName,
             role: role as string,
           },
         });

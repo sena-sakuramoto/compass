@@ -1398,8 +1398,11 @@ function ProjectModal({ open, onOpenChange, onSubmit, onNotify }: ProjectModalPr
 
 interface PersonModalProps extends ModalProps {
   onSubmit(payload: {
+    type?: 'person' | 'client';
     氏名: string;
     役割?: string;
+    部署?: string;
+    会社名?: string;
     メール?: string;
     電話?: string;
     '稼働時間/日(h)'?: number;
@@ -1408,16 +1411,22 @@ interface PersonModalProps extends ModalProps {
 }
 
 function PersonModal({ open, onOpenChange, onSubmit, onNotify }: PersonModalProps) {
+  const [personType, setPersonType] = useState<'person' | 'client'>('person');
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
+  const [department, setDepartment] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [workingHours, setWorkingHours] = useState<number | ''>('');
 
   useEffect(() => {
     if (open) {
+      setPersonType('person');
       setName('');
       setRole('');
+      setDepartment('');
+      setCompanyName('');
       setEmail('');
       setPhone('');
       setWorkingHours('');
@@ -1428,25 +1437,55 @@ function PersonModal({ open, onOpenChange, onSubmit, onNotify }: PersonModalProp
     e.preventDefault();
     try {
       const payload = {
+        type: personType,
         氏名: name,
         役割: role || undefined,
+        部署: personType === 'person' ? (department || undefined) : undefined,
+        会社名: personType === 'client' ? (companyName || undefined) : undefined,
         メール: email || undefined,
         電話: phone || undefined,
-        '稼働時間/日(h)': workingHours ? Number(workingHours) : undefined,
+        '稼働時間/日(h)': personType === 'person' && workingHours ? Number(workingHours) : undefined,
       };
       await onSubmit(payload);
       onOpenChange(false);
     } catch (err) {
       console.error(err);
-      onNotify?.({ tone: 'error', title: '担当者の追加に失敗しました' });
+      onNotify?.({ tone: 'error', title: `${personType === 'client' ? 'クライアント' : '担当者'}の追加に失敗しました` });
     }
   };
 
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="担当者追加">
+    <Modal open={open} onOpenChange={onOpenChange} title={personType === 'client' ? 'クライアント追加' : '担当者追加'}>
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div>
-          <label className="mb-1 block text-xs text-slate-500">氏名</label>
+          <label className="mb-2 block text-xs text-slate-500">タイプ *</label>
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="personType"
+                value="person"
+                checked={personType === 'person'}
+                onChange={() => setPersonType('person')}
+                className="w-4 h-4 text-blue-600"
+              />
+              <span className="text-sm text-slate-700">担当者</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="personType"
+                value="client"
+                checked={personType === 'client'}
+                onChange={() => setPersonType('client')}
+                className="w-4 h-4 text-blue-600"
+              />
+              <span className="text-sm text-slate-700">クライアント</span>
+            </label>
+          </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-500">氏名 *</label>
           <input
             className="w-full rounded-2xl border border-slate-200 px-3 py-2"
             value={name}
@@ -1464,6 +1503,28 @@ function PersonModal({ open, onOpenChange, onSubmit, onNotify }: PersonModalProp
             placeholder="役割"
           />
         </div>
+        {personType === 'person' && (
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">部署</label>
+            <input
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              placeholder="部署"
+            />
+          </div>
+        )}
+        {personType === 'client' && (
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">会社名</label>
+            <input
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="例: 株式会社〇〇"
+            />
+          </div>
+        )}
         <div>
           <label className="mb-1 block text-xs text-slate-500">メール</label>
           <input
@@ -1483,17 +1544,19 @@ function PersonModal({ open, onOpenChange, onSubmit, onNotify }: PersonModalProp
             placeholder="電話番号"
           />
         </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">稼働時間/日(h)</label>
-          <input
-            type="number"
-            step="0.5"
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={workingHours}
-            onChange={(e) => setWorkingHours(e.target.value ? Number(e.target.value) : '')}
-            placeholder="8"
-          />
-        </div>
+        {personType === 'person' && (
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">稼働時間/日(h)</label>
+            <input
+              type="number"
+              step="0.5"
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
+              value={workingHours}
+              onChange={(e) => setWorkingHours(e.target.value ? Number(e.target.value) : '')}
+              placeholder="8"
+            />
+          </div>
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="rounded-2xl border px-3 py-2" onClick={() => onOpenChange(false)}>
             キャンセル
@@ -1520,25 +1583,99 @@ function FullScreenLoader({ message }: { message: string }) {
   );
 }
 
-function SignInRequired({ onSignIn, authError }: { onSignIn(): void; authError?: string | null }) {
+function SignInRequired({ onSignIn, authError }: { onSignIn(method?: 'google' | 'email', emailPassword?: { email: string; password: string }): void; authError?: string | null }) {
+  const [showEmailForm, setShowEmailForm] = React.useState(false);
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+
+  const handleEmailSignIn = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (email && password) {
+      onSignIn('email', { email, password });
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-slate-900 px-6 text-slate-100">
-      <div className="w-full max-w-md space-y-6 text-center">
-        <div className="space-y-3">
+      <div className="w-full max-w-md space-y-6">
+        <div className="space-y-3 text-center">
           <h1 className="text-2xl font-bold">Project Compass を利用するにはサインインが必要です</h1>
           <p className="text-sm text-slate-300">
-            Google アカウントでサインインすると、プロジェクトとタスクがリアルタイムで同期されます。
+            アカウントでサインインすると、プロジェクトとタスクがリアルタイムで同期されます。
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onSignIn}
-          className="inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow hover:bg-slate-100 transition"
-        >
-          サインインして開始
-        </button>
-        {authError ? <p className="text-xs text-rose-300">{authError}</p> : null}
-        <p className="text-xs text-slate-400">認証に問題がある場合は管理者にお問い合わせください。</p>
+
+        {!showEmailForm ? (
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => onSignIn('google')}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow hover:bg-slate-100 transition"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Google でサインイン
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowEmailForm(true)}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg border-2 border-slate-600 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-800 transition"
+            >
+              <LogIn className="h-5 w-5" />
+              メールアドレスでサインイン
+            </button>
+
+            <div className="text-center">
+              <p className="text-xs text-amber-300 bg-amber-900/30 px-3 py-2 rounded-lg">
+                推奨: Google連携機能を利用するには、Googleアカウントでサインインしてください
+              </p>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleEmailSignIn} className="space-y-4">
+            <div>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="メールアドレス"
+                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="パスワード"
+                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition"
+            >
+              サインイン
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowEmailForm(false)}
+              className="w-full rounded-lg border border-slate-600 px-6 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-800 transition"
+            >
+              戻る
+            </button>
+          </form>
+        )}
+
+        {authError ? <p className="text-xs text-rose-300 text-center">{authError}</p> : null}
+        <p className="text-xs text-slate-400 text-center">認証に問題がある場合は管理者にお問い合わせください。</p>
       </div>
     </div>
   );
@@ -3423,8 +3560,11 @@ function App() {
   };
 
   const handleCreatePerson = async (payload: {
+    type?: 'person' | 'client';
     氏名: string;
     役割?: string;
+    部署?: string;
+    会社名?: string;
     メール?: string;
     電話?: string;
     '稼働時間/日(h)'?: number;
@@ -3438,8 +3578,11 @@ function App() {
       const now = todayString();
       const newPerson: Person = {
         id,
+        type: payload.type || 'person',
         氏名: payload.氏名,
         役割: payload.役割,
+        部署: payload.部署,
+        会社名: payload.会社名,
         メール: payload.メール,
         電話: payload.電話,
         '稼働時間/日(h)': payload['稼働時間/日(h)'],
@@ -3450,16 +3593,19 @@ function App() {
         ...prev,
         people: [...prev.people, newPerson],
       }));
-      pushToast({ tone: 'success', title: '担当者を追加しました（ローカル保存）' });
+      const entityType = (payload.type || 'person') === 'client' ? 'クライアント' : '担当者';
+      pushToast({ tone: 'success', title: `${entityType}を追加しました（ローカル保存）` });
       return;
     }
     try {
       await createPerson(payload as unknown as Partial<Person>);
-      pushToast({ tone: 'success', title: '担当者を追加しました' });
+      const entityType = (payload.type || 'person') === 'client' ? 'クライアント' : '担当者';
+      pushToast({ tone: 'success', title: `${entityType}を追加しました` });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error(error);
-      pushToast({ tone: 'error', title: '担当者の追加に失敗しました' });
+      const entityType = (payload.type || 'person') === 'client' ? 'クライアント' : '担当者';
+      pushToast({ tone: 'error', title: `${entityType}の追加に失敗しました` });
     }
   };
 

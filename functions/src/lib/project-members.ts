@@ -20,16 +20,20 @@ export async function addProjectMember(
   const now = Timestamp.now();
 
   // 入力バリデーション
-  if (!input.email || !input.role) {
-    throw new Error('Email and role are required');
+  if (!input.role) {
+    throw new Error('Role is required');
+  }
+
+  if (!input.email && !input.displayName) {
+    throw new Error('Email or displayName is required');
   }
 
   if (!orgId || !projectId || !invitedBy) {
     throw new Error('Organization ID, project ID, and inviter ID are required');
   }
 
-  // メールアドレスからユーザーを検索
-  const user = await getUserByEmail(input.email);
+  // メールアドレスからユーザーを検索（メールアドレスがある場合のみ）
+  const user = input.email ? await getUserByEmail(input.email) : null;
 
   // 権限を設定（カスタム権限がある場合はそれを使用、なければロールのデフォルト権限）
   const permissions: ProjectPermissions = input.permissions
@@ -64,8 +68,8 @@ export async function addProjectMember(
 
     // Top-level collection with composite ID
     await db.collection('project_members').doc(memberId).set(member);
-  } else {
-    // 未登録ユーザーの場合 - 招待状態で作成
+  } else if (input.email) {
+    // 未登録ユーザー（メールアドレスあり）の場合 - 招待状態で作成
     // ユーザーが初回ログイン時に、このレコードを自分のUIDに紐付ける
     const userId = `pending_${input.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
     const memberId = `${projectId}_${userId}`;
@@ -75,7 +79,7 @@ export async function addProjectMember(
       projectId,
       userId,
       email: input.email,
-      displayName: input.email.split('@')[0],
+      displayName: input.displayName || input.email.split('@')[0],
       orgId,
       orgName: '',
       role: input.role,
@@ -85,6 +89,32 @@ export async function addProjectMember(
       invitedAt: now,
       // joinedAt は招待受諾時に設定
       status: 'invited', // 未登録ユーザーは招待状態
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // Top-level collection with composite ID
+    await db.collection('project_members').doc(memberId).set(member);
+  } else {
+    // システム未登録ユーザー（テキスト入力のみ）の場合 - 外部メンバーとして作成
+    const userId = `external_${input.displayName!.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+    const memberId = `${projectId}_${userId}`;
+
+    member = {
+      id: memberId,
+      projectId,
+      userId,
+      email: '',
+      displayName: input.displayName!,
+      orgId: 'external', // 外部メンバー
+      orgName: '外部',
+      role: input.role,
+      職種: input.職種, // 招待時に指定された職種
+      permissions,
+      invitedBy,
+      invitedAt: now,
+      joinedAt: now, // テキスト入力の場合は即座に参加扱い
+      status: 'active', // テキスト入力の場合は即座にアクティブ
       createdAt: now,
       updatedAt: now,
     };
@@ -135,9 +165,12 @@ export async function listProjectMembers(
   }
 ): Promise<ProjectMember[]> {
   // Top-level collection: project_members/
+  // プロジェクトIDでフィルタし、orgIdは内部メンバーと外部メンバー（協力者）の両方を含める
   let query = db.collection('project_members')
-    .where('projectId', '==', projectId)
-    .where('orgId', '==', orgId) as FirebaseFirestore.Query;
+    .where('projectId', '==', projectId) as FirebaseFirestore.Query;
+
+  // orgIdフィルタは使わず、後でフィルタリング
+  // 協力者（orgId: 'external'）も含めるため
 
   if (filters?.role) {
     query = query.where('role', '==', filters.role);
@@ -148,7 +181,7 @@ export async function listProjectMembers(
   }
 
   const snapshot = await query.get();
-  return snapshot.docs.map(doc => {
+  const allMembers = snapshot.docs.map(doc => {
     const data = doc.data();
     return {
       ...data,
@@ -158,6 +191,11 @@ export async function listProjectMembers(
       updatedAt: data.updatedAt,
     } as ProjectMember;
   });
+
+  // プロジェクトに属する全メンバーを返す
+  // orgIdパラメータはアクセス制御用で、結果のフィルタには使わない
+  // 理由：異なる組織のユーザーもプロジェクトメンバーになれるため
+  return allMembers;
 }
 
 /**

@@ -261,3 +261,53 @@ ${appUrl}
   }
 }
 
+/**
+ * パスワード設定メールを送信
+ */
+export async function sendPasswordSetupEmail(params: {
+  to: string;
+  displayName?: string;
+  organizationName?: string;
+  resetLink: string;
+}): Promise<void> {
+  const { to, displayName, organizationName, resetLink } = params;
+
+  const sender = process.env.NOTIFICATION_SENDER || 'no-reply@archi-prisma.co.jp';
+  const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+
+  const subject = `[Compass] パスワード設定のご案内`;
+  const body = `
+${displayName || to} さま
+
+${organizationName || 'Compass'}へのアカウントが作成されました。
+以下のリンクからパスワードを設定してください。
+
+【パスワード設定】
+${resetLink}
+
+パスワード設定後、以下のURLからログインできます。
+
+${appUrl}
+
+※このリンクは24時間有効です。
+※このメールは自動送信されています。
+
+---
+Compass - プロジェクト管理システム
+${appUrl}
+`;
+
+  try {
+    await sendEmail({
+      from: sender,
+      to,
+      subject,
+      body,
+    });
+    console.log(`[Gmail] Sent password setup email to ${to}`);
+  } catch (error) {
+    console.error(`[Gmail] Failed to send password setup email to ${to}:`, error);
+    throw error; // パスワード設定メール送信失敗は重要なのでエラーを投げる
+  }
+}
+

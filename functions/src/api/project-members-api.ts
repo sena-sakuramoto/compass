@@ -73,6 +73,9 @@ router.get('/projects/:projectId/members', authenticate, async (req: any, res) =
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    // プロジェクトの所有組織IDでメンバーを取得
+    // req.user.orgIdはプロジェクトアクセス権の確認に使われるが、
+    // メンバー取得にはプロジェクトの所有組織IDを使う
     const members = await listProjectMembers(req.user.orgId, projectId, {
       role,
       status,
@@ -99,7 +102,12 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
       return res.status(404).json({ error: 'Project not found' });
     }
 
+    console.log('[manageable-users] User:', { id: req.user.id, email: req.user.email, role: req.user.role, orgId: req.user.orgId });
+    console.log('[manageable-users] Project:', { id: project.id, orgId: req.user.orgId });
+
     const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
+    console.log('[manageable-users] canManage:', canManage);
+
     if (!canManage) {
       return res.status(403).json({ error: 'Forbidden' });
     }
@@ -149,10 +157,17 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
     const { projectId } = req.params;
     const input: ProjectMemberInput = req.body;
 
-    // バリデーション: メールアドレス
-    const emailError = validateEmail(input.email);
-    if (emailError) {
-      return res.status(400).json({ error: emailError });
+    // バリデーション: emailまたはdisplayNameが必要
+    if (!input.email && !input.displayName) {
+      return res.status(400).json({ error: 'Either email or displayName is required' });
+    }
+
+    // メールアドレスが提供されている場合はバリデーション
+    if (input.email) {
+      const emailError = validateEmail(input.email);
+      if (emailError) {
+        return res.status(400).json({ error: emailError });
+      }
     }
 
     // バリデーション: ロール
@@ -161,8 +176,8 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
       return res.status(400).json({ error: roleError });
     }
 
-    // メールアドレスを正規化
-    const normalizedEmail = input.email.trim().toLowerCase();
+    // メールアドレスを正規化（存在する場合のみ）
+    const normalizedEmail = input.email ? input.email.trim().toLowerCase() : undefined;
 
     // プロジェクトを取得
     const project = await getProject(req.user.orgId, projectId);
@@ -176,16 +191,24 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
       return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
     }
 
-    // 自分自身を招待しようとしていないかチェック
-    if (normalizedEmail === req.user.email.toLowerCase()) {
+    // 自分自身を招待しようとしていないかチェック（メールアドレスがある場合のみ）
+    if (normalizedEmail && normalizedEmail === req.user.email.toLowerCase()) {
       return res.status(400).json({ error: 'Cannot invite yourself to the project' });
     }
 
     // 既存メンバーのチェック
     const existingMembers = await listProjectMembers(req.user.orgId, projectId);
-    const isDuplicate = existingMembers.some(
-      (member) => member.email.toLowerCase() === normalizedEmail
-    );
+    const isDuplicate = existingMembers.some((member) => {
+      // メールアドレスで比較（両方ある場合）
+      if (normalizedEmail && member.email) {
+        return member.email.toLowerCase() === normalizedEmail;
+      }
+      // 表示名で比較（協力者の場合）
+      if (input.displayName && member.displayName) {
+        return member.displayName === input.displayName;
+      }
+      return false;
+    });
 
     if (isDuplicate) {
       return res.status(400).json({
@@ -203,28 +226,56 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
       req.user.displayName || req.user.email
     );
 
-    // メール送信
+    // アクティビティログを記録
     try {
-      const { sendInvitationEmail } = await import('../lib/gmail');
-      const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
-      await sendInvitationEmail({
-        to: normalizedEmail,
-        inviterName: req.user.displayName || req.user.email,
-        organizationName: req.user.orgId,
-        projectName: (project as any).物件名 || projectId,
-        role: input.role,
-        inviteUrl: `${appUrl}/projects/${projectId}`,
-        message: input.message,
+      const { logActivity } = await import('../lib/activity-log');
+      await logActivity({
+        orgId: req.user.orgId,
+        projectId,
+        type: 'member.added',
+        userId: req.uid,
+        userName: req.user.displayName || req.user.email,
+        userEmail: req.user.email,
+        targetType: 'member',
+        targetId: member.userId,
+        targetName: member.displayName,
+        action: 'メンバー追加',
+        metadata: {
+          role: input.role,
+          職種: input.職種,
+          email: normalizedEmail || '(協力者)',
+        },
       });
-    } catch (error) {
-      console.error('[ProjectMembers] Failed to send invitation email:', error);
-      // メール送信失敗でも招待は成功とする
+    } catch (logError) {
+      console.error('[ProjectMembers] Failed to log activity:', logError);
+      // ログ失敗でもメンバー追加は成功とする
+    }
+
+    // メール送信（メールアドレスが提供されている場合のみ）
+    if (normalizedEmail) {
+      try {
+        const { sendInvitationEmail } = await import('../lib/gmail');
+        const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+        await sendInvitationEmail({
+          to: normalizedEmail,
+          inviterName: req.user.displayName || req.user.email,
+          organizationName: req.user.orgId,
+          projectName: (project as any).物件名 || projectId,
+          role: input.role,
+          inviteUrl: `${appUrl}/projects/${projectId}`,
+          message: input.message,
+        });
+      } catch (error) {
+        console.error('[ProjectMembers] Failed to send invitation email:', error);
+        // メール送信失敗でも招待は成功とする
+      }
     }
 
     // アプリ内通知を作成（招待されたユーザーがログイン済みの場合）
-    try {
-      const { getUserByEmail } = await import('../lib/users');
-      const invitedUser = await getUserByEmail(normalizedEmail);
+    if (normalizedEmail) {
+      try {
+        const { getUserByEmail } = await import('../lib/users');
+        const invitedUser = await getUserByEmail(normalizedEmail);
 
       if (invitedUser) {
         const { createNotification } = await import('./notifications-api');
@@ -243,9 +294,10 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
           },
         });
       }
-    } catch (error) {
-      console.error('[ProjectMembers] Failed to create in-app notification:', error);
-      // 通知作成失敗でも招待は成功とする
+      } catch (error) {
+        console.error('[ProjectMembers] Failed to create in-app notification:', error);
+        // 通知作成失敗でも招待は成功とする
+      }
     }
 
     res.status(201).json(member);
@@ -304,6 +356,35 @@ router.patch('/projects/:projectId/members/:userId', authenticate, async (req: a
 
     await updateProjectMember(req.user.orgId, projectId, userId, updates);
 
+    // アクティビティログを記録
+    try {
+      const { logActivity, calculateChanges } = await import('../lib/activity-log');
+      const changes = calculateChanges(
+        existingMember,
+        { ...existingMember, ...updates },
+        ['role', '職種', 'status']
+      );
+
+      if (Object.keys(changes).length > 0) {
+        await logActivity({
+          orgId: req.user.orgId,
+          projectId,
+          type: 'member.updated',
+          userId: req.uid,
+          userName: req.user.displayName || req.user.email,
+          userEmail: req.user.email,
+          targetType: 'member',
+          targetId: userId,
+          targetName: existingMember.displayName,
+          action: 'メンバー情報更新',
+          changes,
+        });
+      }
+    } catch (logError) {
+      console.error('[ProjectMembers] Failed to log activity:', logError);
+      // ログ失敗でも更新は成功とする
+    }
+
     const updatedMember = await getProjectMember(req.user.orgId, projectId, userId);
     res.json(updatedMember);
   } catch (error) {
@@ -360,6 +441,31 @@ router.delete('/projects/:projectId/members/:userId', authenticate, async (req: 
     }
 
     await removeProjectMember(req.user.orgId, projectId, userId);
+
+    // アクティビティログを記録
+    try {
+      const { logActivity } = await import('../lib/activity-log');
+      await logActivity({
+        orgId: req.user.orgId,
+        projectId,
+        type: 'member.removed',
+        userId: req.uid,
+        userName: req.user.displayName || req.user.email,
+        userEmail: req.user.email,
+        targetType: 'member',
+        targetId: userId,
+        targetName: existingMember.displayName,
+        action: isSelfDecline ? '招待辞退' : 'メンバー削除',
+        metadata: {
+          role: existingMember.role,
+          職種: existingMember.職種,
+          email: existingMember.email || '(協力者)',
+        },
+      });
+    } catch (logError) {
+      console.error('[ProjectMembers] Failed to log activity:', logError);
+      // ログ失敗でも削除は成功とする
+    }
 
     res.status(204).send();
   } catch (error) {

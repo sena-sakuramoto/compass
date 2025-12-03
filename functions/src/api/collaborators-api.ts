@@ -9,8 +9,8 @@ const db = getFirestore();
 router.use(authMiddleware());
 
 /**
- * GET /api/clients
- * クライアント一覧を取得
+ * GET /api/collaborators
+ * 協力者一覧を取得
  */
 router.get('/', async (req: any, res, next) => {
   try {
@@ -19,28 +19,28 @@ router.get('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // 組織のクライアント一覧を取得
-    const clientsSnapshot = await db
+    // 組織の協力者一覧を取得
+    const collaboratorsSnapshot = await db
       .collection('orgs')
       .doc(user.orgId)
-      .collection('clients')
+      .collection('collaborators')
       .orderBy('name', 'asc')
       .get();
 
-    const clients = clientsSnapshot.docs.map((doc) => ({
+    const collaborators = collaboratorsSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
 
-    res.json({ clients });
+    res.json({ collaborators });
   } catch (error) {
     next(error);
   }
 });
 
 /**
- * POST /api/clients
- * 新規クライアントを作成
+ * POST /api/collaborators
+ * 新規協力者を作成
  */
 router.post('/', async (req: any, res, next) => {
   try {
@@ -52,49 +52,49 @@ router.post('/', async (req: any, res, next) => {
     const { name } = req.body;
 
     if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Client name is required' });
+      return res.status(400).json({ error: 'Collaborator name is required' });
     }
 
     // 重複チェック
     const existingSnapshot = await db
       .collection('orgs')
       .doc(user.orgId)
-      .collection('clients')
+      .collection('collaborators')
       .where('name', '==', name.trim())
       .limit(1)
       .get();
 
     if (!existingSnapshot.empty) {
-      return res.status(400).json({ error: 'Client already exists' });
+      return res.status(400).json({ error: 'Collaborator already exists' });
     }
 
-    // クライアントを作成
+    // 協力者を作成
     const now = Timestamp.now();
-    const clientRef = db
+    const collaboratorRef = db
       .collection('orgs')
       .doc(user.orgId)
-      .collection('clients')
+      .collection('collaborators')
       .doc();
 
-    const client = {
-      id: clientRef.id,
+    const collaborator = {
+      id: collaboratorRef.id,
       name: name.trim(),
       createdAt: now,
       createdBy: req.uid,
       updatedAt: now,
     };
 
-    await clientRef.set(client);
+    await collaboratorRef.set(collaborator);
 
-    res.status(201).json(client);
+    res.status(201).json(collaborator);
   } catch (error) {
     next(error);
   }
 });
 
 /**
- * PATCH /api/clients/:id
- * クライアントを更新
+ * PATCH /api/collaborators/:id
+ * 協力者を更新
  */
 router.patch('/:id', async (req: any, res, next) => {
   try {
@@ -105,48 +105,48 @@ router.patch('/:id', async (req: any, res, next) => {
 
     // 管理者・PMのみ更新可能
     if (user.role !== 'admin' && user.role !== 'super_admin' && user.role !== 'project_manager') {
-      return res.status(403).json({ error: 'Forbidden: Only admins and PMs can update clients' });
+      return res.status(403).json({ error: 'Forbidden: Only admins and PMs can update collaborators' });
     }
 
     const { id } = req.params;
     const { name } = req.body;
 
     if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Client name is required' });
+      return res.status(400).json({ error: 'Collaborator name is required' });
     }
 
     // 重複チェック（自分以外）
     const existingSnapshot = await db
       .collection('orgs')
       .doc(user.orgId)
-      .collection('clients')
+      .collection('collaborators')
       .where('name', '==', name.trim())
       .limit(2)
       .get();
 
     const duplicates = existingSnapshot.docs.filter(doc => doc.id !== id);
     if (duplicates.length > 0) {
-      return res.status(400).json({ error: 'Client with this name already exists' });
+      return res.status(400).json({ error: 'Collaborator with this name already exists' });
     }
 
-    const clientRef = db
+    const collaboratorRef = db
       .collection('orgs')
       .doc(user.orgId)
-      .collection('clients')
+      .collection('collaborators')
       .doc(id);
 
-    const clientDoc = await clientRef.get();
-    if (!clientDoc.exists) {
-      return res.status(404).json({ error: 'Client not found' });
+    const collaboratorDoc = await collaboratorRef.get();
+    if (!collaboratorDoc.exists) {
+      return res.status(404).json({ error: 'Collaborator not found' });
     }
 
     const now = Timestamp.now();
-    await clientRef.update({
+    await collaboratorRef.update({
       name: name.trim(),
       updatedAt: now,
     });
 
-    const updated = await clientRef.get();
+    const updated = await collaboratorRef.get();
     res.json({ id: updated.id, ...updated.data() });
   } catch (error) {
     next(error);
@@ -154,8 +154,8 @@ router.patch('/:id', async (req: any, res, next) => {
 });
 
 /**
- * DELETE /api/clients/:id
- * クライアントを削除
+ * DELETE /api/collaborators/:id
+ * 協力者を削除
  */
 router.delete('/:id', async (req: any, res, next) => {
   try {
@@ -166,7 +166,7 @@ router.delete('/:id', async (req: any, res, next) => {
 
     // 管理者のみ削除可能
     if (user.role !== 'admin' && user.role !== 'super_admin') {
-      return res.status(403).json({ error: 'Forbidden: Only admins can delete clients' });
+      return res.status(403).json({ error: 'Forbidden: Only admins can delete collaborators' });
     }
 
     const { id } = req.params;
@@ -174,7 +174,7 @@ router.delete('/:id', async (req: any, res, next) => {
     await db
       .collection('orgs')
       .doc(user.orgId)
-      .collection('clients')
+      .collection('collaborators')
       .doc(id)
       .delete();
 

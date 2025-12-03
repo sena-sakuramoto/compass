@@ -55,15 +55,17 @@ export function GoogleMapsAddressInput({
       // Places Autocompleteを初期化
       const autocomplete = new (window as any).google.maps.places.Autocomplete(inputRef.current, {
         componentRestrictions: { country: 'jp' }, // 日本のみ
-        fields: ['address_components', 'formatted_address', 'geometry'],
-        types: ['address'], // 住所のみ
+        fields: ['name', 'address_components', 'formatted_address', 'geometry'],
+        types: ['establishment', 'geocode'], // 施設名と住所の両方
       });
 
       // 場所が選択されたときのハンドラー
       autocomplete.addListener('place_changed', () => {
         const place = autocomplete.getPlace();
-        if (place.formatted_address) {
-          onChange(place.formatted_address);
+        // 施設名がある場合は施設名を優先、なければ住所
+        const displayValue = place.name || place.formatted_address;
+        if (displayValue) {
+          onChange(displayValue);
         }
       });
     } catch (err) {

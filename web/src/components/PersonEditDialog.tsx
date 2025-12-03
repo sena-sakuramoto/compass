@@ -10,10 +10,12 @@ interface PersonEditDialogProps {
 
 export function PersonEditDialog({ person, onClose, onSave }: PersonEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Person>>({
+    type: 'person',
     氏名: '',
     メール: '',
     役割: '',
     部署: '',
+    会社名: '',
     電話: '',
     '稼働時間/日(h)': undefined,
   });
@@ -21,13 +23,18 @@ export function PersonEditDialog({ person, onClose, onSave }: PersonEditDialogPr
 
   useEffect(() => {
     if (person) {
-      setFormData(person);
+      setFormData({
+        ...person,
+        type: person.type || 'person', // デフォルトは担当者
+      });
     } else {
       setFormData({
+        type: 'person',
         氏名: '',
         メール: '',
         役割: '',
         部署: '',
+        会社名: '',
         電話: '',
         '稼働時間/日(h)': undefined,
       });
@@ -53,13 +60,44 @@ export function PersonEditDialog({ person, onClose, onSave }: PersonEditDialogPr
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800">担当者編集</h2>
+          <h2 className="text-xl font-bold text-slate-800">
+            {formData.type === 'client' ? 'クライアント編集' : '担当者編集'}
+          </h2>
           <button onClick={onClose} className="rounded-lg p-1 hover:bg-slate-100">
             <X className="h-5 w-5 text-slate-500" />
           </button>
         </div>
 
         <div className="space-y-4">
+          {/* タイプ選択 */}
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">タイプ *</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="personType"
+                  value="person"
+                  checked={formData.type === 'person'}
+                  onChange={() => setFormData({ ...formData, type: 'person' })}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm text-slate-700">担当者</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="personType"
+                  value="client"
+                  checked={formData.type === 'client'}
+                  onChange={() => setFormData({ ...formData, type: 'client' })}
+                  className="w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm text-slate-700">クライアント</span>
+              </label>
+            </div>
+          </div>
+
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">氏名 *</label>
             <input
@@ -90,15 +128,30 @@ export function PersonEditDialog({ person, onClose, onSave }: PersonEditDialogPr
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">部署</label>
-            <input
-              type="text"
-              value={formData.部署 || ''}
-              onChange={(e) => setFormData({ ...formData, 部署: e.target.value })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
+          {formData.type === 'person' && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">部署</label>
+              <input
+                type="text"
+                value={formData.部署 || ''}
+                onChange={(e) => setFormData({ ...formData, 部署: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+          )}
+
+          {formData.type === 'client' && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">会社名</label>
+              <input
+                type="text"
+                value={formData.会社名 || ''}
+                onChange={(e) => setFormData({ ...formData, 会社名: e.target.value })}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+                placeholder="例: 株式会社〇〇"
+              />
+            </div>
+          )}
 
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">電話</label>
@@ -110,16 +163,18 @@ export function PersonEditDialog({ person, onClose, onSave }: PersonEditDialogPr
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">稼働時間/日(h)</label>
-            <input
-              type="number"
-              step="0.5"
-              value={formData['稼働時間/日(h)'] || ''}
-              onChange={(e) => setFormData({ ...formData, '稼働時間/日(h)': e.target.value ? Number(e.target.value) : undefined })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-            />
-          </div>
+          {formData.type === 'person' && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">稼働時間/日(h)</label>
+              <input
+                type="number"
+                step="0.5"
+                value={formData['稼働時間/日(h)'] || ''}
+                onChange={(e) => setFormData({ ...formData, '稼働時間/日(h)': e.target.value ? Number(e.target.value) : undefined })}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+          )}
         </div>
 
         <div className="mt-6 flex justify-end gap-3">

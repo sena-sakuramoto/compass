@@ -122,19 +122,44 @@ export function useFirebaseAuth() {
     return () => unsubscribe();
   }, [supported]);
 
-  const signIn = useCallback(async () => {
+  const signIn = useCallback(async (method: 'google' | 'email' = 'google', emailPassword?: { email: string; password: string }) => {
     if (!supported) return;
     const app = getFirebaseApp();
     if (!app) return;
     const auth = getAuth(app);
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
+
     try {
-      await signInWithPopup(auth, provider);
+      if (method === 'google') {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        await signInWithPopup(auth, provider);
+      } else if (method === 'email' && emailPassword) {
+        const firebaseAuth = await import('firebase/auth');
+        // @ts-ignore - Firebase auth functions exist but TypeScript can't find them
+        await firebaseAuth.signInWithEmailAndPassword(auth, emailPassword.email, emailPassword.password);
+      }
       setState((prev) => ({ ...prev, error: null }));
     } catch (error) {
       console.error('Sign-in failed', error);
       const message = error instanceof Error ? error.message : 'サインインに失敗しました。もう一度お試しください。';
+      setState((prev) => ({ ...prev, error: message }));
+    }
+  }, [supported]);
+
+  const signUpWithEmail = useCallback(async (email: string, password: string) => {
+    if (!supported) return;
+    const app = getFirebaseApp();
+    if (!app) return;
+    const auth = getAuth(app);
+
+    try {
+      const firebaseAuth = await import('firebase/auth');
+      // @ts-ignore - Firebase auth functions exist but TypeScript can't find them
+      await firebaseAuth.createUserWithEmailAndPassword(auth, email, password);
+      setState((prev) => ({ ...prev, error: null }));
+    } catch (error) {
+      console.error('Sign-up failed', error);
+      const message = error instanceof Error ? error.message : 'アカウント作成に失敗しました。もう一度お試しください。';
       setState((prev) => ({ ...prev, error: message }));
     }
   }, [supported]);
@@ -161,6 +186,7 @@ export function useFirebaseAuth() {
     authSupported: supported,
     authError: state.error,
     signIn,
+    signUpWithEmail,
     signOut: signOutUser,
   };
 }

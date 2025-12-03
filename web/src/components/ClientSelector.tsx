@@ -117,7 +117,7 @@ export function ClientSelector({
             className={`w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${className}`}
             disabled={loading}
           >
-            <option value="">{loading ? '読み込み中...' : placeholder}</option>
+            <option value="" disabled hidden>{loading ? '読み込み中...' : placeholder}</option>
             {clients.map((client) => (
               <option key={client.id} value={client.name}>
                 {client.name}

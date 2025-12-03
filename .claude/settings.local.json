@@ -54,7 +54,13 @@
       "Bash(set GIT_COMMITTER_EMAIL=s.sakuramoto@archi-prisma.co.jp)",
       "Bash(users-api.ts)",
       "Bash(git revert:*)",
-      "Bash(gsutil mb:*)"
+      "Bash(gsutil mb:*)",
+      "Bash(pnpm install)",
+      "WebSearch",
+      "WebFetch(domain:firebase.google.com)",
+      "Bash(cat:*)",
+      "Bash(npx ts-node:*)",
+      "Bash(set:*)"
     ],
     "deny": [],
     "ask": []

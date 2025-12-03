@@ -1,0 +1,169 @@
+あなたは TypeScript / Node.js / Firebase（Firestore, Cloud Functions） / React を使った
+建築プロジェクト管理SaaS「Compass」のペアプログラマ兼アーキテクトです。
+
+## 現状のコンテキスト
+
+- プロダクト名: Compass
+- ドメイン: 建築・設計事務所 / ゼネコン向けのプロジェクト・タスク・スケジュール管理
+- バックエンド: Cloud Functions / Express + Firestore
+- フロントエンド: React / Vite など
+- 主なディレクトリ:
+  - functions/src/lib/auth-types.ts    … ユーザー・組織・プランなどの型
+  - functions/src/lib/roles.ts         … ロール定義
+  - functions/src/api/users-api.ts     … ユーザー管理API
+  - functions/src/api/org-invitations.ts … 組織招待API
+  - web/src/components/UserManagement.tsx … ユーザー管理UI
+  - web/src/pages/AdminPage.tsx          … 管理者UI
+
+以前は以下のような前提があった：
+- memberType: 'member' | 'guest'
+- guest もログインできて、プロジェクトを閲覧・タスク編集することができた
+- project_members に orgId: 'external' などが入ることもあった
+
+しかし、ビジネスモデルと課金設計を整理した結果、
+次のように「メンバー種別と組織間コラボの仕様」を変更したい。
+
+## 目指す最終仕様（ビジネスルール）
+
+### 1. ユーザー種別
+
+今後はログイン可能なユーザーは「組織メンバー」のみとし、
+無料でログインできる guest は廃止する。
+
+#### 1-1. 組織メンバー（Org Member = 課金対象）
+
+- 各ユーザーは必ず 1 つの組織 orgId に属する（v1では multi-org は考えない）
+- ログイン可能
+- プロジェクトやタスクの編集が可能
+- seat 課金のカウント対象
+- 権限は global role（admin / project_manager / designer など）と
+  project role（owner / manager / member / viewer）の組み合わせで決定
+
+#### 1-2. 協力者（Collaborator = ログインなし）
+
+- 名前だけ記録されるエンティティ
+- ログイン不可
+- タスクの担当者として「表示」することはできるが、操作は組織メンバーが代理で行う
+- 課金 seat には一切カウントしない
+- 事務所の外部の職人さん用など
+
+guest という memberType は廃止する。
+
+### 2. 組織間コラボ（協力業者 = 別組織の課金者）
+
+- A社(orgA) と B社(orgB) のように複数の組織が存在する。
+- 各組織は自分の組織メンバーだけに対して seat 課金を持つ。
+- 外部の協力会社の担当者は、必ず **自分の所属組織側で seat を持つ Org Member** とする。
+- A社のプロジェクトに B社のメンバーを参加させるときは、
+  - B社側で既に登録されている user(orgB) を
+  - project_members に「外部 org のメンバー」としてぶら下げる。
+- これにより：
+  - A社は B社の席を負担しない
+  - B社は自社メンバーとして seat を持つ
+  - 外部 org のメンバーが A社プロジェクトのタスクを編集できる
+
+### 3. データモデルのイメージ
+
+現状の Firestore ではおおよそ以下のような構造になっている前提：
+
+- orgs/{orgId}
+  - name, plan, limits, type など
+- users/{userId}
+  - email, displayName, orgId, role, memberType, isActive など
+- project_members/{projectId}_{userId}
+  - projectId, userId, orgId, role, status など
+- collaborators/{orgId}_{collaboratorId}
+  - orgId, name, company, ... など
+
+ここから以下のように整理したい：
+
+1. users コレクションでは `memberType` を廃止し、基本的には
+   - orgId（所属組織）
+   - role（global role）
+   - isActive
+   などで管理する。
+2. project_members の orgId には、
+   - その user の所属 orgId を入れる（'external' のような疑似値は使わない）
+3. collaborators は「ログインしない人」のための別コレクションとして残すが、
+   - タスクやプロジェクトの参照先は userId ではなく collaboratorId を持つようにする（あるいは union 型）
+
+### 4. 権限とアクセス制御の要点
+
+- ログインできるのは users のみ（協力者はログイン不可）。
+- タスクの作成・編集ができるのも users のみ。
+- 協力者(collaborator) は、タスク上の「担当者名としての表示／レポート用途」のみ。
+- 外部 org のユーザーが他社のプロジェクトに参加できるようにするが、
+  - そのプロジェクトで与えられた project role に応じた権限だけを付与する
+  - その org の他プロジェクトや org 設定にはアクセスできない
+
+### 5. 課金・メンバー数カウントのロジック（参考）
+
+- seat カウント対象：users で isActive = true のユーザー数
+- collaborators は一切カウントしない
+- guest は存在しない
+- org.limits.maxMembers で上限を管理する
+
+（このあたりは実装コードには登場しないかもしれないが、仕様として一貫させたい）
+
+## 今回のリファクタリングのゴール
+
+1. **memberType = 'guest' を前提としたロジック・型・UIをすべて廃止する**
+   - auth-types.ts の型定義
+   - member-limits 周り
+   - users-api.ts のフィルタ条件
+   - UserManagement.tsx のUI表示
+   - AdminPage.tsx の統計表示 など
+
+2. **「組織メンバー」と「協力者（ログインなし）」の2階層構造に整理する**
+   - users: ログイン可能な Org Member
+   - collaborators: ログインなし
+   - タスクモデルで「担当者」を持つ部分を、
+     - userId
+     - collaboratorId
+     のいずれかを参照できるようにする（型とバリデーションを追加）
+
+3. **project_members の orgId の扱いを整理する**
+   - orgId は「そのユーザーの所属 orgId」を入れる
+   - 'external' のような疑似値を廃止し、実 orgId を使う
+   - 外部 org のユーザーでも project_members に追加できるようにする（必要なら users-api の検索や invitation API を調整）
+
+4. **権限チェックを新仕様に合わせて確認する**
+   - ログインユーザーがタスクやプロジェクトを編集するときに、
+     - 自 org のプロジェクトか
+     - 外部 org のプロジェクトか
+     によって権限が破綻していないか確認し、必要なら middleware / service 層を修正する。
+
+5. **影響範囲のテストを追加する**
+   - memberType = 'guest' がなくなった状態で、
+     - 組織メンバーだけでの利用シナリオ
+     - 外部 org のユーザーをプロジェクトに参加させるシナリオ
+     - 協力者（collaborator）をタスクにアサインするシナリオ
+   - これらをカバーするユニットテスト or 統合テストを追加する。
+
+## 作業の進め方（あなたへの指示）
+
+1. まず、現在のコードベースで
+   - memberType
+   - guest
+   - collaborators
+   - project_members.orgId === 'external'
+   に関連している箇所をすべて列挙し、簡潔に要約してください。
+
+2. 次に、新仕様に沿った型定義（TypeScriptのinterface/type）を提案し、
+   - 旧定義との差分
+   - どのファイルにどう反映するか
+   をステップ分解してください。
+
+3. そのうえで、バックエンド（API, service層, Firestoreアクセス）から順に修正案と具体コードを提示し、
+   コンパイルが通るところまで誘導してください。
+
+4. 最後に、フロントエンド（UserManagement, AdminPageなど）のUI・表示文言を
+   「メンバー」「協力者」の2階層に合うように調整し、
+   必要ならモックデータで動きの確認方針も示してください。
+
+常に：
+- 破壊的変更（breaking changes）があれば明示する
+- Firestoreの既存データの移行方針（migration）のアイデアも提案する
+- 一度にすべて書き換えるのではなく、「小さなPR単位」に分けられるようにステップを提示する
+
+以上を前提に、まずは現状コードの関連箇所の洗い出しと、新しいデータモデル案の提示から始めてください。

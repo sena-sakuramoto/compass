@@ -108,6 +108,32 @@ service cloud.firestore {
       allow write: if isAdmin() || isProjectManager();
     }
 
+    // ===== クライアントコレクション =====
+
+    match /orgs/{orgId}/clients/{clientId} {
+      // ユーザーの組織IDが一致するかチェック
+      function isOrgMember() {
+        let user = getUserData();
+        return user != null && user.orgId == orgId;
+      }
+
+      allow read: if isAuthenticated() && isOrgMember();
+      allow write: if (isAdmin() || isProjectManager()) && isOrgMember();
+    }
+
+    // ===== 協力者コレクション =====
+
+    match /orgs/{orgId}/collaborators/{collaboratorId} {
+      // ユーザーの組織IDが一致するかチェック
+      function isOrgMember() {
+        let user = getUserData();
+        return user != null && user.orgId == orgId;
+      }
+
+      allow read: if isAuthenticated() && isOrgMember();
+      allow write: if (isAdmin() || isProjectManager()) && isOrgMember();
+    }
+
     // ===== 通知コレクション =====
 
     match /orgs/{orgId}/notifications/{notificationId} {
