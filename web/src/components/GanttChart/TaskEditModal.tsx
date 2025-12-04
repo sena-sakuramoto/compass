@@ -6,7 +6,8 @@ import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import type { GanttTask } from './types';
 import type { ProjectMember } from '../../lib/auth-types';
-import { listProjectMembers } from '../../lib/api';
+import type { Stage } from '../../lib/types';
+import { listProjectMembers, listStages } from '../../lib/api';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -45,21 +46,32 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   const [notifyOverdue, setNotifyOverdue] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [stages, setStages] = useState<Stage[]>([]);
+  const [stagesLoading, setStagesLoading] = useState(false);
+  const [stageId, setStageId] = useState('');
 
-  // プロジェクトメンバーを取得
+  // プロジェクトメンバーと工程を取得
   useEffect(() => {
     if (task?.projectId) {
       setMembersLoading(true);
-      listProjectMembers(task.projectId, { status: 'active' })
-        .then(members => {
+      setStagesLoading(true);
+
+      Promise.all([
+        listProjectMembers(task.projectId, { status: 'active' }),
+        listStages(task.projectId),
+      ])
+        .then(([members, stagesData]) => {
           setProjectMembers(members);
+          setStages(stagesData.stages);
         })
         .catch(error => {
-          console.error('Failed to load project members:', error);
+          console.error('Failed to load project data:', error);
           setProjectMembers([]);
+          setStages([]);
         })
         .finally(() => {
           setMembersLoading(false);
+          setStagesLoading(false);
         });
     }
   }, [task?.projectId]);
@@ -79,6 +91,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     setNotifyDayBefore(task?.notificationSettings?.期限前日 || false);
     setNotifyDue(task?.notificationSettings?.期限当日 || false);
     setNotifyOverdue(task?.notificationSettings?.超過 || false);
+    // 工程を復元
+    setStageId((task as any)?.parentId || '');
   }, [task, projectMembers]);
 
   // 担当者が変更されたら、自動的にメールアドレスを補完
@@ -112,6 +126,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
       ...editedTask,
       assigneeEmail,
       milestone: isMilestone,
+      parentId: stageId || null,
       notificationSettings: {
         開始日: notifyStart,
         期限前日: notifyDayBefore,
@@ -240,6 +255,25 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
               placeholder="担当者メールアドレス"
             />
           </div>
+
+          {/* 工程 */}
+          {stages.length > 0 && (
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">工程</label>
+              <select
+                value={stageId}
+                onChange={(e) => setStageId(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">未割り当て</option>
+                {stages.map((stage) => (
+                  <option key={stage.id} value={stage.id}>
+                    {stage.タスク名}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* タスク名 */}
           <div>

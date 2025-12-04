@@ -60,7 +60,6 @@ import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
 import { AdminPage } from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
-import StagesPage from './pages/StagesPage';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage } from './lib/types';
@@ -4175,7 +4174,6 @@ function App() {
           />
           <Route path="/workload" element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} />} />
           <Route path="/users" element={<UserManagement projects={state.projects} />} />
-          <Route path="/stages" element={<StagesPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/help" element={<HelpPage />} />
           <Route path="/admin" element={<AdminPage user={user} currentUserRole={currentUserRole} />} />

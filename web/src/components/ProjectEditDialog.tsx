@@ -3,9 +3,9 @@ import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
-import type { Project, Task, ManageableUserSummary } from '../lib/types';
+import type { Project, Task, ManageableUserSummary, Stage } from '../lib/types';
 import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType } from '../lib/auth-types';
-import { listProjectMembers, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator } from '../lib/api';
+import { listProjectMembers, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage } from '../lib/api';
 import { PROJECT_ROLE_LABELS, ROLE_LABELS } from '../lib/auth-types';
 import { GoogleMapsAddressInput } from './GoogleMapsAddressInput';
 import { GoogleDriveFolderPicker } from './GoogleDriveFolderPicker';
@@ -104,6 +104,17 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
   const [newTaskIsMilestone, setNewTaskIsMilestone] = useState(false);
   const [taskCreating, setTaskCreating] = useState(false);
 
+  // 工程管理用の状態
+  const [stages, setStages] = useState<Stage[]>([]);
+  const [stagesLoading, setStagesLoading] = useState(false);
+  const [showStageForm, setShowStageForm] = useState(false);
+  const [editingStage, setEditingStage] = useState<Stage | null>(null);
+  const [stageName, setStageName] = useState('');
+  const [stageStartDate, setStageStartDate] = useState('');
+  const [stageEndDate, setStageEndDate] = useState('');
+  const [stageSaving, setStageSaving] = useState(false);
+  const [newTaskStageId, setNewTaskStageId] = useState('');
+
   useEffect(() => {
     if (project) {
       setFormData(project);
@@ -111,27 +122,33 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
       if (project.id) {
         setMembersLoading(true);
         setLogsLoading(true);
+        setStagesLoading(true);
 
         Promise.all([
           listProjectMembers(project.id, { status: 'active' }),
           listActivityLogs({ projectId: project.id, limit: 20 }),
+          listStages(project.id),
         ])
-          .then(([members, logsData]) => {
+          .then(([members, logsData, stagesData]) => {
             setProjectMembers(members);
             setActivityLogs(logsData.logs);
+            setStages(stagesData.stages);
           })
           .catch(error => {
             console.error('Failed to load project data:', error);
             setProjectMembers([]);
             setActivityLogs([]);
+            setStages([]);
           })
           .finally(() => {
             setMembersLoading(false);
             setLogsLoading(false);
+            setStagesLoading(false);
           });
       } else {
         setProjectMembers([]);
         setActivityLogs([]);
+        setStages([]);
       }
     } else {
       // Reset to default values for new project
@@ -589,6 +606,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
           期限当日: newTaskNotifyDue,
           超過: newTaskNotifyOverdue,
         },
+        parentId: newTaskStageId || null,
         projectId: project.id,
       });
 
@@ -606,6 +624,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
       setNewTaskNotifyDue(true);
       setNewTaskNotifyOverdue(true);
       setNewTaskIsMilestone(false);
+      setNewTaskStageId('');
       setShowTaskForm(false);
     } catch (error) {
       console.error('タスクの作成に失敗しました:', error);
@@ -628,6 +647,82 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
     } catch (error) {
       console.error('プロジェクトの削除に失敗しました:', error);
       alert('プロジェクトの削除に失敗しました');
+    }
+  };
+
+  // 工程管理のハンドラ
+  const handleStageCreate = () => {
+    setEditingStage(null);
+    setStageName('');
+    setStageStartDate('');
+    setStageEndDate('');
+    setShowStageForm(true);
+  };
+
+  const handleStageEdit = (stage: Stage) => {
+    setEditingStage(stage);
+    setStageName(stage.タスク名);
+    setStageStartDate(stage.予定開始日 || '');
+    setStageEndDate(stage.期限 || '');
+    setShowStageForm(true);
+  };
+
+  const handleStageSave = async () => {
+    if (!project?.id || !stageName.trim()) return;
+
+    try {
+      setStageSaving(true);
+      setError(null);
+
+      if (editingStage) {
+        await updateStage(editingStage.id, {
+          タスク名: stageName.trim(),
+          予定開始日: stageStartDate || null,
+          期限: stageEndDate || null,
+        });
+      } else {
+        await createStage(project.id, {
+          タスク名: stageName.trim(),
+          予定開始日: stageStartDate || null,
+          期限: stageEndDate || null,
+        });
+      }
+
+      // 工程リストを再読み込み
+      const { stages: stageList } = await listStages(project.id);
+      setStages(stageList);
+
+      setShowStageForm(false);
+      setStageName('');
+      setStageStartDate('');
+      setStageEndDate('');
+      setEditingStage(null);
+      setSuccess(editingStage ? '工程を更新しました' : '工程を追加しました');
+    } catch (err: any) {
+      console.error('Failed to save stage:', err);
+      setError(err.message || '工程の保存に失敗しました');
+    } finally {
+      setStageSaving(false);
+    }
+  };
+
+  const handleStageDelete = async (stageId: string) => {
+    if (!confirm('この工程を削除しますか？\n配下のタスクは未割り当てに戻ります。')) return;
+
+    try {
+      setError(null);
+      await deleteStage(stageId);
+
+      // 工程リストを再読み込み
+      if (project?.id) {
+        const { stages: stageList } = await listStages(project.id);
+        setStages(stageList);
+      }
+
+      setSuccess('工程を削除しました');
+    } catch (err: any) {
+      console.error('Failed to delete stage:', err);
+      setError('工程の削除に失敗しました');
     }
   };
 
@@ -865,6 +960,25 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
 
                 {showTaskForm && (
                   <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-white">
+                    {/* 工程 */}
+                    {stages.length > 0 && (
+                      <div>
+                        <label className="mb-1 block text-xs text-slate-500">工程</label>
+                        <select
+                          value={newTaskStageId}
+                          onChange={(e) => setNewTaskStageId(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="">未割り当て</option>
+                          {stages.map((stage) => (
+                            <option key={stage.id} value={stage.id}>
+                              {stage.タスク名}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     {/* 担当者 */}
                     <div>
                       <label className="mb-1 block text-xs text-slate-500">担当者</label>
@@ -1109,6 +1223,139 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
                         {taskCreating ? '作成中...' : '保存'}
                       </button>
                     </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 工程管理（編集モード時のみ） */}
+            {project && project.id && (
+              <div className="border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-slate-700">
+                    <Plus className="inline h-4 w-4 mr-1" />
+                    工程管理
+                  </label>
+                  {!showStageForm && (
+                    <button
+                      type="button"
+                      onClick={handleStageCreate}
+                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      + 新しい工程
+                    </button>
+                  )}
+                </div>
+
+                {/* 工程追加/編集フォーム */}
+                {showStageForm && (
+                  <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-white mb-3">
+                    <div>
+                      <label className="mb-1 block text-xs text-slate-500">
+                        工程名 <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={stageName}
+                        onChange={(e) => setStageName(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="例: 基本設計"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1 block text-xs text-slate-500">予定開始日</label>
+                        <input
+                          type="date"
+                          value={stageStartDate}
+                          onChange={(e) => setStageStartDate(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs text-slate-500">期限</label>
+                        <input
+                          type="date"
+                          value={stageEndDate}
+                          onChange={(e) => setStageEndDate(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 justify-end pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowStageForm(false);
+                          setStageName('');
+                          setStageStartDate('');
+                          setStageEndDate('');
+                          setEditingStage(null);
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-2xl hover:bg-slate-50 transition-colors"
+                        disabled={stageSaving}
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleStageSave}
+                        disabled={!stageName.trim() || stageSaving}
+                        className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-2xl hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {stageSaving ? '保存中...' : '保存'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 工程一覧 */}
+                {stagesLoading ? (
+                  <div className="text-sm text-slate-400 text-center py-4">読み込み中...</div>
+                ) : stages.length > 0 ? (
+                  <div className="space-y-2">
+                    {stages.map((stage) => (
+                      <div
+                        key={stage.id}
+                        className="p-3 border border-slate-200 rounded-lg hover:border-slate-300 transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="font-medium text-sm text-slate-700">{stage.タスク名}</div>
+                            <div className="text-xs text-slate-500 mt-1">
+                              {stage.予定開始日 && <span>開始: {stage.予定開始日}</span>}
+                              {stage.予定開始日 && stage.期限 && <span className="mx-2">〜</span>}
+                              {stage.期限 && <span>期限: {stage.期限}</span>}
+                              {!stage.予定開始日 && !stage.期限 && <span className="text-slate-400">日付未設定</span>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleStageEdit(stage)}
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              title="編集"
+                            >
+                              <Plus className="w-4 h-4 rotate-45" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleStageDelete(stage.id)}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                              title="削除"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-400 text-center py-4 border border-slate-200 rounded-lg">
+                    工程がまだ登録されていません
                   </div>
                 )}
               </div>

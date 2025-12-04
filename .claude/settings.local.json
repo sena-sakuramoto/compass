@@ -60,7 +60,8 @@
       "WebFetch(domain:firebase.google.com)",
       "Bash(cat:*)",
       "Bash(npx ts-node:*)",
-      "Bash(set:*)"
+      "Bash(set:*)",
+      "Bash(powershell -Command:*)"
     ],
     "deny": [],
     "ask": []
