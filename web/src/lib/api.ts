@@ -353,10 +353,9 @@ export interface User {
   displayName: string;
   orgId: string;
   role: Role;
-  memberType?: 'member' | 'guest';
-  職種?: string;
-  部署?: string;
-  電話番号?: string;
+  jobTitle?: string;
+  department?: string;
+  phoneNumber?: string;
   photoURL?: string;
   isActive: boolean;
   createdAt: any;
@@ -508,6 +507,59 @@ export async function updateCollaborator(collaboratorId: string, name: string) {
 
 export async function deleteCollaborator(collaboratorId: string) {
   return request<{ success: boolean }>(`/collaborators/${collaboratorId}`, {
+    method: 'DELETE',
+  });
+}
+
+// ==================== 通知 API ====================
+
+export interface InAppNotification {
+  id: string;
+  userId: string;
+  type: 'invitation' | 'task_assigned' | 'task_reminder' | 'project_update' | 'mention';
+  title: string;
+  message: string;
+  actionUrl?: string;
+  metadata?: {
+    projectId?: string;
+    projectName?: string;
+    taskId?: string;
+    invitationId?: string;
+    inviterName?: string;
+    role?: string;
+    [key: string]: any;
+  };
+  read: boolean;
+  createdAt: string;
+}
+
+export async function listNotifications(params?: { limit?: number; unreadOnly?: boolean }) {
+  const query = new URLSearchParams();
+  if (params?.limit) query.set('limit', String(params.limit));
+  if (params?.unreadOnly) query.set('unreadOnly', 'true');
+  const qs = query.toString();
+  const suffix = qs ? `?${qs}` : '';
+  return request<InAppNotification[]>(`/notifications${suffix}`);
+}
+
+export async function getUnreadNotificationCount() {
+  return request<{ count: number }>('/notifications/unread-count');
+}
+
+export async function markNotificationAsRead(notificationId: string) {
+  return request<{ success: boolean }>(`/notifications/${notificationId}/read`, {
+    method: 'PATCH',
+  });
+}
+
+export async function markAllNotificationsAsRead() {
+  return request<{ success: boolean; count: number }>('/notifications/mark-all-read', {
+    method: 'POST',
+  });
+}
+
+export async function deleteNotification(notificationId: string) {
+  return request<{ success: boolean }>(`/notifications/${notificationId}`, {
     method: 'DELETE',
   });
 }

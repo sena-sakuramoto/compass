@@ -12,6 +12,14 @@ export type Role =
   | 'viewer';         // 閲覧者
 
 /**
+ * メンバータイプ
+ * internal: 社内メンバー（自組織の正社員・従業員）
+ * partner: パートナー企業（協力会社のPM・担当者）
+ * external: 外部メンバー（一時的な参加者）
+ */
+export type MemberType = 'internal' | 'partner' | 'external';
+
+/**
  * プロジェクトロール
  */
 export type ProjectRole =
@@ -23,7 +31,7 @@ export type ProjectRole =
 /**
  * 職種
  */
-export type 職種Type =
+export type JobTitleType =
   | '営業'
   | 'PM'
   | '設計'
@@ -75,7 +83,15 @@ export interface ProjectPermissions {
 }
 
 /**
- * ユーザー
+ * 組織設定
+ */
+export interface OrganizationSettings {
+  allowExternalMembers: boolean;
+  defaultRole: Role;
+}
+
+/**
+ * ユーザー (組織メンバー - ログイン可能)
  */
 export interface User {
   id: string;
@@ -83,9 +99,10 @@ export interface User {
   displayName: string;
   orgId: string;
   role: Role;
-  職種?: string;
-  部署?: string;
-  電話番号?: string;
+  memberType?: MemberType;  // メンバータイプ（ロールから自動設定）
+  jobTitle?: string;      // Changed from 職種
+  department?: string;    // Changed from 部署
+  phoneNumber?: string;   // Changed from 電話番号
   photoURL?: string;
   isActive: boolean;
   createdAt: string;
@@ -102,10 +119,11 @@ export interface ProjectMember {
   userId: string;
   email: string;
   displayName: string;
-  orgId: string;
+  orgId: string;                 // Real organization ID, never 'external'
   orgName: string;
+  memberType?: MemberType;       // メンバータイプ（ユーザーから継承）
   role: ProjectRole;
-  職種?: string;
+  jobTitle?: string;             // Changed from 職種
   permissions: ProjectPermissions;
   invitedBy: string;
   invitedAt: string;
@@ -116,13 +134,12 @@ export interface ProjectMember {
 }
 
 /**
- * プロジェクトメンバー招待の入力データ
+ * プロジェクトメンバー招待の入力データ (組織メンバーのみ)
  */
 export interface ProjectMemberInput {
-  email?: string;                // メールアドレス（システム登録ユーザーの場合）
-  displayName?: string;          // 表示名（システム未登録ユーザーの場合）
+  email: string;                            // Required - organization members only
   role: ProjectRole;
-  職種?: 職種Type | string;
+  jobTitle?: JobTitleType | string;         // Changed from 職種
   permissions?: Partial<ProjectPermissions>;
   message?: string;
 }
@@ -135,9 +152,46 @@ export interface UserInput {
   displayName: string;
   orgId: string;
   role: Role;
-  職種?: string;
-  部署?: string;
-  電話番号?: string;
+  memberType?: MemberType;  // 省略時はロールから自動設定
+  jobTitle?: string;      // Changed from 職種
+  department?: string;    // Changed from 部署
+  phoneNumber?: string;   // Changed from 電話番号
   photoURL?: string;
 }
 
+/**
+ * 協力者 (ログイン不可、表示のみ)
+ */
+export interface Collaborator {
+  id: string;
+  orgId: string;
+  name: string;
+  company?: string;
+  jobTitle?: string;
+  phoneNumber?: string;
+  notes?: string;
+  createdAt: any;
+  createdBy: string;
+  updatedAt: any;
+}
+
+/**
+ * 協力者入力データ
+ */
+export interface CollaboratorInput {
+  name: string;           // Required
+  company?: string;
+  jobTitle?: string;
+  phoneNumber?: string;
+  notes?: string;
+}
+
+/**
+ * タスク担当者 (ユーザーまたは協力者)
+ */
+export interface TaskAssignee {
+  type: 'user' | 'collaborator';
+  userId?: string;
+  collaboratorId?: string;
+  displayName: string;
+}

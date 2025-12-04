@@ -86,8 +86,8 @@ export interface ManageableUserSummary {
   email: string;
   displayName: string;
   role: string;
-  職種?: string | null;
-  部署?: string | null;
+  jobTitle?: string | null;
+  department?: string | null;
 }
 
 export interface SnapshotPayload {

@@ -10,7 +10,7 @@ import {
   deactivateUser,
   activateUser,
 } from '../lib/users';
-import { UserInput, MemberType } from '../lib/auth-types';
+import { UserInput } from '../lib/auth-types';
 import { canManageUsers } from '../lib/access-control';
 import { resolveAuthHeader, verifyToken, ensureUserDocument } from '../lib/auth';
 import { canAddMember, getMemberCounts, getOrganizationLimits } from '../lib/member-limits';
@@ -85,10 +85,16 @@ router.get('/me', authenticate, async (req: any, res) => {
  */
 router.get('/', authenticate, async (req: any, res) => {
   try {
-    const { orgId, role, isActive } = req.query;
+    const { role, isActive } = req.query;
+
+    // orgIdは必須：ログインユーザーの組織のみ取得
+    // super_adminはクエリパラメータで別組織を指定可能
+    const targetOrgId = req.query.orgId && req.user.role === 'super_admin'
+      ? req.query.orgId
+      : req.user.orgId;
 
     const users = await listUsers({
-      orgId,
+      orgId: targetOrgId,
       role,
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
     });
@@ -229,38 +235,9 @@ router.patch('/:userId', authenticate, async (req: any, res) => {
 
     const updates = req.body;
 
-    // 管理者以外はロールとmemberTypeを変更できない
+    // 管理者以外はロールを変更できない
     if (updates.role && !canManageUsers(req.user)) {
       delete updates.role;
-    }
-    if (updates.memberType && !canManageUsers(req.user)) {
-      delete updates.memberType;
-    }
-
-    // memberTypeが変更される場合は人数制限をチェック
-    if (updates.memberType && canManageUsers(req.user)) {
-      const currentUser = await getUser(userId);
-      if (!currentUser) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-
-      // memberTypeが実際に変更される場合のみチェック
-      if (currentUser.memberType !== updates.memberType) {
-        // 新しいmemberTypeに変更できるかチェック
-        const limitCheck = await canAddMember(req.user.orgId, updates.memberType as MemberType);
-
-        // 現在のユーザーは既にカウントされているため、上限を1増やす
-        if (!limitCheck.canAdd && limitCheck.current < limitCheck.max + 1) {
-          // 既存ユーザーを変更する場合は上限+1まで許可
-          // （例: member 5人の時に guest → member に変更する場合、一時的に6人になるが許可）
-        } else if (!limitCheck.canAdd) {
-          return res.status(400).json({
-            error: limitCheck.reason,
-            current: limitCheck.current,
-            max: limitCheck.max,
-          });
-        }
-      }
     }
 
     await updateUser(userId, updates);

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase } from 'lucide-react';
-import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, 職種Type } from '../lib/auth-types';
+import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, JobTitleType } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
 import { buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator } from '../lib/api';
 
 // 職種の選択肢
-const JOB_TYPE_OPTIONS: (職種Type | '')[] = [
+const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
   '',
   '営業',
   'PM',
@@ -34,7 +34,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState(''); // テキスト入力用の名前
   const [inviteRole, setInviteRole] = useState<ProjectRole>('member');
-  const [inviteJob, setInviteJob] = useState<職種Type | ''>('');
+  const [inviteJob, setInviteJob] = useState<JobTitleType | ''>('');
   const [inviteMessage, setInviteMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -185,19 +185,12 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       setSubmitting(true);
       setError(null);
 
-      const input: ProjectMemberInput = inputMode === 'email'
-        ? {
-          email: inviteEmail,
-          role: inviteRole,
-          職種: inviteJob || undefined,
-          message: inviteMessage || undefined,
-        }
-        : {
-          displayName: inviteName,
-          role: inviteRole,
-          職種: inviteJob || undefined,
-          message: inviteMessage || undefined,
-        };
+      const input: ProjectMemberInput = {
+        email: inviteEmail,
+        role: inviteRole,
+        jobTitle: inviteJob || undefined,
+        message: inviteMessage || undefined,
+      };
 
       const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
@@ -214,7 +207,11 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         throw new Error(errorData.error || 'Failed to invite member');
       }
 
-      await loadMembers();
+      const newMember: ProjectMember = await response.json();
+
+      // 【改善】APIレスポンスから直接stateに追加（再取得不要）
+      setMembers(prev => [...prev, newMember]);
+
       await loadManageableUsers(true);
       await loadCollaborators(true);
 
@@ -246,7 +243,9 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
       if (!response.ok) throw new Error('Failed to remove member');
 
-      await loadMembers();
+      // 【改善】stateから直接削除（再取得不要）
+      setMembers(prev => prev.filter(m => m.userId !== userId));
+
       await loadManageableUsers(true);
       await loadCollaborators(true);
       setSuccess('メンバーを削除しました');
@@ -270,15 +269,21 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
       if (!response.ok) throw new Error('Failed to update member');
 
+      const updatedMember: ProjectMember = await response.json();
+
+      // 【改善】APIレスポンスから直接stateを更新（再取得不要）
+      setMembers(prev =>
+        prev.map(m => (m.userId === userId ? updatedMember : m))
+      );
+
       setSuccess('メンバーのロールを更新しました');
-      loadMembers();
     } catch (err) {
       console.error('Error updating member:', err);
       setError('メンバーの更新に失敗しました');
     }
   };
 
-  const handleUpdateJobType = async (userId: string, newJobType: 職種Type | '') => {
+  const handleUpdateJobType = async (userId: string, newJobType: JobTitleType | '') => {
     try {
       const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
@@ -287,13 +292,19 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
           'Content-Type': 'application/json',
           ...buildAuthHeaders(token),
         },
-        body: JSON.stringify({ 職種: newJobType || null }),
+        body: JSON.stringify({ jobTitle: newJobType || null }),
       });
 
       if (!response.ok) throw new Error('Failed to update member');
 
+      const updatedMember: ProjectMember = await response.json();
+
+      // 【改善】APIレスポンスから直接stateを更新（再取得不要）
+      setMembers(prev =>
+        prev.map(m => (m.userId === userId ? updatedMember : m))
+      );
+
       setSuccess('メンバーの職種を更新しました');
-      loadMembers();
     } catch (err) {
       console.error('Error updating member job type:', err);
       setError('職種の更新に失敗しました');
@@ -482,9 +493,9 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                                       </div>
                                       <div className="text-xs text-gray-500 text-right min-w-[120px]">
                                         <span>{ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}</span>
-                                        {(user.部署 || user.職種) && (
+                                        {(user.department || user.jobTitle) && (
                                           <p className="mt-0.5 text-gray-400 truncate">
-                                            {[user.部署, user.職種].filter(Boolean).join(' / ')}
+                                            {[user.department, user.jobTitle].filter(Boolean).join(' / ')}
                                           </p>
                                         )}
                                         {isSelected && <span className="block text-blue-600 font-semibold">選択中</span>}
@@ -601,7 +612,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <select
                         value={inviteJob}
-                        onChange={(e) => setInviteJob(e.target.value as 職種Type | '')}
+                        onChange={(e) => setInviteJob(e.target.value as JobTitleType | '')}
                         className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
                       >
                         {JOB_TYPE_OPTIONS.map((job) => (
@@ -684,7 +695,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       <p className="text-sm text-gray-600">{member.email}</p>
                       <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
                         <span>{member.orgName}</span>
-                        {member.職種 && <span>• {member.職種}</span>}
+                        {member.jobTitle && <span>• {member.jobTitle}</span>}
                       </div>
                     </div>
 
@@ -701,8 +712,8 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                           ))}
                         </select>
                         <select
-                          value={member.職種 || ''}
-                          onChange={(e) => handleUpdateJobType(member.userId, e.target.value as 職種Type | '')}
+                          value={member.jobTitle || ''}
+                          onChange={(e) => handleUpdateJobType(member.userId, e.target.value as JobTitleType | '')}
                           className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         >
                           {JOB_TYPE_OPTIONS.map((job) => (

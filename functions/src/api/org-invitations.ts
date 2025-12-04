@@ -6,7 +6,6 @@ import express from 'express';
 import { authMiddleware } from '../lib/auth';
 import { getUser } from '../lib/firestore';
 import { canInviteMembers, canAddMember, getMemberCounts, getOrganizationLimits } from '../lib/member-limits';
-import type { MemberType } from '../lib/auth-types';
 import type { Role } from '../lib/roles';
 import { db, FieldValue } from '../lib/firestore';
 import { getAuth } from 'firebase-admin/auth';
@@ -21,7 +20,6 @@ interface OrgInvitation {
   displayName?: string;
   orgId: string;
   role: Role;
-  memberType: MemberType;
   invitedBy: string;
   invitedByName: string;
   invitedAt: FirebaseFirestore.Timestamp;
@@ -86,7 +84,7 @@ router.post('/', async (req: any, res, next) => {
       return;
     }
 
-    const { email, displayName, role, memberType, message, expiresInDays = 7, orgId: targetOrgId } = req.body;
+    const { email, displayName, role, message, expiresInDays = 7, orgId: targetOrgId } = req.body;
 
     // 別組織への招待はsuper_adminのみ可能
     if (targetOrgId && targetOrgId !== user.orgId && user.role !== 'super_admin') {
@@ -110,19 +108,13 @@ router.post('/', async (req: any, res, next) => {
     const orgName = orgDoc.exists && orgDoc.data()?.name ? orgDoc.data()!.name : targetOrg;
 
     // 必須フィールドのチェック
-    if (!email || !role || !memberType) {
-      res.status(400).json({ error: 'Missing required fields: email, role, memberType' });
-      return;
-    }
-
-    // memberTypeの検証
-    if (memberType !== 'member' && memberType !== 'guest') {
-      res.status(400).json({ error: 'Invalid memberType. Must be "member" or "guest"' });
+    if (!email || !role) {
+      res.status(400).json({ error: 'Missing required fields: email, role' });
       return;
     }
 
     // 人数制限チェック
-    const limitCheck = await canAddMember(targetOrg, memberType);
+    const limitCheck = await canAddMember(targetOrg);
     if (!limitCheck.canAdd) {
       res.status(400).json({
         error: limitCheck.reason,
@@ -161,7 +153,6 @@ router.post('/', async (req: any, res, next) => {
       displayName: displayName || undefined,
       orgId: targetOrg,
       role: role as Role,
-      memberType: memberType as MemberType,
       invitedBy: req.uid,
       invitedByName: user.displayName || user.email,
       invitedAt: FieldValue.serverTimestamp() as any,
@@ -230,6 +221,10 @@ router.post('/', async (req: any, res, next) => {
       const userDoc = await userRef.get();
 
       if (!userDoc.exists) {
+        // memberType を role から自動設定
+        const { getDefaultMemberType } = await import('../lib/users');
+        const memberType = getDefaultMemberType(role as Role);
+
         await userRef.set({
           email: email,
           displayName: displayName || email.split('@')[0],
@@ -240,7 +235,7 @@ router.post('/', async (req: any, res, next) => {
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
         });
-        console.log(`[OrgInvitations] Created Firestore user document: ${firebaseUser.uid}`);
+        console.log(`[OrgInvitations] Created Firestore user document: ${firebaseUser.uid} with memberType: ${memberType}`);
       }
 
     } catch (error) {
@@ -301,7 +296,7 @@ router.post('/', async (req: any, res, next) => {
 
 /**
  * GET /api/org-invitations/stats
- * 現在のメンバー/ゲスト数と上限を取得
+ * 現在のメンバー数と上限を取得
  */
 router.get('/stats', async (req: any, res, next) => {
   try {
@@ -320,12 +315,6 @@ router.get('/stats', async (req: any, res, next) => {
         max: limits.maxMembers,
         available: limits.maxMembers - counts.members,
       },
-      guests: {
-        current: counts.guests,
-        max: limits.maxGuests,
-        available: limits.maxGuests - counts.guests,
-      },
-      total: counts.total,
     });
   } catch (err) {
     next(err);

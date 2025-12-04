@@ -151,7 +151,15 @@ export async function ensureUserDocument(uid: string, email: string): Promise<an
     // 既存のユーザードキュメントをチェック
     const userDoc = await db.collection('users').doc(uid).get();
     if (userDoc.exists) {
-      return userDoc.data();
+      const userData = userDoc.data();
+
+      // isActiveチェック（falseの場合はアクセス拒否）
+      if (userData && userData.isActive === false) {
+        console.warn('[Auth] User is inactive:', email);
+        throw new Error('User account is inactive. Please contact your administrator.');
+      }
+
+      return userData;
     }
 
     console.log('[Auth] User document not found, checking for invitations:', email);

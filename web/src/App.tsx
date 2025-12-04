@@ -54,9 +54,11 @@ import { ProjectEditDialog } from './components/ProjectEditDialog';
 import { PersonEditDialog } from './components/PersonEditDialog';
 import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { InvitationNotifications } from './components/InvitationNotifications';
+import { NotificationBell } from './components/NotificationBell';
 import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
 import { AdminPage } from './pages/AdminPage';
+import NotificationsPage from './pages/NotificationsPage';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
@@ -272,6 +274,7 @@ function AppLayout({
               <div className="flex items-center gap-2">
                 {/* 通知は常に表示 */}
                 {authSupported && user && <InvitationNotifications />}
+                {authSupported && user && <NotificationBell />}
 
                 {/* その他のアクションはPCのみ */}
                 <div className="hidden lg:block">
@@ -2016,10 +2019,10 @@ function DashboardPage({
                   .map(m => m.displayName)
                   .join('、');
 
-              const 営業 = sortByRole(members.filter((m: ProjectMember) => m.職種 === '営業'));
-              const PM = sortByRole(members.filter((m: ProjectMember) => m.職種 === 'PM'));
-              const 設計 = sortByRole(members.filter((m: ProjectMember) => m.職種 === '設計'));
-              const 施工管理 = sortByRole(members.filter((m: ProjectMember) => m.職種 === '施工管理'));
+              const 営業 = sortByRole(members.filter((m: ProjectMember) => m.jobTitle === '営業'));
+              const PM = sortByRole(members.filter((m: ProjectMember) => m.jobTitle === 'PM'));
+              const 設計 = sortByRole(members.filter((m: ProjectMember) => m.jobTitle === '設計'));
+              const 施工管理 = sortByRole(members.filter((m: ProjectMember) => m.jobTitle === '施工管理'));
 
               return (
                 <motion.div key={project.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
@@ -4132,6 +4135,7 @@ function App() {
           />
           <Route path="/workload" element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} />} />
           <Route path="/users" element={<UserManagement projects={state.projects} />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/help" element={<HelpPage />} />
           <Route path="/admin" element={<AdminPage user={user} currentUserRole={currentUserRole} />} />
         </Routes>

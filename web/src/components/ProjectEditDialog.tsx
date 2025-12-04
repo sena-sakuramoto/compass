@@ -4,7 +4,7 @@ import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
 import type { Project, Task, ManageableUserSummary } from '../lib/types';
-import type { ProjectMember, ProjectMemberInput, ProjectRole, 職種Type } from '../lib/auth-types';
+import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType } from '../lib/auth-types';
 import { listProjectMembers, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator } from '../lib/api';
 import { PROJECT_ROLE_LABELS, ROLE_LABELS } from '../lib/auth-types';
 import { GoogleMapsAddressInput } from './GoogleMapsAddressInput';
@@ -27,7 +27,7 @@ const STATUS_OPTIONS = ['未着手', '進行中', '確認待ち', '保留', '完
 const PRIORITY_OPTIONS = ['高', '中', '低'];
 
 // 職種の選択肢
-const JOB_TYPE_OPTIONS: (職種Type | '')[] = [
+const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
   '',
   '営業',
   'PM',
@@ -72,7 +72,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<ProjectRole>('member');
-  const [inviteJob, setInviteJob] = useState<職種Type | ''>('');
+  const [inviteJob, setInviteJob] = useState<JobTitleType | ''>('');
   const [inviteMessage, setInviteMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -290,19 +290,12 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
       setSubmitting(true);
       setError(null);
 
-      const input: ProjectMemberInput = inputMode === 'email'
-        ? {
-          email: inviteEmail,
-          role: inviteRole,
-          \u8077\u7a2e: inviteJob || undefined,
-          message: inviteMessage || undefined,
-        }
-        : {
-          displayName: inviteName,
-          role: inviteRole,
-          \u8077\u7a2e: inviteJob || undefined,
-          message: inviteMessage || undefined,
-        };
+      const input: ProjectMemberInput = {
+        email: inviteEmail,
+        role: inviteRole,
+        jobTitle: inviteJob || undefined,
+        message: inviteMessage || undefined,
+      };
 
       const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
@@ -406,7 +399,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
     }
   };
 
-  const handleUpdateJobType = async (userId: string, newJobType: 職種Type | '') => {
+  const handleUpdateJobType = async (userId: string, newJobType: JobTitleType | '') => {
     if (!project?.id) return;
 
     try {
@@ -417,7 +410,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
           'Content-Type': 'application/json',
           ...buildAuthHeaders(token),
         },
-        body: JSON.stringify({ 職種: newJobType || null }),
+        body: JSON.stringify({ jobTitle: newJobType || null }),
       });
 
       if (!response.ok) throw new Error('Failed to update member');
@@ -456,14 +449,14 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
           collaboratorId: selectedCollaboratorId,
           name: inviteName,
           role: 'member',
-          職種: inviteJob
+          jobTitle: inviteJob
         });
         try {
           const token = await getAuthToken();
           const body = {
             displayName: inviteName,
             role: 'member' as const, // 協力者はデフォルトでmember
-            職種: inviteJob || undefined,
+            jobTitle: inviteJob || undefined,
           };
           console.log('[ProjectEditDialog] POSTするデータ:', body);
 
@@ -1321,7 +1314,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
                               <Briefcase className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                               <select
                                 value={inviteJob}
-                                onChange={(e) => setInviteJob(e.target.value as 職種Type | '')}
+                                onChange={(e) => setInviteJob(e.target.value as JobTitleType | '')}
                                 className="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               >
                                 {JOB_TYPE_OPTIONS.map((job) => (
@@ -1406,8 +1399,8 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
                                 </select>
                               )}
                               <select
-                                value={member.職種 || ''}
-                                onChange={(e) => handleUpdateJobType(member.userId, e.target.value as 職種Type | '')}
+                                value={member.jobTitle || ''}
+                                onChange={(e) => handleUpdateJobType(member.userId, e.target.value as JobTitleType | '')}
                                 className="px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               >
                                 {JOB_TYPE_OPTIONS.map((job) => (

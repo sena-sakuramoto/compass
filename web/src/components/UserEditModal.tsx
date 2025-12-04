@@ -16,10 +16,9 @@ export function UserEditModal({ open, user, onClose, onSubmit, onDelete }: UserE
     email: '',
     displayName: '',
     role: 'viewer' as User['role'],
-    memberType: 'member' as 'member' | 'guest',
-    部署: '',
-    職種: '',
-    電話番号: '',
+    department: '',
+    jobTitle: '',
+    phoneNumber: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,10 +29,9 @@ export function UserEditModal({ open, user, onClose, onSubmit, onDelete }: UserE
         email: user.email,
         displayName: user.displayName || '',
         role: user.role || 'viewer',
-        memberType: (user.memberType as 'member' | 'guest') || 'guest',
-        部署: user.部署 || '',
-        職種: user.職種 || '',
-        電話番号: user.電話番号 || '',
+        department: user.department || '',
+        jobTitle: user.jobTitle || '',
+        phoneNumber: user.phoneNumber || '',
       });
       setError(null);
     }
@@ -105,54 +103,24 @@ export function UserEditModal({ open, user, onClose, onSubmit, onDelete }: UserE
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                メンバー種別 <span className="text-rose-600">*</span>
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, memberType: 'member' })}
-                  className={`rounded-lg border-2 p-3 text-sm font-medium transition ${formData.memberType === 'member'
-                    ? 'border-teal-600 bg-teal-50 text-teal-900'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                >
-                  メンバー
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, memberType: 'guest' })}
-                  className={`rounded-lg border-2 p-3 text-sm font-medium transition ${formData.memberType === 'guest'
-                    ? 'border-purple-600 bg-purple-50 text-purple-900'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                >
-                  ゲスト
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                役割 <span className="text-rose-600">*</span>
-              </label>
-              <select
-                value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
-                required
-              >
-                {Object.entries(ROLE_LABELS)
-                  .filter(([role]) => role !== 'super_admin') // スーパー管理者は除外
-                  .map(([role, label]) => (
-                    <option key={role} value={role}>
-                      {label}
-                    </option>
-                  ))}
-              </select>
-            </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              役割 <span className="text-rose-600">*</span>
+            </label>
+            <select
+              value={formData.role}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value as User['role'] })}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
+              required
+            >
+              {Object.entries(ROLE_LABELS)
+                .filter(([role]) => role !== 'super_admin') // スーパー管理者は除外
+                .map(([role, label]) => (
+                  <option key={role} value={role}>
+                    {label}
+                  </option>
+                ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-3 gap-4">
@@ -162,8 +130,8 @@ export function UserEditModal({ open, user, onClose, onSubmit, onDelete }: UserE
               </label>
               <input
                 type="text"
-                value={formData.部署}
-                onChange={(e) => setFormData({ ...formData, 部署: e.target.value })}
+                value={formData.department}
+                onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
               />
             </div>
@@ -174,8 +142,8 @@ export function UserEditModal({ open, user, onClose, onSubmit, onDelete }: UserE
               </label>
               <input
                 type="text"
-                value={formData.職種}
-                onChange={(e) => setFormData({ ...formData, 職種: e.target.value })}
+                value={formData.jobTitle}
+                onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
               />
             </div>
@@ -186,8 +154,8 @@ export function UserEditModal({ open, user, onClose, onSubmit, onDelete }: UserE
               </label>
               <input
                 type="tel"
-                value={formData.電話番号}
-                onChange={(e) => setFormData({ ...formData, 電話番号: e.target.value })}
+                value={formData.phoneNumber}
+                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-500/20"
               />
             </div>

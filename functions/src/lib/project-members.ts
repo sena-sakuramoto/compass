@@ -8,6 +8,12 @@ const db = getFirestore();
 
 /**
  * プロジェクトメンバーを追加（招待）
+ *
+ * 【重要な変更】
+ * - ユーザーが存在しない場合はエラー（新規ユーザーは作らない）
+ * - isActive=false のユーザーはエラー
+ * - ユーザーの実際の orgId を使用（招待元ではない）
+ * - memberType をユーザーから継承
  */
 export async function addProjectMember(
   orgId: string,
@@ -24,114 +30,64 @@ export async function addProjectMember(
     throw new Error('Role is required');
   }
 
-  if (!input.email && !input.displayName) {
-    throw new Error('Email or displayName is required');
+  if (!input.email) {
+    throw new Error('Email is required');
   }
 
   if (!orgId || !projectId || !invitedBy) {
     throw new Error('Organization ID, project ID, and inviter ID are required');
   }
 
-  // メールアドレスからユーザーを検索（メールアドレスがある場合のみ）
-  const user = input.email ? await getUserByEmail(input.email) : null;
+  // メールアドレスからユーザーを検索
+  const user = await getUserByEmail(input.email);
+
+  // ユーザーが存在しない場合はエラー（新規ユーザーは作らない）
+  if (!user) {
+    throw new Error('このメールアドレスのユーザーは登録されていません。先に組織メンバーとして招待してください。');
+  }
+
+  // ユーザーが非アクティブの場合はエラー
+  if (user.isActive === false) {
+    throw new Error('このユーザーのアカウントは無効です');
+  }
 
   // 権限を設定（カスタム権限がある場合はそれを使用、なければロールのデフォルト権限）
   const permissions: ProjectPermissions = input.permissions
     ? { ...getProjectRolePermissions(input.role), ...input.permissions }
     : getProjectRolePermissions(input.role);
 
-  let member: ProjectMember;
+  // 既存ユーザーの場合 - 直接アクティブ化
+  const org = await getOrganization(user.orgId);
 
-  if (user) {
-    // 既存ユーザーの場合 - 直接アクティブ化
-    const org = await getOrganization(user.orgId);
+  const memberId = `${projectId}_${user.id}`;
+  const member: ProjectMember = {
+    id: memberId,
+    projectId,
+    userId: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    orgId: user.orgId,  // ユーザーの所属組織ID（招待元ではない）
+    orgName: org?.name || user.orgId,
+    memberType: user.memberType,  // ユーザーの memberType を使用
+    role: input.role,
+    jobTitle: input.jobTitle || user.jobTitle,
+    permissions,
+    invitedBy,
+    invitedAt: now,
+    joinedAt: now, // 既存ユーザーは即座に参加
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  };
 
-    const memberId = `${projectId}_${user.id}`;
-    member = {
-      id: memberId,
-      projectId,
-      userId: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      orgId: user.orgId,
-      orgName: org?.name || user.orgId,
-      role: input.role,
-      職種: input.職種 || user.職種, // 招待時に指定された職種を優先、なければユーザーの職種
-      permissions,
-      invitedBy,
-      invitedAt: now,
-      joinedAt: now, // 既存ユーザーは即座に参加
-      status: 'active',
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    // Top-level collection with composite ID
-    await db.collection('project_members').doc(memberId).set(member);
-  } else if (input.email) {
-    // 未登録ユーザー（メールアドレスあり）の場合 - 招待状態で作成
-    // ユーザーが初回ログイン時に、このレコードを自分のUIDに紐付ける
-    const userId = `pending_${input.email.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const memberId = `${projectId}_${userId}`;
-
-    member = {
-      id: memberId,
-      projectId,
-      userId,
-      email: input.email,
-      displayName: input.displayName || input.email.split('@')[0],
-      orgId,
-      orgName: '',
-      role: input.role,
-      職種: input.職種, // 招待時に指定された職種
-      permissions,
-      invitedBy,
-      invitedAt: now,
-      // joinedAt は招待受諾時に設定
-      status: 'invited', // 未登録ユーザーは招待状態
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    // Top-level collection with composite ID
-    await db.collection('project_members').doc(memberId).set(member);
-  } else {
-    // システム未登録ユーザー（テキスト入力のみ）の場合 - 外部メンバーとして作成
-    const userId = `external_${input.displayName!.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
-    const memberId = `${projectId}_${userId}`;
-
-    member = {
-      id: memberId,
-      projectId,
-      userId,
-      email: '',
-      displayName: input.displayName!,
-      orgId: 'external', // 外部メンバー
-      orgName: '外部',
-      role: input.role,
-      職種: input.職種, // 招待時に指定された職種
-      permissions,
-      invitedBy,
-      invitedAt: now,
-      joinedAt: now, // テキスト入力の場合は即座に参加扱い
-      status: 'active', // テキスト入力の場合は即座にアクティブ
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    // Top-level collection with composite ID
-    await db.collection('project_members').doc(memberId).set(member);
-  }
+  // Top-level collection with composite ID
+  await db.collection('project_members').doc(memberId).set(member);
 
   // プロジェクトのメンバー数を更新（インクリメント）
-  // 既存ユーザー（active）の場合のみカウント
-  if (member.status === 'active') {
-    await updateProjectMemberCount(orgId, projectId, member.orgId, true);
-  }
+  await updateProjectMemberCount(orgId, projectId, member.orgId, true);
 
   // メール通知は実装していません
-  const action = user ? 'added' : 'invited';
-  console.log(`Project member ${action}: ${input.email} to project ${projectName}`);
+  console.log(`Project member added: ${input.email} to project ${projectName}`);
 
   return member;
 }
@@ -165,12 +121,9 @@ export async function listProjectMembers(
   }
 ): Promise<ProjectMember[]> {
   // Top-level collection: project_members/
-  // プロジェクトIDでフィルタし、orgIdは内部メンバーと外部メンバー（協力者）の両方を含める
+  // プロジェクトIDでフィルタし、orgIdは内部メンバーと外部メンバーの両方を含める
   let query = db.collection('project_members')
     .where('projectId', '==', projectId) as FirebaseFirestore.Query;
-
-  // orgIdフィルタは使わず、後でフィルタリング
-  // 協力者（orgId: 'external'）も含めるため
 
   if (filters?.role) {
     query = query.where('role', '==', filters.role);
@@ -205,7 +158,7 @@ export async function updateProjectMember(
   orgId: string,
   projectId: string,
   userId: string,
-  updates: Partial<Pick<ProjectMember, 'role' | 'permissions' | 'status' | '職種'>>
+  updates: Partial<Pick<ProjectMember, 'role' | 'permissions' | 'status' | 'jobTitle'>>
 ): Promise<void> {
   // 入力バリデーション
   if (!orgId || !projectId || !userId) {
@@ -308,13 +261,12 @@ export async function acceptProjectInvitation(
 }
 
 /**
- * ユーザー がメンバーとして参加しているプロジェクト一覧を取得
- * 
+ * ユーザーがメンバーとして参加しているプロジェクト一覧を取得
+ *
  * 【同組織メンバーのデフォルトアクセス】
- * - memberType === 'member' のユーザーは、同組織の全プロジェクトに自動的にアクセス可能
- * - memberType === 'guest' のユーザーは、明示的に招待されたプロジェクトのみアクセス可能
+ * - すべてのログインユーザー（組織メンバー）は、同組織の全プロジェクトに自動的にアクセス可能
  * - 役職に応じてデフォルトの権限が付与される
- * 
+ *
  * @param orgId - 組織IDでフィルタ（省略可能。省略時は全組織のプロジェクトを取得）
  * @param userId - ユーザーID
  */
@@ -350,67 +302,65 @@ export async function listUserProjects(
     });
   }
 
-  // 同組織のメンバー（memberType === 'member'）の場合、全プロジェクトへのアクセスを追加
-  if (user.memberType === 'member') {
-    const targetOrgId = orgId || user.orgId;
+  // 同組織のメンバーの場合、全プロジェクトへのアクセスを追加
+  const targetOrgId = orgId || user.orgId;
 
-    // 組織の全プロジェクトを取得
-    const projectsSnapshot = await db
-      .collection('orgs')
-      .doc(targetOrgId)
-      .collection('projects')
-      .get();
+  // 組織の全プロジェクトを取得
+  const projectsSnapshot = await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('projects')
+    .get();
 
-    const now = Timestamp.now();
-    const explicitProjectIds = new Set(explicitProjects.map(p => p.projectId));
+  const now = Timestamp.now();
+  const explicitProjectIds = new Set(explicitProjects.map(p => p.projectId));
 
-    // 明示的に招待されていないプロジェクトに対して、暗黙的なメンバーシップを追加
-    for (const projectDoc of projectsSnapshot.docs) {
-      const projectId = projectDoc.id;
+  // 明示的に招待されていないプロジェクトに対して、暗黙的なメンバーシップを追加
+  for (const projectDoc of projectsSnapshot.docs) {
+    const projectId = projectDoc.id;
 
-      // すでに明示的なメンバーシップがある場合はスキップ
-      if (explicitProjectIds.has(projectId)) {
-        continue;
-      }
-
-      // 役職に基づいてデフォルトのプロジェクトロールを決定
-      let defaultProjectRole: ProjectRole = 'viewer';
-      if (user.role === 'super_admin' || user.role === 'admin') {
-        defaultProjectRole = 'manager';
-      } else if (user.role === 'project_manager') {
-        defaultProjectRole = 'manager';
-      } else if (user.role === 'sales' || user.role === 'designer' || user.role === 'site_manager') {
-        defaultProjectRole = 'member';
-      } else {
-        // worker, viewer などはviewerロール
-        defaultProjectRole = 'viewer';
-      }
-
-      // 暗黙的なメンバーシップを作成（Firestoreには保存しない、メモリ上のみ）
-      const implicitMember: ProjectMember = {
-        id: `${projectId}_${userId}`,
-        projectId,
-        userId,
-        email: user.email,
-        displayName: user.displayName,
-        orgId: user.orgId,
-        orgName: '', // 後で取得可能
-        role: defaultProjectRole,
-        職種: user.職種,
-        permissions: getProjectRolePermissions(defaultProjectRole),
-        invitedBy: 'system', // システムによる自動追加
-        invitedAt: now,
-        joinedAt: now,
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      explicitProjects.push({
-        projectId,
-        member: implicitMember,
-      });
+    // すでに明示的なメンバーシップがある場合はスキップ
+    if (explicitProjectIds.has(projectId)) {
+      continue;
     }
+
+    // 役職に基づいてデフォルトのプロジェクトロールを決定
+    let defaultProjectRole: ProjectRole = 'viewer';
+    if (user.role === 'super_admin' || user.role === 'admin') {
+      defaultProjectRole = 'manager';
+    } else if (user.role === 'project_manager') {
+      defaultProjectRole = 'manager';
+    } else if (user.role === 'sales' || user.role === 'designer' || user.role === 'site_manager') {
+      defaultProjectRole = 'member';
+    } else {
+      // worker, viewer などはviewerロール
+      defaultProjectRole = 'viewer';
+    }
+
+    // 暗黙的なメンバーシップを作成（Firestoreには保存しない、メモリ上のみ）
+    const implicitMember: ProjectMember = {
+      id: `${projectId}_${userId}`,
+      projectId,
+      userId,
+      email: user.email,
+      displayName: user.displayName,
+      orgId: user.orgId,
+      orgName: '', // 後で取得可能
+      role: defaultProjectRole,
+      jobTitle: user.jobTitle,
+      permissions: getProjectRolePermissions(defaultProjectRole),
+      invitedBy: 'system', // システムによる自動追加
+      invitedAt: now,
+      joinedAt: now,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    explicitProjects.push({
+      projectId,
+      member: implicitMember,
+    });
   }
 
   // プロジェクト情報を含めて返す
@@ -532,4 +482,3 @@ export async function getProjectMemberPermissions(
   const member = await getProjectMember(orgId, projectId, userId);
   return member?.permissions ?? null;
 }
-

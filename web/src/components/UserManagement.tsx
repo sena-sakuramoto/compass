@@ -131,7 +131,6 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     email: string;
     displayName?: string;
     role: string;
-    memberType: 'member' | 'guest';
     message?: string;
   }) {
     const token = localStorage.getItem('apdw_id_token');
@@ -334,7 +333,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
           onClick={() => setInvitationModalOpen(true)}
           className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700"
         >
-          メンバー/ゲストを招待
+          メンバーを招待
         </button>
       </div>
 
@@ -345,7 +344,6 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">名前</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メール</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">種別</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役割</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">部署</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">組織</th>
@@ -379,16 +377,6 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                 <td className="px-4 py-3 text-sm text-slate-600">{user.email}</td>
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${(user.memberType || 'guest') === 'member'
-                      ? 'bg-teal-100 text-teal-800'
-                      : 'bg-purple-100 text-purple-800'
-                      }`}
-                  >
-                    {(user.memberType || 'guest') === 'member' ? 'メンバー' : 'ゲスト'}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <span
                     className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.role === 'super_admin'
                       ? 'bg-rose-100 text-rose-800'
                       : user.role === 'admin'
@@ -401,7 +389,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                     {ROLE_LABELS[user.role] || user.role}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-sm text-slate-600">{user.部署 || '-'}</td>
+                <td className="px-4 py-3 text-sm text-slate-600">{user.department || '-'}</td>
                 <td className="px-4 py-3 text-sm text-slate-600">{(user as any).orgName || user.orgId}</td>
                 <td className="px-4 py-3">
                   <button
@@ -709,8 +697,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
         open={invitationModalOpen}
         onClose={() => setInvitationModalOpen(false)}
         onSubmit={handleCreateInvitation}
-        currentMemberCount={users.filter(u => (u.memberType || 'guest') === 'member').length}
-        currentGuestCount={users.filter(u => (u.memberType || 'guest') === 'guest').length}
+        currentMemberCount={users.filter(u => u.isActive).length}
         currentUserRole={currentUserRole || undefined}
       />
 

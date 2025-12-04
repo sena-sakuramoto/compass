@@ -1,9 +1,8 @@
-// 組織メンバー/ゲスト招待モーダル
+// 組織メンバー招待モーダル
 
 import React, { useState, useEffect } from 'react';
 import { X, Mail, UserPlus, Users, Info } from 'lucide-react';
 
-type MemberType = 'member' | 'guest';
 type Role = 'admin' | 'project_manager' | 'sales' | 'designer' | 'site_manager' | 'worker' | 'viewer';
 
 interface MemberStats {
@@ -12,12 +11,6 @@ interface MemberStats {
     max: number;
     available: number;
   };
-  guests: {
-    current: number;
-    max: number;
-    available: number;
-  };
-  total: number;
 }
 
 interface OrgMemberInvitationModalProps {
@@ -27,11 +20,9 @@ interface OrgMemberInvitationModalProps {
     email: string;
     displayName?: string;
     role: Role;
-    memberType: MemberType;
     message?: string;
   }) => Promise<void>;
   currentMemberCount?: number;
-  currentGuestCount?: number;
   currentUserRole?: string;
 }
 
@@ -50,13 +41,11 @@ export function OrgMemberInvitationModal({
   onClose,
   onSubmit,
   currentMemberCount = 0,
-  currentGuestCount = 0,
   currentUserRole
 }: OrgMemberInvitationModalProps) {
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState<Role>('viewer');
-  const [memberType, setMemberType] = useState<MemberType>('guest');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -106,18 +95,9 @@ export function OrgMemberInvitationModal({
     }
 
     // 人数制限チェック
-    if (stats) {
-      // availableはAPIから取得した値をそのまま使う（サーバー側の制限値）
-      // ただし、表示上の整合性を取るため、currentMemberCountを使って計算し直すことも検討できるが
-      // ここではAPIの制限値を優先する
-      if (memberType === 'member' && stats.members.available <= 0) {
-        setError(`メンバー数が上限（${stats.members.max}人）に達しています`);
-        return;
-      }
-      if (memberType === 'guest' && stats.guests.available <= 0) {
-        setError(`ゲスト数が上限（${stats.guests.max}人）に達しています`);
-        return;
-      }
+    if (stats && stats.members.available <= 0) {
+      setError(`メンバー数が上限（${stats.members.max}人）に達しています`);
+      return;
     }
 
     setLoading(true);
@@ -126,7 +106,6 @@ export function OrgMemberInvitationModal({
         email,
         displayName: displayName || undefined,
         role,
-        memberType,
         message: message || undefined,
       });
 
@@ -134,7 +113,6 @@ export function OrgMemberInvitationModal({
       setEmail('');
       setDisplayName('');
       setRole('viewer');
-      setMemberType('guest');
       setMessage('');
       onClose();
       await loadStats(); // 統計を更新
@@ -149,19 +127,12 @@ export function OrgMemberInvitationModal({
 
   const selectedRole = availableRoleOptions.find(r => r.value === role);
 
-  // 表示用の残り人数を計算（APIの値とpropsの値のズレを補正）
-  // statsがロードされるまでは0を表示しないように注意
+  // 表示用の残り人数を計算
   const displayStats = stats ? {
     members: {
       ...stats.members,
       current: currentMemberCount,
-      // 残り人数は (最大 - 現在) で再計算
       available: Math.max(0, stats.members.max - currentMemberCount)
-    },
-    guests: {
-      ...stats.guests,
-      current: currentGuestCount,
-      available: Math.max(0, stats.guests.max - currentGuestCount)
     }
   } : null;
 
@@ -174,7 +145,7 @@ export function OrgMemberInvitationModal({
             <div className="rounded-lg bg-teal-100 p-2">
               <UserPlus className="h-5 w-5 text-teal-600" />
             </div>
-            <h2 className="text-xl font-semibold text-slate-900">メンバー/ゲストを招待</h2>
+            <h2 className="text-xl font-semibold text-slate-900">メンバーを招待</h2>
           </div>
           <button
             onClick={onClose}
@@ -191,24 +162,13 @@ export function OrgMemberInvitationModal({
               <Users className="h-4 w-4 text-slate-600" />
               <span className="text-sm font-medium text-slate-700">現在の人数</span>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-white rounded-lg p-3 border border-slate-200">
-                <div className="text-xs text-slate-600 mb-1">メンバー</div>
-                <div className="text-lg font-semibold text-slate-900">
-                  {displayStats.members.current} / {displayStats.members.max}人
-                </div>
-                <div className="text-xs text-slate-500 mt-1">
-                  残り {displayStats.members.available}人
-                </div>
+            <div className="bg-white rounded-lg p-3 border border-slate-200">
+              <div className="text-xs text-slate-600 mb-1">メンバー</div>
+              <div className="text-lg font-semibold text-slate-900">
+                {displayStats.members.current} / {displayStats.members.max}人
               </div>
-              <div className="bg-white rounded-lg p-3 border border-slate-200">
-                <div className="text-xs text-slate-600 mb-1">ゲスト</div>
-                <div className="text-lg font-semibold text-slate-900">
-                  {displayStats.guests.current} / {displayStats.guests.max}人
-                </div>
-                <div className="text-xs text-slate-500 mt-1">
-                  残り {displayStats.guests.available}人
-                </div>
+              <div className="text-xs text-slate-500 mt-1">
+                残り {displayStats.members.available}人
               </div>
             </div>
           </div>
@@ -224,59 +184,6 @@ export function OrgMemberInvitationModal({
           )}
 
           <div className="space-y-5">
-            {/* メンバー/ゲスト選択 */}
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-700">
-                区分 <span className="text-red-500">*</span>
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition ${memberType === 'guest'
-                  ? 'border-teal-600 bg-teal-50'
-                  : 'border-slate-200 hover:border-slate-300'
-                  }`}>
-                  <input
-                    type="radio"
-                    name="memberType"
-                    value="guest"
-                    checked={memberType === 'guest'}
-                    onChange={(e) => setMemberType(e.target.value as MemberType)}
-                    className="mt-1"
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-slate-900">ゲスト（推奨）</div>
-                    <div className="text-xs text-slate-600 mt-1">
-                      外部協力者や一時的なメンバー
-                    </div>
-                    <div className="text-xs text-teal-700 font-medium mt-1">
-                      上限: {stats?.guests.max || 10}人
-                    </div>
-                  </div>
-                </label>
-                <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition ${memberType === 'member'
-                  ? 'border-teal-600 bg-teal-50'
-                  : 'border-slate-200 hover:border-slate-300'
-                  }`}>
-                  <input
-                    type="radio"
-                    name="memberType"
-                    value="member"
-                    checked={memberType === 'member'}
-                    onChange={(e) => setMemberType(e.target.value as MemberType)}
-                    className="mt-1"
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-slate-900">メンバー</div>
-                    <div className="text-xs text-slate-600 mt-1">
-                      正社員や正規メンバー
-                    </div>
-                    <div className="text-xs text-teal-700 font-medium mt-1">
-                      上限: {stats?.members.max || 5}人
-                    </div>
-                  </div>
-                </label>
-              </div>
-            </div>
-
             {/* メールアドレス */}
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">

@@ -1,45 +1,35 @@
 /**
- * メンバー/ゲスト数の制限チェック
+ * メンバー数の制限チェック
  */
 
 import { db } from './firestore';
-import type { MemberType, Organization } from './auth-types';
+import type { Organization } from './auth-types';
 import { PLAN_LIMITS } from './auth-types';
 
 /**
- * 組織のメンバー/ゲスト数を取得
+ * 組織のメンバー数を取得
  */
 export async function getMemberCounts(orgId: string): Promise<{
   members: number;
-  guests: number;
-  total: number;
 }> {
+  // ユーザーはトップレベルの /users/ コレクションに保存されている
   const usersSnapshot = await db
-    .collection('orgs')
-    .doc(orgId)
     .collection('users')
+    .where('orgId', '==', orgId)
     .get();
 
   let members = 0;
-  let guests = 0;
 
   for (const doc of usersSnapshot.docs) {
     const user = doc.data();
     // isActiveがtrueまたは未定義の場合のみカウント（falseは除外）
-    if (user.isActive === false) {
-      continue;
-    }
-    if (user.memberType === 'member') {
+    if (user.isActive !== false) {
       members++;
-    } else if (user.memberType === 'guest') {
-      guests++;
     }
   }
 
   return {
     members,
-    guests,
-    total: members + guests,
   };
 }
 
@@ -48,7 +38,6 @@ export async function getMemberCounts(orgId: string): Promise<{
  */
 export async function getOrganizationLimits(orgId: string): Promise<{
   maxMembers: number;
-  maxGuests: number;
 }> {
   const orgDoc = await db.collection('orgs').doc(orgId).get();
 
@@ -62,7 +51,6 @@ export async function getOrganizationLimits(orgId: string): Promise<{
   if (org.limits) {
     return {
       maxMembers: org.limits.maxMembers,
-      maxGuests: org.limits.maxGuests,
     };
   }
 
@@ -72,16 +60,14 @@ export async function getOrganizationLimits(orgId: string): Promise<{
 
   return {
     maxMembers: planLimits.members,
-    maxGuests: planLimits.guests,
   };
 }
 
 /**
- * 新しいメンバー/ゲストを追加できるかチェック
+ * 新しいメンバーを追加できるかチェック
  */
 export async function canAddMember(
-  orgId: string,
-  memberType: MemberType
+  orgId: string
 ): Promise<{
   canAdd: boolean;
   reason?: string;
@@ -91,23 +77,13 @@ export async function canAddMember(
   const counts = await getMemberCounts(orgId);
   const limits = await getOrganizationLimits(orgId);
 
-  if (memberType === 'member') {
-    const canAdd = counts.members < limits.maxMembers;
-    return {
-      canAdd,
-      reason: canAdd ? undefined : `メンバー数が上限（${limits.maxMembers}人）に達しています`,
-      current: counts.members,
-      max: limits.maxMembers,
-    };
-  } else {
-    const canAdd = counts.guests < limits.maxGuests;
-    return {
-      canAdd,
-      reason: canAdd ? undefined : `ゲスト数が上限（${limits.maxGuests}人）に達しています`,
-      current: counts.guests,
-      max: limits.maxGuests,
-    };
-  }
+  const canAdd = counts.members < limits.maxMembers;
+  return {
+    canAdd,
+    reason: canAdd ? undefined : `メンバー数が上限（${limits.maxMembers}人）に達しています`,
+    current: counts.members,
+    max: limits.maxMembers,
+  };
 }
 
 /**
@@ -116,37 +92,4 @@ export async function canAddMember(
 export function canInviteMembers(userRole: string): boolean {
   // super_admin, admin, project_manager が招待可能
   return userRole === 'super_admin' || userRole === 'admin' || userRole === 'project_manager';
-}
-
-/**
- * ユーザーのゲスト権限を取得
- */
-export function getUserGuestPermissions(user: any) {
-  const { DEFAULT_GUEST_PERMISSIONS } = require('./auth-types');
-
-  // memberTypeがguestでない場合はnullを返す
-  if (user.memberType !== 'guest') {
-    return null;
-  }
-
-  // カスタム権限が設定されている場合はそれを使用、なければデフォルト
-  return user.guestPermissions || DEFAULT_GUEST_PERMISSIONS;
-}
-
-/**
- * ゲストが特定の操作を実行できるかチェック
- */
-export function canGuestPerform(
-  user: any,
-  action: 'viewProject' | 'createOwnTasks' | 'editOwnTasks' | 'deleteOwnTasks' |
-    'assignTasksToOthers' | 'editOtherTasks' | 'createProjects'
-): boolean {
-  const permissions = getUserGuestPermissions(user);
-
-  // ゲストでない場合は通常の権限チェックに委ねる
-  if (!permissions) {
-    return true;
-  }
-
-  return permissions[action] || false;
 }

@@ -114,7 +114,10 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
 
     const [members, users] = await Promise.all([
       listProjectMembers(req.user.orgId, projectId),
-      listUsers({ isActive: true }), // 全組織のアクティブユーザーを取得（ゲストユーザーも含む）
+      listUsers({
+        orgId: req.user.orgId,  // 自分の組織のユーザーのみ取得
+        isActive: true
+      }),
     ]);
 
     const memberUserIds = new Set(members.map(member => member.userId));
@@ -136,8 +139,8 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
         email: user.email,
         displayName: user.displayName || user.email,
         role: user.role,
-        職種: user.職種 ?? null,
-        部署: user.部署 ?? null,
+        jobTitle: user.jobTitle ?? null,
+        department: user.department ?? null,
       }))
       .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'));
 
@@ -157,17 +160,15 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
     const { projectId } = req.params;
     const input: ProjectMemberInput = req.body;
 
-    // バリデーション: emailまたはdisplayNameが必要
-    if (!input.email && !input.displayName) {
-      return res.status(400).json({ error: 'Either email or displayName is required' });
+    // バリデーション: emailが必須
+    if (!input.email) {
+      return res.status(400).json({ error: 'Email is required' });
     }
 
-    // メールアドレスが提供されている場合はバリデーション
-    if (input.email) {
-      const emailError = validateEmail(input.email);
-      if (emailError) {
-        return res.status(400).json({ error: emailError });
-      }
+    // メールアドレスのバリデーション
+    const emailError = validateEmail(input.email);
+    if (emailError) {
+      return res.status(400).json({ error: emailError });
     }
 
     // バリデーション: ロール
@@ -176,8 +177,8 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
       return res.status(400).json({ error: roleError });
     }
 
-    // メールアドレスを正規化（存在する場合のみ）
-    const normalizedEmail = input.email ? input.email.trim().toLowerCase() : undefined;
+    // メールアドレスを正規化
+    const normalizedEmail = input.email.trim().toLowerCase();
 
     // プロジェクトを取得
     const project = await getProject(req.user.orgId, projectId);
@@ -191,23 +192,15 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
       return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
     }
 
-    // 自分自身を招待しようとしていないかチェック（メールアドレスがある場合のみ）
-    if (normalizedEmail && normalizedEmail === req.user.email.toLowerCase()) {
+    // 自分自身を招待しようとしていないかチェック
+    if (normalizedEmail === req.user.email.toLowerCase()) {
       return res.status(400).json({ error: 'Cannot invite yourself to the project' });
     }
 
-    // 既存メンバーのチェック
+    // 既存メンバーのチェック（メールアドレスで比較）
     const existingMembers = await listProjectMembers(req.user.orgId, projectId);
     const isDuplicate = existingMembers.some((member) => {
-      // メールアドレスで比較（両方ある場合）
-      if (normalizedEmail && member.email) {
-        return member.email.toLowerCase() === normalizedEmail;
-      }
-      // 表示名で比較（協力者の場合）
-      if (input.displayName && member.displayName) {
-        return member.displayName === input.displayName;
-      }
-      return false;
+      return member.email && member.email.toLowerCase() === normalizedEmail;
     });
 
     if (isDuplicate) {
@@ -242,8 +235,8 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
         action: 'メンバー追加',
         metadata: {
           role: input.role,
-          職種: input.職種,
-          email: normalizedEmail || '(協力者)',
+          jobTitle: input.jobTitle,
+          email: normalizedEmail,
         },
       });
     } catch (logError) {
@@ -362,7 +355,7 @@ router.patch('/projects/:projectId/members/:userId', authenticate, async (req: a
       const changes = calculateChanges(
         existingMember,
         { ...existingMember, ...updates },
-        ['role', '職種', 'status']
+        ['role', 'jobTitle', 'status']
       );
 
       if (Object.keys(changes).length > 0) {
@@ -458,8 +451,8 @@ router.delete('/projects/:projectId/members/:userId', authenticate, async (req: 
         action: isSelfDecline ? '招待辞退' : 'メンバー削除',
         metadata: {
           role: existingMember.role,
-          職種: existingMember.職種,
-          email: existingMember.email || '(協力者)',
+          jobTitle: existingMember.jobTitle,
+          email: existingMember.email,
         },
       });
     } catch (logError) {

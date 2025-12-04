@@ -1,33 +1,51 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { User, UserInput, Organization } from './auth-types';
+import { User, UserInput, Organization, MemberType } from './auth-types';
 import { Role, getRolePermissions } from './roles';
 
 const db = getFirestore();
 const auth = getAuth();
 
 /**
+ * ロールに基づいてデフォルトのmemberTypeを決定
+ * - super_admin, admin: internal（社内管理者）
+ * - project_manager: partner（パートナー企業のPM）
+ * - その他: internal（デフォルトは社内メンバー）
+ */
+export function getDefaultMemberType(role: Role): MemberType {
+  if (role === 'super_admin' || role === 'admin') {
+    return 'internal';
+  } else if (role === 'project_manager') {
+    return 'partner';
+  }
+  return 'internal'; // デフォルトは internal
+}
+
+/**
  * ユーザーを作成
  */
 export async function createUser(uid: string, input: UserInput): Promise<User> {
   const now = Timestamp.now();
-  
+
+  // memberType が指定されていない場合は、ロールから自動設定
+  const memberType = input.memberType || getDefaultMemberType(input.role);
+
   const user: User = {
     id: uid,
     email: input.email,
     displayName: input.displayName,
     orgId: input.orgId,
     role: input.role,
-    memberType: input.memberType,
-    職種: input.職種,
-    部署: input.部署,
-    電話番号: input.電話番号,
+    memberType,
+    jobTitle: input.jobTitle,
+    department: input.department,
+    phoneNumber: input.phoneNumber,
     photoURL: input.photoURL,
     isActive: true,
     createdAt: now,
     updatedAt: now,
   };
-  
+
   await db.collection('users').doc(uid).set(user);
   return user;
 }
@@ -100,19 +118,19 @@ export async function listUsers(filters?: {
   isActive?: boolean;
 }): Promise<User[]> {
   let query = db.collection('users') as FirebaseFirestore.Query;
-  
+
   if (filters?.orgId) {
     query = query.where('orgId', '==', filters.orgId);
   }
-  
+
   if (filters?.role) {
     query = query.where('role', '==', filters.role);
   }
-  
+
   if (filters?.isActive !== undefined) {
     query = query.where('isActive', '==', filters.isActive);
   }
-  
+
   const snapshot = await query.get();
   return snapshot.docs.map(doc => ({
     ...(doc.data() as User),
@@ -168,14 +186,14 @@ export async function activateUser(uid: string): Promise<void> {
 export async function createOrganization(input: Omit<Organization, 'id' | 'createdAt' | 'updatedAt'>): Promise<Organization> {
   const now = Timestamp.now();
   const docRef = db.collection('organizations').doc();
-  
+
   const org: Organization = {
     id: docRef.id,
     ...input,
     createdAt: now,
     updatedAt: now,
   };
-  
+
   await docRef.set(org);
   return org;
 }
@@ -216,4 +234,3 @@ export async function listOrganizations(type?: Organization['type']): Promise<Or
 export function getUserPermissions(user: User) {
   return getRolePermissions(user.role);
 }
-
