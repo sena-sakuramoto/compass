@@ -10,6 +10,7 @@ interface TaskCardProps {
   schedule: string;
   status: string;
   progress?: number;
+  stageName?: string;  // 工程名
   onComplete(): void;
   onDelete?(): void;
   onSeedReminders?(): void;
@@ -25,6 +26,7 @@ export function TaskCard({
   schedule,
   progress,
   status,
+  stageName,
   onComplete,
   onDelete,
   onSeedReminders,
@@ -52,6 +54,11 @@ export function TaskCard({
       </div>
       <div className="mt-1 text-xs text-slate-600">
         {projectLabel} · {assignee || '未設定'}
+        {stageName && (
+          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+            {stageName}
+          </span>
+        )}
       </div>
       <div className="mt-1 text-xs text-slate-500">{schedule}</div>
       <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">

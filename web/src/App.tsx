@@ -38,6 +38,7 @@ import {
   seedTaskReminders,
   syncTaskCalendar,
   listProjectMembers,
+  listStages,
   ApiError,
   getCurrentUser,
 } from './lib/api';
@@ -59,9 +60,10 @@ import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
 import { AdminPage } from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
+import StagesPage from './pages/StagesPage';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
-import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings } from './lib/types';
+import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage } from './lib/types';
 import type { ProjectMember } from './lib/auth-types';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
@@ -763,6 +765,8 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
   const [isMilestone, setIsMilestone] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [stageId, setStageId] = useState<string>('');
+  const [stages, setStages] = useState<Stage[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -773,6 +777,7 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
       setAssignee(editingTask.担当者 || editingTask.assignee || '');
       setAssigneeEmail(editingTask.担当者メール || '');
       setName(editingTask.タスク名);
+      setStageId(editingTask.parentId || '');
 
       // 日付の設定
       const startDateValue = editingTask.予定開始日 || editingTask.start;
@@ -827,8 +832,26 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
       setNotifyOverdue(true);
       setIsMilestone(false);
       setDurationDays(1);
+      setStageId('');
     }
   }, [open, editingTask]);
+
+  // プロジェクト選択時に工程一覧を取得
+  useEffect(() => {
+    if (!project) {
+      setStages([]);
+      return;
+    }
+
+    listStages(project)
+      .then(({ stages: stageList }) => {
+        setStages(stageList);
+      })
+      .catch(error => {
+        console.error('[TaskModal] Failed to load stages:', error);
+        setStages([]);
+      });
+  }, [project]);
 
   // プロジェクトメンバーを取得
   useEffect(() => {
@@ -943,6 +966,7 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
         ['工数見積(h)']: estimate,
         担当者メール: assigneeEmail || undefined,
         マイルストーン: isMilestone,
+        parentId: stageId || null,
         '通知設定': {
           開始日: notifyStart,
           期限前日: notifyDayBefore,
@@ -960,6 +984,7 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
         ステータス: string;
         ['工数見積(h)']?: number;
         担当者メール?: string;
+        parentId?: string | null;
         '通知設定'?: TaskNotificationSettings;
       };
 
@@ -1042,6 +1067,21 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
             onChange={(e) => setAssigneeEmail(e.target.value)}
             placeholder="担当者メールアドレス"
           />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-500">工程</label>
+          <select
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+            value={stageId}
+            onChange={(e) => setStageId(e.target.value)}
+          >
+            <option value="">未割り当て</option>
+            {stages.map((stage) => (
+              <option key={stage.id} value={stage.id}>
+                {stage.タスク名}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="mb-1 block text-xs text-slate-500">タスク名</label>
@@ -4135,6 +4175,7 @@ function App() {
           />
           <Route path="/workload" element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} />} />
           <Route path="/users" element={<UserManagement projects={state.projects} />} />
+          <Route path="/stages" element={<StagesPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/help" element={<HelpPage />} />
           <Route path="/admin" element={<AdminPage user={user} currentUserRole={currentUserRole} />} />

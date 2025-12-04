@@ -1,3 +1,10 @@
+/**
+ * WorkItem タイプ
+ * stage: 工程（大分類）
+ * task: タスク（stage に紐づく実作業）
+ */
+export type WorkItemType = 'stage' | 'task';
+
 export interface Project {
   id: string;
   物件名: string;
@@ -35,6 +42,12 @@ export interface Task {
   TaskID?: string;
   projectId: string;
   ProjectID?: string;
+
+  // WorkItem 統合のための追加フィールド
+  type?: WorkItemType;        // 'stage' | 'task' (未設定時は task として扱う)
+  parentId?: string | null;   // task の場合、所属する stage の id
+  orderIndex?: number | null; // 表示順序
+
   タスク名: string;
   タスク種別?: string;
   担当者?: string;
@@ -102,3 +115,6 @@ export interface CompassState {
   tasks: Task[];
   people: Person[];
 }
+
+// Stage は Task の特殊ケース（type='stage', parentId=null）
+export type Stage = Task & { type: 'stage'; parentId: null };

@@ -563,3 +563,38 @@ export async function deleteNotification(notificationId: string) {
     method: 'DELETE',
   });
 }
+
+// ==================== Stage (工程) API ====================
+
+import type { Stage } from './types';
+
+export interface StageInput {
+  タスク名: string;
+  予定開始日?: string | null;
+  期限?: string | null;
+  orderIndex?: number | null;
+}
+
+export async function listStages(projectId: string) {
+  return request<{ stages: Stage[] }>(`/projects/${projectId}/stages`);
+}
+
+export async function createStage(projectId: string, input: StageInput) {
+  return request<{ id: string }>(`/projects/${projectId}/stages`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateStage(stageId: string, updates: Partial<StageInput>) {
+  return request<{ success: boolean }>(`/stages/${stageId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteStage(stageId: string) {
+  return request<{ success: boolean }>(`/stages/${stageId}`, {
+    method: 'DELETE',
+  });
+}
