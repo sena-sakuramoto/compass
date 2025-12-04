@@ -721,6 +721,13 @@ export interface TaskInput {
   TaskID?: string;
   ProjectID?: string;
   projectId: string;
+  orgId?: string;
+
+  // WorkItem 統合のための追加フィールド
+  type?: 'stage' | 'task';
+  parentId?: string | null;
+  orderIndex?: number | null;
+
   タスク名: string;
   タスク種別?: string | null;
   担当者?: string | null;
