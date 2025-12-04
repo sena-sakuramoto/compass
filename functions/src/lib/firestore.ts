@@ -1007,3 +1007,125 @@ export async function canEditTask(
   if (!creator) return true; // 作成者が記録されていない場合は編集可能（後方互換性）
   return creator.createdByEmail === userEmail;
 }
+
+// =========================
+// Stage CRUD Functions
+// =========================
+
+/**
+ * 工程(stage)一覧を取得
+ */
+export async function listStages(projectId: string, orgId?: string): Promise<TaskDoc[]> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const snapshot = await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('tasks')
+    .where('projectId', '==', projectId)
+    .where('type', '==', 'stage')
+    .orderBy('orderIndex', 'asc')
+    .orderBy('createdAt', 'asc')
+    .get();
+
+  return snapshot.docs.map((doc) => serialize<TaskDoc>(doc));
+}
+
+/**
+ * 工程(stage)を作成
+ */
+export async function createStage(input: {
+  projectId: string;
+  orgId: string;
+  タスク名: string;
+  予定開始日?: string | null;
+  期限?: string | null;
+  orderIndex?: number | null;
+}): Promise<string> {
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const stageId = await generateTaskId(input.orgId);
+
+  const stageData: Partial<TaskDoc> = {
+    projectId: input.projectId,
+    orgId: input.orgId,
+    type: 'stage',
+    parentId: null,
+    タスク名: input.タスク名,
+    ステータス: '未着手', // デフォルト
+    予定開始日: input.予定開始日 ?? null,
+    期限: input.期限 ?? null,
+    orderIndex: input.orderIndex ?? null,
+    createdAt: now as any,
+    updatedAt: now as any,
+  };
+
+  await db
+    .collection('orgs')
+    .doc(input.orgId)
+    .collection('tasks')
+    .doc(stageId)
+    .set(stageData);
+
+  return stageId;
+}
+
+/**
+ * 工程(stage)を更新
+ */
+export async function updateStage(
+  stageId: string,
+  updates: {
+    タスク名?: string;
+    予定開始日?: string | null;
+    期限?: string | null;
+    orderIndex?: number | null;
+  },
+  orgId?: string
+): Promise<void> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('tasks')
+    .doc(stageId)
+    .update({
+      ...updates,
+      updatedAt: now,
+    });
+}
+
+/**
+ * 工程(stage)を削除
+ * - stage 配下のタスクの parentId を null にする（未割り当てに戻す）
+ */
+export async function deleteStage(stageId: string, orgId?: string): Promise<void> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const batch = db.batch();
+
+  // stage を削除
+  const stageRef = db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('tasks')
+    .doc(stageId);
+  batch.delete(stageRef);
+
+  // この stage 配下のタスクを取得
+  const tasksSnapshot = await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('tasks')
+    .where('parentId', '==', stageId)
+    .get();
+
+  // parentId を null に設定（未割り当てタスクに戻す）
+  tasksSnapshot.docs.forEach((doc) => {
+    batch.update(doc.ref, {
+      parentId: null,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  });
+
+  await batch.commit();
+}

@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import projectsRouter from './api/projects';
 import tasksRouter from './api/tasks';
+import stagesRouter from './api/stages';
 import excelRouter from './api/excel';
 import peopleRouter from './api/people';
 import scheduleRouter from './api/schedule';
@@ -59,6 +60,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use('/api/projects', projectsRouter);
 app.use('/api/tasks', tasksRouter);
+app.use('/api', stagesRouter);
 app.use('/api/people', peopleRouter);
 app.use('/api/schedule', scheduleRouter);
 app.use('/api/calendar', calendarRouter);

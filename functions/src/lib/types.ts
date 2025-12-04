@@ -1,5 +1,12 @@
 // 共通型定義
 
+/**
+ * WorkItem タイプ
+ * stage: 工程（大分類）
+ * task: タスク（stage に紐づく実作業）
+ */
+export type WorkItemType = 'stage' | 'task';
+
 export interface Project {
   id: string;
   物件名: string;
@@ -26,6 +33,12 @@ export interface Task {
   id: string;
   projectId: string;
   orgId: string; // タスクが属する組織ID
+
+  // WorkItem 統合のための追加フィールド
+  type?: WorkItemType;        // 'stage' | 'task' (未設定時は task として扱う)
+  parentId?: string | null;   // task の場合、所属する stage の id
+  orderIndex?: number | null; // 表示順序
+
   タスク名: string;
   タスク種別?: string | null;
   担当者?: string | null;
@@ -134,10 +147,23 @@ export interface TaskCreator {
   createdByEmail: string;
 }
 
+// Stage は Task の特殊ケース（type='stage', parentId=null）
+export type Stage = Task & { type: 'stage'; parentId: null };
+
 // API用の入力型（createdAt/updatedAtなし）
 export type ProjectInput = Omit<Project, 'id' | 'createdAt' | 'updatedAt'>;
 export type TaskInput = Omit<Task, 'id' | 'createdAt' | 'updatedAt'>;
 export type PersonInput = Omit<Person, 'createdAt' | 'updatedAt'>;
 export type JobInput = Omit<Job, 'id' | 'state' | 'createdAt' | 'updatedAt'>;
 export type ProjectInvitationInput = Omit<ProjectInvitation, 'id' | 'invitedAt' | 'expiresAt' | 'status' | 'acceptedAt' | 'acceptedBy'>;
+
+// Stage 作成用の入力型
+export interface StageInput {
+  projectId: string;
+  orgId: string;
+  タスク名: string;  // stage 名として使用
+  予定開始日?: string | null;
+  期限?: string | null;
+  orderIndex?: number | null;
+}
 

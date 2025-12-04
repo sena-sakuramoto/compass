@@ -114,6 +114,9 @@ const taskSchema = z.object({
   マイルストーン: z.boolean().optional().nullable(),
   スプリント: z.string().optional().nullable(),
   フェーズ: z.string().optional().nullable(),
+  // WorkItem 統合: 工程(stage)への紐づけ
+  parentId: z.string().optional().nullable(),  // stageId として使用
+  orderIndex: z.number().optional().nullable(),
 });
 
 router.post('/', async (req: any, res, next) => {
