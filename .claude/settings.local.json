@@ -61,7 +61,8 @@
       "Bash(cat:*)",
       "Bash(npx ts-node:*)",
       "Bash(set:*)",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

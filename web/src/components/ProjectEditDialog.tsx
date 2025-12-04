@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
+import toast from 'react-hot-toast';
 import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
 import type { Project, Task, ManageableUserSummary, Stage } from '../lib/types';
 import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType } from '../lib/auth-types';
-import { listProjectMembers, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage } from '../lib/api';
+import { listProjectMembers, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage, updateProject } from '../lib/api';
 import { PROJECT_ROLE_LABELS, ROLE_LABELS } from '../lib/auth-types';
 import { GoogleMapsAddressInput } from './GoogleMapsAddressInput';
 import { GoogleDriveFolderPicker } from './GoogleDriveFolderPicker';
@@ -18,6 +19,8 @@ interface ProjectEditDialogProps {
   project: Project | null;
   onClose: () => void;
   onSave: (project: Project) => Promise<void>;
+  onSaveLocal?: (project: Project) => void;
+  onRollback?: (projectId: string, prevProject: Project) => void;
   onDelete?: (project: Project) => Promise<void>;
   onTaskCreate?: (taskData: Partial<Task>) => Promise<void>;
   people?: Array<{ id: string; 氏名: string; メール?: string }>;
@@ -43,7 +46,7 @@ const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
-export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCreate, people = [] }: ProjectEditDialogProps) {
+export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [] }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
@@ -444,38 +447,49 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    try {
-      // デバッグ：保存するデータをログ出力
-      console.log('[ProjectEditDialog] 保存データ:', {
-        id: formData.id,
-        物件名: formData.物件名,
-        施工費: formData.施工費,
-        施工費タイプ: typeof formData.施工費,
-        selectedCollaboratorId,
-        inviteName,
-      });
 
-      // Pass formData directly to parent handler
-      // Parent will handle mode-based branching and id stripping for create mode
-      await onSave(formData as Project);
+    const updatedProject = formData as Project;
+    const prevProject = project; // 元のプロジェクトを保存（ロールバック用）
+
+    try {
+      // 楽観的更新: 先にローカルstateを更新
+      if (onSaveLocal && project?.id) {
+        onSaveLocal(updatedProject);
+      }
+
+      // ダイアログを閉じる
+      onClose();
+
+      // APIを呼び出し
+      if (project?.id) {
+        // 編集モード: 楽観的更新パターン
+        try {
+          await updateProject(project.id, updatedProject);
+          toast.success('プロジェクトを保存しました');
+        } catch (apiError) {
+          console.error('[ProjectEditDialog] API保存エラー:', apiError);
+          toast.error('プロジェクトの保存に失敗しました');
+          // ロールバック
+          if (onRollback && prevProject) {
+            onRollback(project.id, prevProject);
+          }
+          return;
+        }
+      } else {
+        // 新規作成モード: 従来通りの処理
+        await onSave(updatedProject);
+        toast.success('プロジェクトを作成しました');
+      }
 
       // 協力者が選択されている場合、メンバーとして追加
-      let memberAdded = false;
       if (selectedCollaboratorId && inviteName && formData.id) {
-        console.log('[ProjectEditDialog] 協力者をメンバーとして追加:', {
-          collaboratorId: selectedCollaboratorId,
-          name: inviteName,
-          role: 'member',
-          jobTitle: inviteJob
-        });
         try {
           const token = await getAuthToken();
           const body = {
             displayName: inviteName,
-            role: 'member' as const, // 協力者はデフォルトでmember
+            role: 'member' as const,
             jobTitle: inviteJob || undefined,
           };
-          console.log('[ProjectEditDialog] POSTするデータ:', body);
 
           const response = await fetch(`${BASE_URL}/projects/${formData.id}/members`, {
             method: 'POST',
@@ -486,43 +500,20 @@ export function ProjectEditDialog({ project, onClose, onSave, onDelete, onTaskCr
             body: JSON.stringify(body),
           });
 
-          console.log('[ProjectEditDialog] レスポンスステータス:', response.status);
-
           if (!response.ok) {
             const errorText = await response.text();
-            console.error('[ProjectEditDialog] エラーレスポンス:', errorText);
             throw new Error(`メンバー追加失敗: ${errorText}`);
           }
 
-          const result = await response.json();
-          console.log('[ProjectEditDialog] 協力者をメンバーとして追加しました:', result);
-
-          // メンバーリストを再読み込み
-          const members = await listProjectMembers(formData.id, { status: 'active' });
-          setProjectMembers(members);
-
-          // 選択状態をクリア
-          setSelectedCollaboratorId('');
-          setInviteName('');
-          setInviteRole('member');
-          setInviteJob('');
-
-          // 成功メッセージ
-          setSuccess('協力者をメンバーとして追加しました');
-          memberAdded = true;
+          toast.success('協力者をメンバーとして追加しました');
         } catch (memberError) {
           console.error('[ProjectEditDialog] メンバー追加エラー:', memberError);
-          alert(`プロジェクトは保存されましたが、メンバーの追加に失敗しました: ${memberError instanceof Error ? memberError.message : String(memberError)}`);
+          toast.error(`メンバーの追加に失敗しました: ${memberError instanceof Error ? memberError.message : String(memberError)}`);
         }
-      }
-
-      // 協力者を追加した場合はダイアログを開いたまま、それ以外は閉じる
-      if (!memberAdded) {
-        onClose();
       }
     } catch (error) {
       console.error('プロジェクトの保存に失敗しました:', error);
-      alert('保存に失敗しました');
+      toast.error('保存に失敗しました');
     } finally {
       setSaving(false);
     }

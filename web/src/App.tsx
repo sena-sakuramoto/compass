@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Routes, Route, NavLink } from 'react-router-dom';
+import toast, { Toaster } from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import {
   BarChart3,
@@ -3449,6 +3450,7 @@ function App() {
     ['工数見積(h)']?: number;
     担当者メール?: string;
     '通知設定'?: TaskNotificationSettings;
+    parentId?: string | null;
   }) => {
     if (!payload.projectId) {
       pushToast({ tone: 'error', title: 'プロジェクトを選択してください' });
@@ -3472,6 +3474,7 @@ function App() {
         end: payload.期限,
         ['工数見積(h)']: payload['工数見積(h)'],
         '通知設定': payload['通知設定'],
+        parentId: payload.parentId,
         progress: 0,
         createdAt: now,
         updatedAt: now,
@@ -3483,13 +3486,53 @@ function App() {
       pushToast({ tone: 'success', title: 'タスクを追加しました（ローカル保存）' });
       return;
     }
+
+    // 楽観的更新: 一時IDでタスクを追加
+    const tempId = `temp-${Date.now()}`;
+    const now = todayString();
+    const optimisticTask: Task = {
+      id: tempId,
+      projectId: payload.projectId,
+      タスク名: payload.タスク名,
+      担当者: payload.担当者,
+      assignee: payload.担当者,
+      担当者メール: payload.担当者メール,
+      ステータス: payload.ステータス,
+      優先度: payload.優先度,
+      予定開始日: payload.予定開始日,
+      期限: payload.期限,
+      start: payload.予定開始日,
+      end: payload.期限,
+      ['工数見積(h)']: payload['工数見積(h)'],
+      '通知設定': payload['通知設定'],
+      parentId: payload.parentId,
+      progress: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    setState((prev) => ({
+      ...prev,
+      tasks: [...prev.tasks, optimisticTask],
+    }));
+
     try {
-      await createTask(payload as unknown as Partial<Task>);
-      pushToast({ tone: 'success', title: 'タスクを追加しました' });
+      const result = await createTask(payload as unknown as Partial<Task>);
+      // 成功: 一時タスクを実際のタスクで置き換え
+      setState((prev) => ({
+        ...prev,
+        tasks: prev.tasks.map((t) => (t.id === tempId ? { ...optimisticTask, id: result.id } : t)),
+      }));
+      toast.success('タスクを追加しました');
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error(error);
-      pushToast({ tone: 'error', title: 'タスクの追加に失敗しました' });
+      // 失敗: 一時タスクを削除
+      setState((prev) => ({
+        ...prev,
+        tasks: prev.tasks.filter((t) => t.id !== tempId),
+      }));
+      toast.error('タスクの追加に失敗しました');
     }
   };
 
@@ -3546,6 +3589,24 @@ function App() {
       const errorMessage = error instanceof Error ? error.message : 'プロジェクトの追加に失敗しました';
       pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
     }
+  };
+
+  // 楽観的更新: プロジェクトを即座にstateに反映
+  const handleProjectOptimisticUpdate = (updatedProject: Project) => {
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) =>
+        p.id === updatedProject.id ? { ...p, ...updatedProject, updatedAt: todayString() } : p
+      ),
+    }));
+  };
+
+  // ロールバック: API失敗時に元のプロジェクトに戻す
+  const handleProjectRollback = (projectId: string, prevProject: Project) => {
+    setState((prev) => ({
+      ...prev,
+      projects: prev.projects.map((p) => (p.id === projectId ? prevProject : p)),
+    }));
   };
 
   const handleDeleteProject = async (project: Project) => {
@@ -4021,6 +4082,7 @@ function App() {
 
   return (
     <>
+      <Toaster position="top-right" />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <AppLayout
         onOpenTask={() => setTaskModalOpen(true)}
@@ -4208,6 +4270,8 @@ function App() {
             setEditingProject(null);
           }}
           onSave={handleSaveProject}
+          onSaveLocal={handleProjectOptimisticUpdate}
+          onRollback={handleProjectRollback}
           onDelete={handleDeleteProject}
           onTaskCreate={async (taskData) => {
             await handleCreateTask({
