@@ -2646,9 +2646,18 @@ function SchedulePage({
     console.log(`[GanttStages] Tasks with parentId=null: ${tasksWithoutParent.length}`,
       tasksWithoutParent.slice(0, 3).map(t => ({ name: t.タスク名, type: t.type, id: t.id })));
 
-    // 工程（type='stage'）を取得
-    const stageRecords = filteredTasks.filter(task => task.type === 'stage');
-    console.log(`[GanttStages] Found ${stageRecords.length} stage records`);
+    // 工程を取得
+    // 優先順位: type='stage' > parentId === null（後方互換）
+    const stageRecords = filteredTasks.filter(task => {
+      // 新しいデータ: type='stage'
+      if (task.type === 'stage') return true;
+      // 旧データ: parentId === null を工程とみなす（後方互換）
+      if ((task.parentId === null || task.parentId === undefined) && !task.type) {
+        return true;
+      }
+      return false;
+    });
+    console.log(`[GanttStages] Found ${stageRecords.length} stage records (type='stage' or parentId=null)`);
 
     // 各工程に配下のタスクを紐付け
     const stages: GanttStage[] = stageRecords
@@ -2667,8 +2676,18 @@ function SchedulePage({
         const project: Project | undefined = projectMap[stageRecord.projectId];
         const assignee = stageRecord.assignee || stageRecord.担当者 || '未設定';
 
-        // この工程に紐づくタスクを取得（type='task' && parentId=stage.id）
-        const allStageTasks = filteredTasks.filter(task => task.type === 'task' && task.parentId === stageRecord.id);
+        // この工程に紐づくタスクを取得
+        // 優先順位: type='task' > parentId が一致（後方互換）
+        const allStageTasks = filteredTasks.filter(task => {
+          // この工程の子タスクかチェック
+          if (task.parentId === stageRecord.id) {
+            // type='task' なら確実にタスク
+            if (task.type === 'task') return true;
+            // type未定義でもparentIdがあればタスクとみなす（後方互換）
+            if (!task.type) return true;
+          }
+          return false;
+        });
         console.log(`[GanttStages] Stage "${stageRecord.タスク名}" (${stageRecord.id}) has ${allStageTasks.length} child tasks`);
 
         const stageTasks = allStageTasks
