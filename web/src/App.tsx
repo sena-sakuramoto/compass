@@ -2651,12 +2651,18 @@ function SchedulePage({
         const assignee = stageRecord.assignee || stageRecord.担当者 || '未設定';
 
         // この工程に紐づくタスクを取得（type='task' && parentId=stage.id）
-        const stageTasks = filteredTasks
-          .filter(task => task.type === 'task' && task.parentId === stageRecord.id)
+        const allStageTasks = filteredTasks.filter(task => task.type === 'task' && task.parentId === stageRecord.id);
+        console.log(`[GanttStages] Stage "${stageRecord.タスク名}" (${stageRecord.id}) has ${allStageTasks.length} child tasks`);
+
+        const stageTasks = allStageTasks
           .filter(task => {
             const taskStart = task.start || task.予定開始日;
             const taskEnd = task.end || task.期限;
-            return taskStart && taskEnd;
+            const hasValidDates = taskStart && taskEnd;
+            if (!hasValidDates) {
+              console.log(`  - Task "${task.タスク名}" excluded: start=${taskStart}, end=${taskEnd}`);
+            }
+            return hasValidDates;
           })
           .map((task): GanttTask | null => {
             const taskStartDateStr = task.start || task.予定開始日 || '';

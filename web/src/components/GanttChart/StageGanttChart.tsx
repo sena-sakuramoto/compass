@@ -157,10 +157,14 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
   const toggleStageExpanded = (stageId: string) => {
     setExpandedStageIds(prev => {
       const newSet = new Set(prev);
-      if (newSet.has(stageId)) {
+      const wasExpanded = newSet.has(stageId);
+      if (wasExpanded) {
         newSet.delete(stageId);
+        console.log(`[StageGanttChart] Collapsed stage: ${stageId}`);
       } else {
         newSet.add(stageId);
+        const stage = stages.find(s => s.id === stageId);
+        console.log(`[StageGanttChart] Expanded stage: ${stageId}, tasks: ${stage?.tasks.length || 0}`);
       }
       return newSet;
     });
