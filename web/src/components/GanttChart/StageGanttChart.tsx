@@ -65,6 +65,11 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // マウント確認用（一時的なログ）
+  useEffect(() => {
+    console.log('[StageGanttChart] mounted with', stages.length, 'stages');
+  }, []);
+
   // 行の高さ
   const stageRowHeight = 48; // 工程行の高さ
   const taskRowHeight = 40;  // タスク行の高さ（展開時）

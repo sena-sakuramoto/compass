@@ -2863,39 +2863,37 @@ function SchedulePage({
       <section
         className="flex-1 min-h-0 bg-white"
       >
-        {ganttStages.length > 0 ? (
-          // 工程ベースのガントチャート（工程データがある場合）
-          <StageGanttChart
-            stages={ganttStages}
-            interactive={true}
-            projectMap={projectMap}
-            people={people}
-            onStageClick={(stage) => {
-              // 工程クリック時の処理（未実装）
-            }}
-            onTaskToggleComplete={(stageId, taskId) => {
-              // タスクのチェックボックスで完了状態をトグル
-              const task = filteredTasks.find(t => t.id === taskId);
-              if (!task) return;
+        {/* 工程ベースのガントチャート（常に表示） */}
+        <StageGanttChart
+          stages={ganttStages}
+          interactive={true}
+          projectMap={projectMap}
+          people={people}
+          onStageClick={(stage) => {
+            // 工程クリック時の処理（未実装）
+          }}
+          onTaskToggleComplete={(stageId, taskId) => {
+            // タスクのチェックボックスで完了状態をトグル
+            const task = filteredTasks.find(t => t.id === taskId);
+            if (!task) return;
 
-              const isCompleted = task.ステータス === '完了';
-              const newStatus = isCompleted ? '進行中' : '完了';
+            const isCompleted = task.ステータス === '完了';
+            const newStatus = isCompleted ? '進行中' : '完了';
 
-              if (onTaskUpdate) {
-                onTaskUpdate(taskId, { ステータス: newStatus });
-              }
-            }}
-            onProjectClick={onEditProject ? ((projectId: string) => {
-              // プロジェクトをクリックした際に編集ダイアログを開く
-              const project = projects.find(p => p.id === projectId);
-              if (project) {
-                onEditProject(project);
-              }
-            }) : undefined}
-          />
-        ) : (
-          // タスクベースのガントチャート（従来版、工程データがない場合のフォールバック）
-          <NewGanttChart
+            if (onTaskUpdate) {
+              onTaskUpdate(taskId, { ステータス: newStatus });
+            }
+          }}
+          onProjectClick={onEditProject ? ((projectId: string) => {
+            // プロジェクトをクリックした際に編集ダイアログを開く
+            const project = projects.find(p => p.id === projectId);
+            if (project) {
+              onEditProject(project);
+            }
+          }) : undefined}
+        />
+        {/* 旧タスクベースガントは削除済み（StageGanttChartに統一）
+        <NewGanttChart
             tasks={newGanttTasks}
             interactive={true}
             projectMap={projectMap}
@@ -3028,7 +3026,7 @@ function SchedulePage({
             }
           }}
         />
-        )}
+        */}
       </section>
     </div>
   );
@@ -3273,6 +3271,7 @@ function App() {
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
   const [allProjectMembers, setAllProjectMembers] = useState<Map<string, ProjectMember[]>>(new Map());
+  const loadedProjectMembersRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
   const [currentUserRole, setCurrentUserRole] = useState<string | undefined>(undefined);
   const toastTimers = useRef<Map<string, number>>(new Map());
@@ -3338,17 +3337,23 @@ function App() {
   const canSync = authSupported && Boolean(user);
   const canEdit = true;
 
-  // プロジェクトメンバーを一括取得
+  // プロジェクトメンバーを一括取得（最適化版：未読み込みのプロジェクトのみ）
   useEffect(() => {
     if (!canSync) return;
 
-    const loadAllMembers = async () => {
-      const newMembersMap = new Map<string, ProjectMember[]>();
+    const loadNewMembers = async () => {
+      const loadedIds = loadedProjectMembersRef.current;
+      const projectsToLoad = state.projects.filter(p => !loadedIds.has(p.id));
 
-      for (const project of state.projects) {
+      if (projectsToLoad.length === 0) return; // 新しいプロジェクトがない場合は何もしない
+
+      console.log(`[Members API] Loading members for ${projectsToLoad.length} new projects`);
+
+      for (const project of projectsToLoad) {
         try {
           const members = await listProjectMembers(project.id, { status: 'active' });
-          newMembersMap.set(project.id, members);
+          setAllProjectMembers(prev => new Map(prev).set(project.id, members));
+          loadedIds.add(project.id);
         } catch (error: any) {
           // 404エラーの場合は警告レベルを下げる（プロジェクトがまだFirestoreに保存されていない可能性）
           if (error?.status === 404) {
@@ -3356,14 +3361,13 @@ function App() {
           } else {
             console.warn(`Failed to load members for project ${project.id}:`, error);
           }
-          newMembersMap.set(project.id, []);
+          setAllProjectMembers(prev => new Map(prev).set(project.id, []));
+          loadedIds.add(project.id); // エラーでも読み込み済みとしてマーク
         }
       }
-
-      setAllProjectMembers(newMembersMap);
     };
 
-    loadAllMembers();
+    loadNewMembers();
   }, [state.projects, canSync]);
 
   // 現在のユーザーのロールを取得
