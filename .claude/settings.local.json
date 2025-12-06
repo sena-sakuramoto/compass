@@ -62,7 +62,9 @@
       "Bash(npx ts-node:*)",
       "Bash(set:*)",
       "Bash(powershell -Command:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(firebase apps:list:*)",
+      "Bash(wc:*)"
     ],
     "deny": [],
     "ask": []

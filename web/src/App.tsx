@@ -3315,6 +3315,24 @@ function App() {
     };
   }, []);
 
+  // 工程編集後にタスクを再読み込みする
+  const reloadTasks = useCallback(async () => {
+    try {
+      const result = await listTasks({});
+      const normalized = normalizeSnapshot({
+        projects: state.projects,
+        tasks: result.tasks,
+        people: state.people,
+      });
+      setState((prev) => ({
+        ...prev,
+        tasks: normalized.tasks,
+      }));
+    } catch (err) {
+      console.warn('Failed to reload tasks', err);
+    }
+  }, [state.projects, state.people, setState]);
+
   const loading = useRemoteData(setState, authSupported && Boolean(user));
 
   const canSync = authSupported && Boolean(user);
@@ -4494,6 +4512,7 @@ function App() {
             });
           }}
           people={state.people}
+          onStagesChanged={reloadTasks}
         />
       )}
       <PersonEditDialog

@@ -24,6 +24,7 @@ interface ProjectEditDialogProps {
   onDelete?: (project: Project) => Promise<void>;
   onTaskCreate?: (taskData: Partial<Task>) => Promise<void>;
   people?: Array<{ id: string; 氏名: string; メール?: string }>;
+  onStagesChanged?: () => void | Promise<void>;
 }
 
 const STATUS_OPTIONS = ['未着手', '進行中', '確認待ち', '保留', '完了', '計画中', '見積', '実施中', '設計中'];
@@ -46,7 +47,7 @@ const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
-export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [] }: ProjectEditDialogProps) {
+export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [], onStagesChanged }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
@@ -683,6 +684,9 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
       const { stages: stageList } = await listStages(project.id);
       setStages(stageList);
 
+      // App.tsx の tasks を更新
+      onStagesChanged?.();
+
       setShowStageForm(false);
       setStageName('');
       setStageStartDate('');
@@ -708,6 +712,9 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
       if (project?.id) {
         const { stages: stageList } = await listStages(project.id);
         setStages(stageList);
+
+        // App.tsx の tasks を更新
+        onStagesChanged?.();
       }
 
       setSuccess('工程を削除しました');
