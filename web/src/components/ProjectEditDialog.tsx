@@ -583,6 +583,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
     setTaskCreating(true);
     try {
       await onTaskCreate({
+        type: 'task',  // タスクのtypeを明示的に設定
         タスク名: newTaskName,
         担当者: newTaskAssignee || undefined,
         担当者メール: newTaskAssigneeEmail || undefined,

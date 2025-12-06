@@ -2631,33 +2631,9 @@ function SchedulePage({
 
   // 工程ベースのガントチャート用データ
   const ganttStages = useMemo((): GanttStage[] => {
-    console.log(`[GanttStages] Total filteredTasks: ${filteredTasks.length}`);
-
-    // typeフィールドの内訳を確認
-    const typeCount = filteredTasks.reduce((acc, task) => {
-      const type = task.type || 'undefined';
-      acc[type] = (acc[type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    console.log(`[GanttStages] Task types:`, typeCount);
-
-    // parentId === null のタスクを確認（工程の可能性）
-    const tasksWithoutParent = filteredTasks.filter(task => task.parentId === null || task.parentId === undefined);
-    console.log(`[GanttStages] Tasks with parentId=null: ${tasksWithoutParent.length}`,
-      tasksWithoutParent.slice(0, 3).map(t => ({ name: t.タスク名, type: t.type, id: t.id })));
-
-    // 工程を取得
-    // 優先順位: type='stage' > parentId === null（後方互換）
-    const stageRecords = filteredTasks.filter(task => {
-      // 新しいデータ: type='stage'
-      if (task.type === 'stage') return true;
-      // 旧データ: parentId === null を工程とみなす（後方互換）
-      if ((task.parentId === null || task.parentId === undefined) && !task.type) {
-        return true;
-      }
-      return false;
-    });
-    console.log(`[GanttStages] Found ${stageRecords.length} stage records (type='stage' or parentId=null)`);
+    // 工程（type='stage'）を取得
+    const stageRecords = filteredTasks.filter(task => task.type === 'stage');
+    console.log(`[GanttStages] Found ${stageRecords.length} stages`);
 
     // 各工程に配下のタスクを紐付け
     const stages: GanttStage[] = stageRecords
@@ -2669,36 +2645,22 @@ function SchedulePage({
 
         // 日付が不正な場合はスキップ
         if (!startDate || !endDate) {
-          console.log(`[GanttStages] Stage "${stageRecord.タスク名}" excluded: startDate=${startDateStr}, endDate=${endDateStr}`);
           return null;
         }
 
         const project: Project | undefined = projectMap[stageRecord.projectId];
         const assignee = stageRecord.assignee || stageRecord.担当者 || '未設定';
 
-        // この工程に紐づくタスクを取得
-        // 優先順位: type='task' > parentId が一致（後方互換）
-        const allStageTasks = filteredTasks.filter(task => {
-          // この工程の子タスクかチェック
-          if (task.parentId === stageRecord.id) {
-            // type='task' なら確実にタスク
-            if (task.type === 'task') return true;
-            // type未定義でもparentIdがあればタスクとみなす（後方互換）
-            if (!task.type) return true;
-          }
-          return false;
-        });
-        console.log(`[GanttStages] Stage "${stageRecord.タスク名}" (${stageRecord.id}) has ${allStageTasks.length} child tasks`);
+        // この工程に紐づくタスクを取得（type='task' && parentId=stage.id）
+        const allStageTasks = filteredTasks.filter(
+          task => task.type === 'task' && task.parentId === stageRecord.id
+        );
 
         const stageTasks = allStageTasks
           .filter(task => {
             const taskStart = task.start || task.予定開始日;
             const taskEnd = task.end || task.期限;
-            const hasValidDates = taskStart && taskEnd;
-            if (!hasValidDates) {
-              console.log(`  - Task "${task.タスク名}" excluded: start=${taskStart}, end=${taskEnd}`);
-            }
-            return hasValidDates;
+            return taskStart && taskEnd;
           })
           .map((task): GanttTask | null => {
             const taskStartDateStr = task.start || task.予定開始日 || '';
