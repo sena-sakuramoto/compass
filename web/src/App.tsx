@@ -2633,6 +2633,19 @@ function SchedulePage({
   const ganttStages = useMemo((): GanttStage[] => {
     console.log(`[GanttStages] Total filteredTasks: ${filteredTasks.length}`);
 
+    // typeフィールドの内訳を確認
+    const typeCount = filteredTasks.reduce((acc, task) => {
+      const type = task.type || 'undefined';
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    console.log(`[GanttStages] Task types:`, typeCount);
+
+    // parentId === null のタスクを確認（工程の可能性）
+    const tasksWithoutParent = filteredTasks.filter(task => task.parentId === null || task.parentId === undefined);
+    console.log(`[GanttStages] Tasks with parentId=null: ${tasksWithoutParent.length}`,
+      tasksWithoutParent.slice(0, 3).map(t => ({ name: t.タスク名, type: t.type, id: t.id })));
+
     // 工程（type='stage'）を取得
     const stageRecords = filteredTasks.filter(task => task.type === 'stage');
     console.log(`[GanttStages] Found ${stageRecords.length} stage records`);
