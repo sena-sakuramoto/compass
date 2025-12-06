@@ -1,14 +1,13 @@
 /**
- * 既存タスクに type フィールドを追加するマイグレーションスクリプト
+ * 既存タスクに type='task' を追加するマイグレーションスクリプト
  *
  * 実行方法:
  *   node scripts/migrate-task-types.js
  *
  * このスクリプトは:
- * 1. 全タスクを取得
- * 2. type フィールドがないタスクに対して:
- *    - parentId が null → type = 'stage' (工程として扱う)
- *    - parentId が設定されている → type = 'task' (タスクとして扱う)
+ * - type フィールドが未設定のタスクに対して type='task' を設定
+ * - createStage で作成された工程（type='stage'）は触らない
+ * - parentId は一切見ない（シンプルに type 未設定 → 'task'）
  */
 
 const admin = require('firebase-admin');
@@ -38,51 +37,47 @@ const ORG_ID = process.env.ORG_ID || 'org-compass';
 async function migrateTaskTypes() {
   console.log(`🚀 Starting task type migration for org: ${ORG_ID}`);
 
+  const stats = {
+    tasksUpdated: 0,
+    skipped: 0,
+    errors: 0
+  };
+
   try {
-    // 全タスクを取得
-    const tasksSnapshot = await db
-      .collection('orgs')
-      .doc(ORG_ID)
-      .collection('tasks')
-      .get();
+    const tasksRef = db.collection('orgs').doc(ORG_ID).collection('tasks');
 
-    console.log(`📊 Found ${tasksSnapshot.size} tasks`);
+    // type が未設定（null）のタスクを取得
+    // Firestore では field が存在しないドキュメントも where('type', '==', null) で取得可能
+    const snapshot = await tasksRef.where('type', '==', null).get();
 
-    let stageCount = 0;
-    let taskCount = 0;
-    let skippedCount = 0;
-    let errorCount = 0;
+    console.log(`📊 Found ${snapshot.size} tasks with type=null`);
+
+    if (snapshot.empty) {
+      console.log('✅ No tasks to migrate. All tasks already have type field.');
+      return stats;
+    }
 
     const batch = db.batch();
     let batchCount = 0;
     const BATCH_LIMIT = 500;
 
-    for (const doc of tasksSnapshot.docs) {
-      const data = doc.data();
+    for (const doc of snapshot.docs) {
+      const task = doc.data();
 
-      // 既に type が設定されている場合はスキップ
-      if (data.type) {
-        skippedCount++;
+      // 念のため既に type が入っているものは触らない
+      // （createStage で作った stage を壊さないため）
+      if (task.type) {
+        stats.skipped++;
         continue;
       }
 
-      let newType;
-      if (data.parentId === null || data.parentId === undefined) {
-        // parentId が null → 工程として扱う
-        newType = 'stage';
-        stageCount++;
-      } else {
-        // parentId が設定されている → タスクとして扱う
-        newType = 'task';
-        taskCount++;
-      }
-
-      // バッチに追加
+      // 無条件で type='task' に設定
       batch.update(doc.ref, {
-        type: newType,
+        type: 'task',
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 
+      stats.tasksUpdated++;
       batchCount++;
 
       // バッチが500件に達したらコミット
@@ -100,21 +95,16 @@ async function migrateTaskTypes() {
     }
 
     console.log('\n📈 Migration Summary:');
-    console.log(`  - Stages created (type='stage'):  ${stageCount}`);
-    console.log(`  - Tasks updated (type='task'):    ${taskCount}`);
-    console.log(`  - Skipped (already had type):     ${skippedCount}`);
-    console.log(`  - Errors:                         ${errorCount}`);
+    console.log(`  - Tasks updated (type='task'):  ${stats.tasksUpdated}`);
+    console.log(`  - Skipped (already had type):   ${stats.skipped}`);
+    console.log(`  - Errors:                       ${stats.errors}`);
     console.log(`\n✅ Migration completed successfully!`);
 
     // 検証: 更新後のタスクタイプの分布を確認
-    const updatedSnapshot = await db
-      .collection('orgs')
-      .doc(ORG_ID)
-      .collection('tasks')
-      .get();
+    const allTasksSnapshot = await tasksRef.get();
 
     const typeCounts = {};
-    updatedSnapshot.docs.forEach(doc => {
+    allTasksSnapshot.docs.forEach(doc => {
       const type = doc.data().type || 'undefined';
       typeCounts[type] = (typeCounts[type] || 0) + 1;
     });
@@ -124,6 +114,8 @@ async function migrateTaskTypes() {
       console.log(`  - ${type}: ${count}`);
     });
 
+    return stats;
+
   } catch (error) {
     console.error('❌ Migration failed:', error);
     throw error;
@@ -132,7 +124,7 @@ async function migrateTaskTypes() {
 
 // スクリプト実行
 migrateTaskTypes()
-  .then(() => {
+  .then((stats) => {
     console.log('\n✅ Script completed');
     process.exit(0);
   })
