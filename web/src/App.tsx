@@ -2631,8 +2631,11 @@ function SchedulePage({
 
   // 工程ベースのガントチャート用データ
   const ganttStages = useMemo((): GanttStage[] => {
+    console.log(`[GanttStages] Total filteredTasks: ${filteredTasks.length}`);
+
     // 工程（type='stage'）を取得
     const stageRecords = filteredTasks.filter(task => task.type === 'stage');
+    console.log(`[GanttStages] Found ${stageRecords.length} stage records`);
 
     // 各工程に配下のタスクを紐付け
     const stages: GanttStage[] = stageRecords
@@ -2644,6 +2647,7 @@ function SchedulePage({
 
         // 日付が不正な場合はスキップ
         if (!startDate || !endDate) {
+          console.log(`[GanttStages] Stage "${stageRecord.タスク名}" excluded: startDate=${startDateStr}, endDate=${endDateStr}`);
           return null;
         }
 
