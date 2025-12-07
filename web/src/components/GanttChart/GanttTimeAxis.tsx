@@ -15,7 +15,7 @@ interface GanttTimeAxisProps {
 export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
   ticks,
   containerWidth,
-  height = 64,
+  height = 48,
   viewMode
 }) => {
   if (ticks.length === 0) return null;
@@ -62,11 +62,11 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
         style={{ height: `${height}px`, minWidth: `${containerWidth}px` }}
       >
         {/* 月のヘッダー */}
-        <div className="absolute top-0 left-0 right-0 h-6 border-b border-slate-200 bg-slate-50/50">
+        <div className="absolute top-0 left-0 right-0 h-5 border-b border-slate-100 bg-slate-50/50">
           {monthGroups.map((group, index) => (
             <div
               key={index}
-              className="absolute flex items-center justify-center text-xs font-semibold text-slate-700"
+              className="absolute flex items-center justify-center text-[10px] font-semibold text-slate-600"
               style={{
                 left: `${group.startIndex * tickWidth}px`,
                 width: `${group.count * tickWidth}px`,
@@ -75,14 +75,14 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
             >
               {group.month}
               {index > 0 && (
-                <div className="absolute left-0 top-0 bottom-0 w-px bg-slate-300" />
+                <div className="absolute left-0 top-0 bottom-0 w-px bg-slate-200" />
               )}
             </div>
           ))}
         </div>
 
         {/* 日付と曜日 */}
-        <div className="absolute top-6 left-0 right-0 bottom-0">
+        <div className="absolute top-5 left-0 right-0 bottom-0">
           {ticks.map((tick, index) => {
             const x = index * tickWidth;
             const isWeekend = tick.isWeekend;
@@ -108,14 +108,12 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
               >
                 {/* 今日の背景 */}
                 {isToday && (
-                  <div
-                    className="absolute inset-0 bg-blue-100/40"
-                  />
+                  <div className="absolute inset-0 bg-blue-100/40" />
                 )}
 
                 {/* 日付 */}
                 <div
-                  className={`relative text-[11px] font-semibold ${
+                  className={`relative text-[10px] font-medium leading-none ${
                     isToday ? 'text-blue-700' : isWeekend ? 'text-rose-500' : 'text-slate-600'
                   }`}
                 >
@@ -123,7 +121,7 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
                 </div>
                 {/* 曜日 */}
                 <div
-                  className={`relative text-[10px] ${
+                  className={`relative text-[9px] leading-none ${
                     isToday ? 'text-blue-600' : isWeekend ? 'text-rose-400' : 'text-slate-400'
                   }`}
                 >
@@ -132,7 +130,7 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
 
                 {/* 縦線 */}
                 {index > 0 && (
-                  <div className="absolute left-0 top-0 bottom-0 w-px bg-slate-200" />
+                  <div className="absolute left-0 top-0 bottom-0 w-px bg-slate-100" />
                 )}
               </div>
             );

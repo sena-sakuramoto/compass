@@ -70,9 +70,9 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
     console.log('[StageGanttChart] mounted with', stages.length, 'stages');
   }, []);
 
-  // 行の高さ
-  const stageRowHeight = 48; // 工程行の高さ
-  const taskRowHeight = 40;  // タスク行の高さ（展開時）
+  // 行の高さ（コンパクト版）
+  const stageRowHeight = 32; // 工程行の高さ
+  const taskRowHeight = 28;  // タスク行の高さ（展開時）
 
   // 日付範囲を計算（安定した範囲を維持）
   // stages から全タスクを抽出して日付範囲を計算

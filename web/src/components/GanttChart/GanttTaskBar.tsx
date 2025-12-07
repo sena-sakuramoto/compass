@@ -41,16 +41,24 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   const pendingEndDate = useRef<Date>(task.endDate);
   const lastUpdateTime = useRef<number>(0);
 
+  // 工程かタスクかを判定
+  const isStage = task.type === 'stage';
+
+  // デバッグログ
+  console.log('[GanttTaskBar] task:', task.name, 'type:', task.type, 'isStage:', isStage);
+
   // ステータスに応じた色を取得
   const overdue = isOverdue(task);
-  const color = overdue ? '#dc2626' : getStatusColor(task.status);
+  // 工程は紫系、タスクは通常の色
+  const stageColor = '#7c3aed'; // violet-600
+  const color = isStage ? stageColor : (overdue ? '#dc2626' : getStatusColor(task.status));
 
-  // バーの高さ
-  const barHeight = 32;
-  const barTop = position.top + 8; // 上下のマージン
+  // バーの高さ（工程は少し大きく）
+  const barHeight = isStage ? 36 : 32;
+  const barTop = position.top + (isStage ? 6 : 8); // 上下のマージン
 
   // タスク名の表示（幅に応じて省略）
-  const displayName = task.name.length > 20 ? task.name.substring(0, 18) + '…' : task.name;
+  const displayName = (isStage ? '◆ ' : '') + (task.name.length > 18 ? task.name.substring(0, 16) + '…' : task.name);
 
   // ピクセルから日数への変換
   const pixelsToDays = (pixels: number): number => {
@@ -265,9 +273,9 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     >
       {/* バーの本体 */}
       <div
-        className={`h-full rounded-lg flex items-center px-3 text-white text-xs font-medium shadow-sm transition-all duration-200 ${interactive ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'
+        className={`h-full flex items-center px-3 text-white text-xs font-medium shadow-sm transition-all duration-200 ${interactive ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'
           } ${isHovered || isDragging ? 'shadow-md transform -translate-y-0.5' : ''} ${isCopyMode ? 'ring-2 ring-blue-400' : ''
-          }`}
+          } ${isStage ? 'rounded-md border-2 border-violet-400 font-bold' : 'rounded-lg'}`}
         style={{
           backgroundColor: color,
           opacity: task.status === 'completed' ? 0.6 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1

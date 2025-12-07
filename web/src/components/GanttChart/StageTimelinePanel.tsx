@@ -28,8 +28,8 @@ export const StageTimelinePanel: React.FC<StageTimelinePanelProps> = ({
   viewMode,
   projectMap,
 }) => {
-  // プロジェクトヘッダーの高さ
-  const projectHeaderHeight = 32;
+  // プロジェクトヘッダーの高さ（コンパクト版）
+  const projectHeaderHeight = 28;
 
   // 今日の位置を計算
   const todayPosition = calculateTodayPosition(dateRange, containerWidth);
@@ -105,8 +105,8 @@ export const StageTimelinePanel: React.FC<StageTimelinePanelProps> = ({
 
   return (
     <div style={{ width: `${containerWidth}px`, minWidth: `${containerWidth}px` }}>
-      {/* 時間軸（sticky固定、高さ64px） */}
-      <div className="sticky top-0 bg-white border-b border-slate-200" style={{ height: '64px', zIndex: 30 }}>
+      {/* 時間軸（sticky固定、高さ48px） */}
+      <div className="sticky top-0 bg-white border-b border-slate-200" style={{ height: '48px', zIndex: 30 }}>
         <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
       </div>
 

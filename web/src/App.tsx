@@ -2482,12 +2482,13 @@ function SchedulePage({
       }
     });
 
+    // デバッグ: filteredTasks の工程を確認
+    const stagesInFilteredTasks = filteredTasks.filter(t => t.type === 'stage');
+    console.log('[newGanttTasks] Stages in filteredTasks:', stagesInFilteredTasks.length, stagesInFilteredTasks.map(s => ({ name: s.タスク名, type: s.type })));
+
     const tasks = filteredTasks
       .filter((task) => {
-        // 工程（type='stage'）はガントチャートに表示しない（タスクのみ表示）
-        if (task.type === 'stage') {
-          return false;
-        }
+        // 工程（type='stage'）もタスクも両方表示する
         const startDate = task.start || task.予定開始日;
         const endDate = task.end || task.期限;
         return startDate && endDate;
@@ -2559,7 +2560,15 @@ function SchedulePage({
             期限当日: false,
             超過: false,
           },
+          type: task.type === 'stage' ? 'stage' : 'task', // 工程かタスクかを区別
         };
+      })
+      .map((task) => {
+        // デバッグログ: 型情報を確認
+        if (task) {
+          console.log('[newGanttTasks] task:', task.name, 'type:', task.type);
+        }
+        return task;
       })
       .filter((task): task is GanttTask => task !== null);
 
@@ -2572,9 +2581,13 @@ function SchedulePage({
       projectGroups.get(task.projectId)!.push(task);
     });
 
-    // 各プロジェクト内のタスクを開始日順にソート（安定化：開始日→終了日→タスク名→ID）
+    // 各プロジェクト内のタスクを並び替え（工程を先に、その後タスクを開始日順）
     projectGroups.forEach((projectTasks) => {
       projectTasks.sort((a, b) => {
+        // 工程を先に表示
+        if (a.type === 'stage' && b.type !== 'stage') return -1;
+        if (a.type !== 'stage' && b.type === 'stage') return 1;
+
         // 開始日で比較
         const startDiff = a.startDate.getTime() - b.startDate.getTime();
         if (startDiff !== 0) return startDiff;
@@ -2634,6 +2647,13 @@ function SchedulePage({
     // 工程（type='stage'）を取得
     const stageRecords = filteredTasks.filter(task => task.type === 'stage');
     console.log(`[GanttStages] Found ${stageRecords.length} stages`);
+
+    // 工程に紐付いていないタスク（parentIdがnull/undefined、または工程以外）を取得
+    const stageIds = new Set(stageRecords.map(s => s.id));
+    const standaloneTasks = filteredTasks.filter(task =>
+      task.type !== 'stage' && (!task.parentId || !stageIds.has(task.parentId))
+    );
+    console.log(`[GanttStages] Found ${standaloneTasks.length} standalone tasks (type !== stage, no parentId)`);
 
     // 各工程に配下のタスクを紐付け
     const stages: GanttStage[] = stageRecords
@@ -2757,6 +2777,108 @@ function SchedulePage({
       projectGroups.get(stage.projectId)!.push(stage);
     });
 
+    // 単独タスク（工程に紐付いていないタスク）をプロジェクトごとにグループ化して仮想工程を作成
+    const standaloneByProject = new Map<string, typeof standaloneTasks>();
+    standaloneTasks.forEach(task => {
+      if (!standaloneByProject.has(task.projectId)) {
+        standaloneByProject.set(task.projectId, []);
+      }
+      standaloneByProject.get(task.projectId)!.push(task);
+    });
+
+    // 各プロジェクトの単独タスクを「未分類」工程として追加
+    standaloneByProject.forEach((tasks, projectId) => {
+      const project = projectMap[projectId];
+
+      // タスクをGanttTask形式に変換（日付がなくても含める）
+      const ganttTasks: GanttTask[] = tasks
+        .map((task): GanttTask => {
+          const taskStartDateStr = task.start || task.予定開始日 || '';
+          const taskEndDateStr = task.end || task.期限 || '';
+          const taskStartDate = parseDate(taskStartDateStr);
+          const taskEndDate = parseDate(taskEndDateStr);
+
+          // 日付がない場合はデフォルト値を使用
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const effectiveStart = taskStartDate || today;
+          const effectiveEnd = taskEndDate || today;
+
+          let status: GanttTask['status'] = 'not_started';
+          if (task.ステータス === '完了') status = 'completed';
+          else if (task.ステータス === '進行中') status = 'in_progress';
+          else if (task.ステータス === '保留') status = 'on_hold';
+          else if (task.ステータス === '未着手') status = 'not_started';
+          else if (task.ステータス === '確認待ち') status = 'in_progress';
+
+          const startDateOnly = new Date(effectiveStart);
+          startDateOnly.setHours(0, 0, 0, 0);
+
+          if (status === 'not_started' && taskStartDate && startDateOnly <= today) {
+            status = 'in_progress';
+          }
+
+          const isOverdue = taskEndDate && effectiveEnd < today && status !== 'completed';
+          if (isOverdue) {
+            status = 'overdue';
+          }
+
+          return {
+            id: task.id,
+            name: task.タスク名 || '（無題）',
+            startDate: effectiveStart,
+            endDate: effectiveEnd,
+            assignee: task.assignee || task.担当者 || '未設定',
+            progress: 0,
+            status,
+            projectId: task.projectId,
+            projectName: project?.物件名 || '（プロジェクト名なし）',
+            dependencies: task['依存タスク'] || [],
+            milestone: task['マイルストーン'] === true || task['milestone'] === true,
+            priority: task.優先度 || '中',
+            estimatedHours: task['工数見積(h)'] || 0,
+            notificationSettings: task['通知設定'] || {
+              開始日: false,
+              期限前日: false,
+              期限当日: false,
+              超過: false,
+            },
+          };
+        });
+
+      if (ganttTasks.length === 0) return;
+
+      // 日付範囲を計算
+      const dates = ganttTasks.flatMap(t => [t.startDate, t.endDate]);
+      const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
+      const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
+
+      // 進捗率を計算
+      const progressPct = calculateStageProgress(ganttTasks);
+
+      const virtualStage: GanttStage = {
+        id: `standalone-${projectId}`,
+        name: '工程',
+        startDate: minDate,
+        endDate: maxDate,
+        assignee: '−',
+        progressPct,
+        status: 'not_started',
+        projectId,
+        projectName: project?.物件名 || '（プロジェクト名なし）',
+        tasks: ganttTasks,
+        orderIndex: 999999, // 常に最後に表示
+      };
+
+      const status = calculateStageStatus(virtualStage, ganttTasks);
+      virtualStage.status = status;
+
+      if (!projectGroups.has(projectId)) {
+        projectGroups.set(projectId, []);
+      }
+      projectGroups.get(projectId)!.push(virtualStage);
+    });
+
     // 各プロジェクト内の工程を orderIndex でソート
     projectGroups.forEach((projectStages) => {
       projectStages.sort((a, b) => {
@@ -2867,36 +2989,7 @@ function SchedulePage({
       <section
         className="flex-1 min-h-0 bg-white"
       >
-        {/* 工程ベースのガントチャート（常に表示） */}
-        <StageGanttChart
-          stages={ganttStages}
-          interactive={true}
-          projectMap={projectMap}
-          people={people}
-          onStageClick={(stage) => {
-            // 工程クリック時の処理（未実装）
-          }}
-          onTaskToggleComplete={(stageId, taskId) => {
-            // タスクのチェックボックスで完了状態をトグル
-            const task = filteredTasks.find(t => t.id === taskId);
-            if (!task) return;
-
-            const isCompleted = task.ステータス === '完了';
-            const newStatus = isCompleted ? '進行中' : '完了';
-
-            if (onTaskUpdate) {
-              onTaskUpdate(taskId, { ステータス: newStatus });
-            }
-          }}
-          onProjectClick={onEditProject ? ((projectId: string) => {
-            // プロジェクトをクリックした際に編集ダイアログを開く
-            const project = projects.find(p => p.id === projectId);
-            if (project) {
-              onEditProject(project);
-            }
-          }) : undefined}
-        />
-        {/* 旧タスクベースガントは削除済み（StageGanttChartに統一）
+        {/* 工程・タスク統合ガントチャート */}
         <NewGanttChart
             tasks={newGanttTasks}
             interactive={true}
@@ -3030,7 +3123,6 @@ function SchedulePage({
             }
           }}
         />
-        */}
       </section>
     </div>
   );

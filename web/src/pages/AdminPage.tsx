@@ -35,6 +35,10 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [migrationResult, setMigrationResult] = useState<any>(null);
   const [migrating, setMigrating] = useState(false);
+  const [taskTypeMigrationResult, setTaskTypeMigrationResult] = useState<any>(null);
+  const [migratingTaskTypes, setMigratingTaskTypes] = useState(false);
+  const [stageTypeFixResult, setStageTypeFixResult] = useState<any>(null);
+  const [fixingStageTypes, setFixingStageTypes] = useState(false);
 
   // 招待フォームの状態
   const [inviteForm, setInviteForm] = useState({
@@ -203,6 +207,80 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
       alert('組織の作成に失敗しました');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleMigrateTaskTypes = async () => {
+    if (!confirm('タスクのtypeフィールドを移行しますか？type未設定のタスクに type=\'task\' を設定します。')) {
+      return;
+    }
+
+    setMigratingTaskTypes(true);
+    setTaskTypeMigrationResult(null);
+
+    try {
+      const token = await user?.getIdToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/admin/migrate-task-types`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        setTaskTypeMigrationResult(result);
+        alert(`移行完了！更新: ${result.stats.tasksUpdated}件`);
+      } else {
+        const error = await response.json();
+        alert(`エラー: ${error.error || '移行に失敗しました'}`);
+      }
+    } catch (error) {
+      console.error('Failed to migrate task types:', error);
+      alert('移行に失敗しました');
+    } finally {
+      setMigratingTaskTypes(false);
+    }
+  };
+
+  const handleFixStageTypes = async () => {
+    if (!confirm('工程のtypeフィールドを修正しますか？子タスクから参照されているタスクを type=\'stage\' に更新します。')) {
+      return;
+    }
+
+    setFixingStageTypes(true);
+    setStageTypeFixResult(null);
+
+    try {
+      const token = await user?.getIdToken();
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/admin/fix-stage-types`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        setStageTypeFixResult(result);
+        alert(`修正完了！修正: ${result.stats.stagesFixed}件`);
+      } else {
+        const error = await response.json();
+        alert(`エラー: ${error.error || '修正に失敗しました'}`);
+      }
+    } catch (error) {
+      console.error('Failed to fix stage types:', error);
+      alert('修正に失敗しました');
+    } finally {
+      setFixingStageTypes(false);
     }
   };
 
@@ -605,7 +683,79 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
         )}
 
         {activeTab === 'migration' && (
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-2xl mx-auto space-y-6">
+            {/* タスクタイプ移行 */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">タスクタイプ移行</h2>
+              <p className="text-sm text-slate-600 mb-6">
+                type フィールドが未設定のタスクに <code className="bg-slate-100 px-1 rounded">type='task'</code> を設定します。
+                工程表（ガントチャート）の正常動作に必要です。
+              </p>
+
+              <button
+                onClick={handleMigrateTaskTypes}
+                disabled={migratingTaskTypes}
+                className="w-full rounded-lg bg-green-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {migratingTaskTypes ? '移行中...' : 'タスクタイプを移行する'}
+              </button>
+
+              {taskTypeMigrationResult && (
+                <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-sm font-medium text-green-800">移行完了</p>
+                  <div className="text-sm text-green-700 mt-2 space-y-1">
+                    <p>総タスク数: {taskTypeMigrationResult.stats.total}件</p>
+                    <p>更新: {taskTypeMigrationResult.stats.tasksUpdated}件</p>
+                    {taskTypeMigrationResult.typeCounts && (
+                      <div className="mt-2 pt-2 border-t border-green-200">
+                        <p className="font-medium">タイプ分布:</p>
+                        {Object.entries(taskTypeMigrationResult.typeCounts).map(([type, count]) => (
+                          <p key={type}>{type}: {count as number}件</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 工程タイプ修正 */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">工程タイプ修正</h2>
+              <p className="text-sm text-slate-600 mb-6">
+                子タスクから参照されているタスクを <code className="bg-slate-100 px-1 rounded">type='stage'</code> に更新します。
+                工程がタスクとして表示されてしまう問題を修正します。
+              </p>
+
+              <button
+                onClick={handleFixStageTypes}
+                disabled={fixingStageTypes}
+                className="w-full rounded-lg bg-violet-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {fixingStageTypes ? '修正中...' : '工程タイプを修正する'}
+              </button>
+
+              {stageTypeFixResult && (
+                <div className="mt-6 p-4 bg-violet-50 border border-violet-200 rounded-lg">
+                  <p className="text-sm font-medium text-violet-800">修正完了</p>
+                  <div className="text-sm text-violet-700 mt-2 space-y-1">
+                    <p>総タスク数: {stageTypeFixResult.stats.total}件</p>
+                    <p>修正: {stageTypeFixResult.stats.stagesFixed}件</p>
+                    <p>既に工程: {stageTypeFixResult.stats.alreadyStages}件</p>
+                    {stageTypeFixResult.typeCounts && (
+                      <div className="mt-2 pt-2 border-t border-violet-200">
+                        <p className="font-medium">タイプ分布:</p>
+                        {Object.entries(stageTypeFixResult.typeCounts).map(([type, count]) => (
+                          <p key={type}>{type}: {count as number}件</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* クライアントデータ移行 */}
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">クライアントデータ移行</h2>
               <p className="text-sm text-slate-600 mb-6">
