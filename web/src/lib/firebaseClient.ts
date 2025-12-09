@@ -39,8 +39,9 @@ async function ensureUserDocument(user: User, token: string): Promise<void> {
     const userDoc = await getDoc(userRef);
 
     if (!userDoc.exists()) {
-      // デフォルトの組織IDを設定（後で変更可能）
-      const defaultOrgId = 'archi-prisma'; // TODO: 実際の組織IDに変更するUIを追加
+      // 招待経由でない直接ログインの場合のフォールバック
+      // 通常は org-invitations API 経由でユーザーが作成されるため、ここには到達しない
+      const defaultOrgId = 'archi-prisma';
       await setDoc(userRef, {
         email: user.email || '',
         displayName: user.displayName || user.email?.split('@')[0] || '名無し',

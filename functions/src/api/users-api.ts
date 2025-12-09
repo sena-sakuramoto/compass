@@ -144,14 +144,23 @@ router.get('/:userId/invitations', authenticate, async (req: any, res) => {
       if (member.status === 'invited') {
         const project = await getProject(req.user.orgId, projectId);
         if (project) {
+          // 招待者の名前を取得
+          let inviterName = member.invitedBy;
+          if (member.invitedBy) {
+            const inviter = await getUser(member.invitedBy);
+            if (inviter) {
+              inviterName = inviter.displayName || inviter.email || member.invitedBy;
+            }
+          }
+
           invitations.push({
             projectId,
             projectName: project.物件名 || projectId,
             invitedBy: member.invitedBy,
-            invitedByName: member.invitedBy, // TODO: 招待者の名前を取得
+            invitedByName: inviterName,
             role: member.role,
             invitedAt: member.invitedAt,
-            message: '', // TODO: メッセージの取得
+            message: member.message || '',
           });
         }
       }

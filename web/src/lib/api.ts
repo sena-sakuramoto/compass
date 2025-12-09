@@ -58,6 +58,25 @@ export function setIdToken(token?: string) {
   }
 }
 
+/**
+ * 低レベルAPIフェッチ関数（Responseオブジェクトを返す）
+ * コメント投稿など、細かい制御が必要な場合に使用
+ */
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = await getCachedIdToken();
+  const { headers: optionHeaders, credentials: optionCredentials, ...restOptions } = options;
+  const authHeaders = buildAuthHeaders(token);
+  const headers = mergeHeaders({ 'Content-Type': 'application/json', ...authHeaders }, optionHeaders);
+
+  const fetchOptions: RequestInit = {
+    ...restOptions,
+    headers,
+    credentials: optionCredentials ?? 'include',
+  };
+
+  return fetch(`${BASE_URL}${path}`, fetchOptions);
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // キャッシュされたIDトークンを取得（重複呼び出しを防ぐ）
   // console.log(`[api] 🔵 Starting ${options.method || 'GET'} ${path}`);

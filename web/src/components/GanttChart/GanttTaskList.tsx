@@ -1,43 +1,90 @@
 // タスク一覧コンポーネント（左側固定）
+// 工程（Stage）とタスク（Task）を視覚的に区別して表示
 
 import React, { useState, useEffect } from 'react';
 import type { GanttTask } from './types';
 import type { ProjectMilestone } from './GanttTimeline';
+import { Layers, ChevronRight, ChevronDown, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
 
 interface GanttTaskListProps {
   tasks: GanttTask[];
   rowHeight: number;
+  stageRowHeight?: number; // 工程行の高さ（デフォルト: 48）
+  taskRowHeight?: number;  // タスク行の高さ（デフォルト: 36）
   onTaskClick?: (task: GanttTask) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
   onProjectClick?: (projectId: string) => void;
   scrollTop?: number;
   projectMap?: Record<string, { 物件名?: string; ステータス?: string;[key: string]: any }>;
   projectMilestones?: ProjectMilestone[];
+  expandedStageIds?: Set<string>;
+  onToggleStage?: (stageId: string) => void;
+}
+
+// 進捗率に応じた色を取得
+function getProgressColor(progress: number): string {
+  if (progress >= 100) return 'bg-emerald-500';
+  if (progress >= 75) return 'bg-blue-500';
+  if (progress >= 50) return 'bg-blue-400';
+  if (progress >= 25) return 'bg-amber-400';
+  return 'bg-slate-300';
+}
+
+// ステータスに応じたアイコンを取得
+function getStatusIcon(status: string, className: string = 'w-3.5 h-3.5') {
+  switch (status) {
+    case 'completed':
+      return <CheckCircle2 className={`${className} text-emerald-500`} />;
+    case 'overdue':
+      return <AlertTriangle className={`${className} text-red-500`} />;
+    case 'in_progress':
+      return <Clock className={`${className} text-blue-500`} />;
+    default:
+      return null;
+  }
 }
 
 export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   tasks,
   rowHeight,
+  stageRowHeight = 48,
+  taskRowHeight = 36,
   onTaskClick,
   onTaskToggleComplete,
   onProjectClick,
   scrollTop = 0,
   projectMap = {},
-  projectMilestones = []
+  projectMilestones = [],
+  expandedStageIds: externalExpandedStageIds,
+  onToggleStage
 }) => {
   // ローカル完了状態管理（即座にUIを更新するため）
   const [localCompletedStates, setLocalCompletedStates] = useState<Record<string, boolean>>({});
   // ハイライト表示用のstate
   const [highlightedTaskIds, setHighlightedTaskIds] = useState<Set<string>>(new Set());
+  // 工程の展開状態を管理（外部制御がない場合のみ）
+  const [internalExpandedStageIds, setInternalExpandedStageIds] = useState<Set<string>>(new Set());
+
+  // 外部制御がある場合はそちらを優先
+  const expandedStageIds = externalExpandedStageIds !== undefined ? externalExpandedStageIds : internalExpandedStageIds;
+  const setExpandedStageIds = onToggleStage ? undefined : setInternalExpandedStageIds;
 
   // tasksが変更されたら、ローカル状態をリセット
   useEffect(() => {
     const newStates: Record<string, boolean> = {};
+    const stageIds = new Set<string>();
     tasks.forEach(task => {
       newStates[task.id] = task.status === 'completed';
+      // 工程は初期状態で全て展開（外部制御がない場合のみ）
+      if (task.type === 'stage' && !onToggleStage) {
+        stageIds.add(task.id);
+      }
     });
     setLocalCompletedStates(newStates);
-  }, [tasks]);
+    if (!onToggleStage && setExpandedStageIds) {
+      setExpandedStageIds(stageIds);
+    }
+  }, [tasks, onToggleStage]);
 
   // タスクマップを作成
   const taskMap = new Map<string, GanttTask>();
@@ -127,14 +174,112 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
               )}
             </div>
 
-            {/* プロジェクト内のタスク */}
+            {/* プロジェクト内のタスク・工程 */}
             {group.tasks.map((task, index) => {
               // ローカル状態を優先的に使用
               const isCompleted = localCompletedStates[task.id] ?? (task.status === 'completed');
               const incompleteDeps = hasIncompleteDependencies(task);
               const cannotComplete = !isCompleted && incompleteDeps.length > 0;
               const isHighlighted = highlightedTaskIds.has(task.id);
+              const isStage = task.type === 'stage';
 
+              // 親工程が折りたたまれている場合、子タスクは非表示
+              if (task.parentStageId && !expandedStageIds.has(task.parentStageId)) {
+                return null;
+              }
+
+              // ========================================
+              // 工程（Stage）行の表示
+              // - 背景色でハイライト
+              // - 太字
+              // - 工程アイコン（Layers）
+              // - 進捗バー表示
+              // - トグルアイコン
+              // ========================================
+              if (isStage) {
+                const isExpanded = expandedStageIds.has(task.id);
+                return (
+                  <div
+                    key={task.id}
+                    id={`task-row-${task.id}`}
+                    className={`
+                      flex items-center px-3 border-b border-slate-200
+                      bg-gradient-to-r from-emerald-50 to-teal-50
+                      cursor-pointer transition-all
+                      border-l-4 border-l-emerald-500
+                      ${isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:from-emerald-100 hover:to-teal-100'}
+                    `}
+                    style={{ height: `${stageRowHeight}px` }}
+                    onClick={() => onTaskClick?.(task)}
+                  >
+                    {/* トグルアイコン + 工程アイコン */}
+                    <div className="w-8 flex items-center justify-center gap-0.5">
+                      <button
+                        className="p-0.5 hover:bg-emerald-200 rounded transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onToggleStage) {
+                            onToggleStage(task.id);
+                          } else if (setExpandedStageIds) {
+                            setExpandedStageIds(prev => {
+                              const newSet = new Set(prev);
+                              if (newSet.has(task.id)) {
+                                newSet.delete(task.id);
+                              } else {
+                                newSet.add(task.id);
+                              }
+                              return newSet;
+                            });
+                          }
+                        }}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="w-4 h-4 text-emerald-700" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-emerald-700" />
+                        )}
+                      </button>
+                      <Layers className="w-4 h-4 text-emerald-600" />
+                    </div>
+
+                    {/* 工程名 */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-slate-800 truncate">
+                          {task.name}
+                        </span>
+                        {getStatusIcon(task.status)}
+                      </div>
+                    </div>
+
+                    {/* 担当（工程は「—」を表示） */}
+                    <div className="hidden md:block w-20 text-center">
+                      <span className="text-xs text-slate-400">—</span>
+                    </div>
+
+                    {/* 進捗バー（工程の集計値） */}
+                    <div className="hidden md:flex w-16 flex-col items-center gap-0.5 px-1">
+                      <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${getProgressColor(task.progress)} transition-all duration-300`}
+                          style={{ width: `${task.progress}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-semibold text-slate-700">
+                        {task.progress}%
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
+              // ========================================
+              // タスク（Task）行の表示
+              // - インデント表示
+              // - チェックボックス
+              // - 通常フォント
+              // - 担当者表示
+              // ========================================
               return (
                 <div
                   key={task.id}
@@ -142,7 +287,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
                   className={`flex items-center px-4 border-b border-slate-100 transition-all ${isCompleted ? 'opacity-60' : ''
                     } ${isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:bg-slate-50'
                     }`}
-                  style={{ height: `${rowHeight}px` }}
+                  style={{ height: `${taskRowHeight}px` }}
                 >
                   {/* チェックボックス */}
                   <div className="w-8 relative group">
@@ -200,12 +345,9 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
 
                   {/* タスク名 */}
                   <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskClick?.(task)}>
-                    <div className={`text-sm font-medium text-slate-700 truncate ${isCompleted ? 'line-through' : ''
+                    <div className={`text-sm text-slate-700 truncate ${isCompleted ? 'line-through text-slate-400' : ''
                       }`}>
                       {task.name}
-                    </div>
-                    <div className="text-xs text-slate-500 truncate">
-                      {task.projectName}
                     </div>
                   </div>
 
@@ -217,16 +359,24 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
                         alt={task.assignee}
                         className="w-6 h-6 rounded-full mx-auto"
                       />
-                    ) : (
+                    ) : task.assignee && task.assignee !== '未設定' ? (
                       <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center mx-auto text-xs font-medium text-slate-600">
-                        {task.assignee ? task.assignee.charAt(0) : '?'}
+                        {task.assignee.charAt(0)}
                       </div>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
                     )}
                   </div>
 
                   {/* 進捗 */}
-                  <div className="hidden md:block w-16 text-center">
-                    <span className="text-xs font-medium text-slate-600">
+                  <div className="hidden md:flex w-16 flex-col items-center gap-0.5 px-1">
+                    <div className="w-full h-1 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${getProgressColor(task.progress)} transition-all duration-300`}
+                        style={{ width: `${task.progress}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-slate-500">
                       {task.progress}%
                     </span>
                   </div>

@@ -51,6 +51,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const [zoomLevel, setZoomLevel] = useState(1.0); // ズームレベル（0.5～3.0）
   const [selectedTask, setSelectedTask] = useState<GanttTask | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [expandedStageIds, setExpandedStageIds] = useState<Set<string>>(new Set());
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -71,8 +72,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // 行の高さ
-  const rowHeight = 48;
+  // 行の高さ（工程は大きく、タスクは小さく）
+  const rowHeight = 48; // 互換性のためのデフォルト値
+  const stageRowHeight = 48; // 工程行の高さ
+  const taskRowHeight = 36;  // タスク行の高さ
 
   // 日付範囲を計算（安定した範囲を維持）
   const [dateRange, setDateRange] = useState(() => calculateDateRange(tasks));
@@ -85,6 +88,15 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       newRange.end.getTime() !== dateRange.end.getTime()) {
       setDateRange(newRange);
     }
+
+    // 工程を初期状態で全て展開
+    const stageIds = new Set<string>();
+    tasks.forEach(task => {
+      if (task.type === 'stage') {
+        stageIds.add(task.id);
+      }
+    });
+    setExpandedStageIds(stageIds);
   }, [tasks]);
 
   // 日付軸のティックを計算
@@ -411,12 +423,26 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           <GanttTaskList
             tasks={tasks}
             rowHeight={rowHeight}
+            stageRowHeight={stageRowHeight}
+            taskRowHeight={taskRowHeight}
             onTaskClick={handleTaskClickInternal}
             onTaskToggleComplete={onTaskToggleComplete}
             onProjectClick={onProjectClick}
             scrollTop={scrollTop}
             projectMap={projectMap}
             projectMilestones={projectMilestones}
+            expandedStageIds={expandedStageIds}
+            onToggleStage={(stageId) => {
+              setExpandedStageIds(prev => {
+                const newSet = new Set(prev);
+                if (newSet.has(stageId)) {
+                  newSet.delete(stageId);
+                } else {
+                  newSet.add(stageId);
+                }
+                return newSet;
+              });
+            }}
           />
         </div>
 
@@ -454,6 +480,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             dateRange={dateRange}
             containerWidth={containerWidth}
             rowHeight={rowHeight}
+            stageRowHeight={stageRowHeight}
+            taskRowHeight={taskRowHeight}
             viewMode={viewMode}
             onTaskClick={handleTaskClickInternal}
             onTaskUpdate={onTaskUpdate}
@@ -468,6 +496,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             onViewModeToggle={handleViewModeToggle}
             projectMilestones={projectMilestones}
             projectMap={projectMap}
+            expandedStageIds={expandedStageIds}
             onZoom={(direction) => {
               if (direction === 'in') {
                 handleZoomIn();

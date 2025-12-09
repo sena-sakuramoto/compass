@@ -39,6 +39,7 @@ interface GanttTimelineProps {
   onViewModeToggle?: () => void;
   projectMilestones?: ProjectMilestone[];
   projectMap?: Record<string, { 物件名?: string; ステータス?: string;[key: string]: any }>;
+  expandedStageIds?: Set<string>;
 }
 
 interface GanttTimelinePropsExtended extends GanttTimelineProps {
@@ -68,7 +69,8 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   onBatchMove,
   onClearSelection,
   onViewModeToggle,
-  onZoom
+  onZoom,
+  expandedStageIds = new Set()
 }) => {
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
@@ -263,6 +265,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     const projectsWithTasks = new Set<string>();
 
     tasks.forEach((task, index) => {
+      // 親工程が折りたたまれている場合、子タスクはスキップ
+      if (task.parentStageId && !expandedStageIds.has(task.parentStageId)) {
+        return;
+      }
+
       if (task.projectId !== currentProjectId) {
         currentProjectId = task.projectId;
         projectsWithTasks.add(task.projectId);
@@ -301,7 +308,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
 
     return groups;
-  }, [tasks, projectMap, projectMilestones]);
+  }, [tasks, projectMap, projectMilestones, expandedStageIds]);
 
   // タスクの総高さを計算（プロジェクトヘッダー分も含む + 最後に空白のプロジェクト行）
   // 工程とタスクで異なる行の高さを使用
@@ -309,11 +316,15 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   const totalHeight = useMemo(() => {
     let height = projectGroups.length * projectHeaderHeight + projectHeaderHeight; // ヘッダー分
     tasks.forEach(task => {
+      // 親工程が折りたたまれている場合、子タスクはスキップ
+      if (task.parentStageId && !expandedStageIds.has(task.parentStageId)) {
+        return;
+      }
       const isStage = task.type === 'stage';
       height += isStage ? stageRowHeight : taskRowHeight;
     });
     return height;
-  }, [tasks, projectGroups.length, projectHeaderHeight, stageRowHeight, taskRowHeight]);
+  }, [tasks, projectGroups.length, projectHeaderHeight, stageRowHeight, taskRowHeight, expandedStageIds]);
 
   // 依存関係を解決
   const dependencies = useMemo(() => resolveDependencies(tasks), [tasks]);

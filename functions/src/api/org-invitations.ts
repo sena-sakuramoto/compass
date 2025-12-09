@@ -159,7 +159,6 @@ router.post('/', async (req: any, res, next) => {
       expiresAt: expiresAt as any,
       status: 'pending',
       message: message || undefined,
-      // TODO: 招待リンク生成
       inviteLink: `${process.env.APP_URL || 'https://compass-31e9e.web.app'}/invite/${invitationRef.id}`,
     };
 

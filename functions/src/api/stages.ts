@@ -7,6 +7,7 @@ import {
   updateStage,
   deleteStage,
   getProject,
+  getStage,
 } from '../lib/firestore';
 import { getUser } from '../lib/users';
 import { listUserProjects, getProjectMemberPermissions } from '../lib/project-members';
@@ -111,8 +112,24 @@ router.patch('/stages/:stageId', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // TODO: ステージの所属プロジェクトを取得して権限チェック
-    // 簡易実装として、ユーザーの orgId で更新を許可
+    // ステージを取得してプロジェクトIDを確認
+    const stage = await getStage(stageId, user.orgId);
+    if (!stage) {
+      return res.status(404).json({ error: 'Stage not found' });
+    }
+
+    // プロジェクトメンバーシップと権限をチェック
+    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
+    const membership = userProjectMemberships.find(m => m.projectId === stage.projectId);
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
+    }
+
+    const permissions = await getProjectMemberPermissions(user.orgId, stage.projectId, req.uid);
+    if (!permissions || !permissions.canEditTasks) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to edit stages' });
+    }
 
     await updateStage(stageId, updates, user.orgId);
 
@@ -135,8 +152,24 @@ router.delete('/stages/:stageId', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // TODO: ステージの所属プロジェクトを取得して権限チェック
-    // 簡易実装として、ユーザーの orgId で削除を許可
+    // ステージを取得してプロジェクトIDを確認
+    const stage = await getStage(stageId, user.orgId);
+    if (!stage) {
+      return res.status(404).json({ error: 'Stage not found' });
+    }
+
+    // プロジェクトメンバーシップと権限をチェック
+    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
+    const membership = userProjectMemberships.find(m => m.projectId === stage.projectId);
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
+    }
+
+    const permissions = await getProjectMemberPermissions(user.orgId, stage.projectId, req.uid);
+    if (!permissions || !permissions.canDeleteTasks) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to delete stages' });
+    }
 
     await deleteStage(stageId, user.orgId);
 

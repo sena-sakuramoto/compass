@@ -155,6 +155,7 @@ export interface ProjectMember {
   invitedAt: Timestamp;          // 招待日時
   joinedAt?: Timestamp;          // 参加日時
   status: 'invited' | 'active' | 'inactive'; // ステータス
+  message?: string;              // 招待メッセージ
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

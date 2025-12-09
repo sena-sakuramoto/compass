@@ -23,6 +23,7 @@ import clientsRouter from './api/clients-api';
 import collaboratorsRouter from './api/collaborators-api';
 import organizationsRouter from './api/organizations';
 import migrateClientsRouter from './api/migrate-clients-api';
+import commentsRouter from './api/comments-api';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 import { cleanupDeletedItems } from './cleanupDeletedItems';
@@ -76,6 +77,7 @@ app.use('/api/collaborators', collaboratorsRouter);
 app.use('/api', projectMembersRouter);
 app.use('/api', activityLogsRouter);
 app.use('/api', excelRouter);
+app.use('/api', commentsRouter);
 app.use('/api/admin', adminCleanupRouter);
 app.use('/api/admin', migrateClientsRouter);
 

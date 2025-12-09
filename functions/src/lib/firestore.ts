@@ -1136,3 +1136,26 @@ export async function deleteStage(stageId: string, orgId?: string): Promise<void
 
   await batch.commit();
 }
+
+/**
+ * 工程(stage)を取得
+ */
+export async function getStage(stageId: string, orgId?: string): Promise<TaskDoc | null> {
+  const targetOrgId = orgId ?? ORG_ID;
+  const doc = await db
+    .collection('orgs')
+    .doc(targetOrgId)
+    .collection('tasks')
+    .doc(stageId)
+    .get();
+
+  if (!doc.exists) {
+    return null;
+  }
+
+  const data = doc.data()!;
+  return {
+    id: doc.id,
+    ...data,
+  } as TaskDoc;
+}

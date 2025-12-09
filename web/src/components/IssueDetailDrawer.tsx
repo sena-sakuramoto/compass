@@ -1,6 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { X, Save, Trash2, Calendar, User, Tag, Flag, Clock } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Save, Trash2, Calendar, User, Tag, Flag, Clock, Send, Loader2 } from 'lucide-react';
 import type { Task, Project, Person } from '../lib/types';
+import { apiFetch } from '../lib/api';
+
+interface Comment {
+  id: string;
+  taskId: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  authorEmail: string;
+  createdAt: { _seconds: number; _nanoseconds: number } | string;
+  updatedAt: { _seconds: number; _nanoseconds: number } | string;
+}
 
 interface IssueDetailDrawerProps {
   open: boolean;
@@ -26,12 +38,81 @@ export function IssueDetailDrawer({
   const [formData, setFormData] = useState<Partial<Task>>({});
   const [saving, setSaving] = useState(false);
   const [comment, setComment] = useState('');
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [loadingComments, setLoadingComments] = useState(false);
+  const [postingComment, setPostingComment] = useState(false);
+
+  // コメント一覧を取得
+  const fetchComments = useCallback(async (taskId: string) => {
+    setLoadingComments(true);
+    try {
+      const res = await apiFetch(`/api/tasks/${taskId}/comments`);
+      if (res.ok) {
+        const data = await res.json();
+        setComments(data.comments || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch comments:', error);
+    } finally {
+      setLoadingComments(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (task) {
       setFormData({ ...task });
+      fetchComments(task.id);
+    } else {
+      setComments([]);
     }
-  }, [task]);
+  }, [task, fetchComments]);
+
+  // コメントを投稿
+  const handlePostComment = async () => {
+    if (!comment.trim() || !task) return;
+
+    setPostingComment(true);
+    try {
+      const res = await apiFetch(`/api/tasks/${task.id}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ content: comment.trim() }),
+      });
+
+      if (res.ok) {
+        const newComment = await res.json();
+        setComments(prev => [...prev, newComment]);
+        setComment('');
+        onNotify?.({ tone: 'success', title: 'コメントを追加しました' });
+      } else {
+        throw new Error('Failed to post comment');
+      }
+    } catch (error) {
+      console.error('Failed to post comment:', error);
+      onNotify?.({ tone: 'error', title: 'コメントの投稿に失敗しました' });
+    } finally {
+      setPostingComment(false);
+    }
+  };
+
+  // コメントの日時をフォーマット
+  const formatCommentDate = (date: Comment['createdAt']): string => {
+    if (!date) return '';
+    let d: Date;
+    if (typeof date === 'object' && '_seconds' in date) {
+      d = new Date(date._seconds * 1000);
+    } else if (typeof date === 'string') {
+      d = new Date(date);
+    } else {
+      return '';
+    }
+    return d.toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
 
   if (!open || !task) return null;
 
@@ -293,26 +374,56 @@ export function IssueDetailDrawer({
             />
           </div>
 
-          {/* コメント機能（将来的に実装） */}
+          {/* コメント機能 */}
           <div className="border-t border-slate-200 pt-6">
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">コメント</h3>
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="コメントを入力..."
-              rows={4}
-              className="w-full rounded-lg border border-slate-300 px-4 py-3 text-sm text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition resize-none"
-            />
-            <button
-              onClick={() => {
-                // TODO: コメント送信機能を実装
-                onNotify?.({ tone: 'info', title: 'コメント機能は今後実装予定です' });
-                setComment('');
-              }}
-              className="mt-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 transition"
-            >
-              コメント追加
-            </button>
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">
+              コメント {comments.length > 0 && <span className="text-slate-400">({comments.length})</span>}
+            </h3>
+
+            {/* コメント一覧 */}
+            {loadingComments ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="animate-spin text-slate-400" size={20} />
+              </div>
+            ) : comments.length > 0 ? (
+              <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
+                {comments.map((c) => (
+                  <div key={c.id} className="bg-slate-50 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium text-slate-700">{c.authorName}</span>
+                      <span className="text-xs text-slate-400">{formatCommentDate(c.createdAt)}</span>
+                    </div>
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{c.content}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400 mb-4">まだコメントはありません</p>
+            )}
+
+            {/* コメント入力 */}
+            <div className="flex gap-2">
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="コメントを入力..."
+                rows={2}
+                className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition resize-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    handlePostComment();
+                  }
+                }}
+              />
+              <button
+                onClick={handlePostComment}
+                disabled={!comment.trim() || postingComment}
+                className="self-end rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center gap-2"
+              >
+                {postingComment ? <Loader2 className="animate-spin" size={16} /> : <Send size={16} />}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Ctrl+Enter で送信</p>
           </div>
 
           {/* メタデータ */}

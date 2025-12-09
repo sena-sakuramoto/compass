@@ -64,7 +64,13 @@
       "Bash(powershell -Command:*)",
       "Bash(find:*)",
       "Bash(firebase apps:list:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(ls:*)",
+      "Bash(firebase login:list:*)",
+      "Bash(gcloud auth application-default login:*)",
+      "Bash(git checkout:*)",
+      "Bash(python3:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []

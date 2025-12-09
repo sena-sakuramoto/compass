@@ -100,8 +100,13 @@ router.post('/', async (req: any, res, next) => {
       return;
     }
 
-    // TODO: Get organization name from Firestore
-    const orgName = user.orgId; // Placeholder
+    // 組織名をFirestoreから取得
+    const { db } = await import('../lib/firestore');
+    const orgDoc = await db.collection('orgs').doc(user.orgId).get();
+    const orgName = orgDoc.exists && orgDoc.data()?.name ? orgDoc.data()!.name : user.orgId;
+
+    const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+    const inviteUrl = `${appUrl}/projects/${projectId}`;
 
     const invitationData: ProjectInvitationInput = {
       email,
@@ -117,7 +122,23 @@ router.post('/', async (req: any, res, next) => {
 
     const invitationId = await createInvitation(invitationData, user.orgId);
 
-    // TODO: Send invitation email
+    // 招待メールを送信
+    try {
+      const { sendInvitationEmail } = await import('../lib/gmail');
+      await sendInvitationEmail({
+        to: email,
+        inviterName: user.displayName || user.email,
+        organizationName: orgName,
+        projectName: project.物件名,
+        role: role || 'guest',
+        inviteUrl,
+        message: message || undefined,
+      });
+      console.log(`[Invitations] Sent project invitation email to ${email}`);
+    } catch (error) {
+      console.error('[Invitations] Failed to send invitation email:', error);
+      // メール送信失敗でも招待自体は成功とする
+    }
 
     res.status(201).json({
       success: true,
