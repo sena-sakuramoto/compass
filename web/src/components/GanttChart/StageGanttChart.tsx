@@ -1,11 +1,12 @@
 // 工程ベースのガントチャートコンポーネント
 // タスクベースではなく、工程（Stage）を行として表示
+// Stage と Task の視覚的区別、選択・ハイライト機能を実装
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { GanttToolbar } from './GanttToolbar';
 import { StageListPanel } from './StageListPanel';
 import { StageTimelinePanel } from './StageTimelinePanel';
-import type { GanttStage, ViewMode } from './types';
+import type { GanttStage, GanttTask, ViewMode } from './types';
 import { calculateDateRange, calculateDateTicks } from './utils';
 
 interface Person {
@@ -19,22 +20,31 @@ interface StageGanttChartProps {
   stages: GanttStage[];
   interactive?: boolean;
   onStageClick?: (stage: GanttStage) => void;
+  onTaskClick?: (task: GanttTask, stage: GanttStage) => void;
   onTaskToggleComplete?: (stageId: string, taskId: string) => void;
   onProjectClick?: (projectId: string) => void;
   initialViewMode?: ViewMode;
   projectMap?: Record<string, { ステータス?: string;[key: string]: any }>;
   people?: Person[];
+  // 外部から選択状態を制御する場合
+  selectedStageId?: string | null;
+  selectedTaskId?: string | null;
+  onSelectionChange?: (selection: { stageId: string | null; taskId: string | null }) => void;
 }
 
 export const StageGanttChart: React.FC<StageGanttChartProps> = ({
   stages,
   interactive = false,
   onStageClick,
+  onTaskClick,
   onTaskToggleComplete,
   onProjectClick,
   initialViewMode = 'day',
   projectMap,
-  people = []
+  people = [],
+  selectedStageId: externalSelectedStageId,
+  selectedTaskId: externalSelectedTaskId,
+  onSelectionChange,
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -45,6 +55,14 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
   // 工程の展開状態（デフォルトはすべて閉じている）
   const [expandedStageIds, setExpandedStageIds] = useState<Set<string>>(new Set());
 
+  // 内部選択状態（外部制御がない場合に使用）
+  const [internalSelectedStageId, setInternalSelectedStageId] = useState<string | null>(null);
+  const [internalSelectedTaskId, setInternalSelectedTaskId] = useState<string | null>(null);
+
+  // 選択状態の決定（外部制御がある場合はそちらを優先）
+  const selectedStageId = externalSelectedStageId !== undefined ? externalSelectedStageId : internalSelectedStageId;
+  const selectedTaskId = externalSelectedTaskId !== undefined ? externalSelectedTaskId : internalSelectedTaskId;
+
   const containerRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -52,30 +70,24 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
   // タスク一覧の幅（レスポンシブ）
   const [listWidth, setListWidth] = useState(() => {
     if (typeof window === 'undefined') return 350;
-    return window.innerWidth < 768 ? 180 : 350;
+    return window.innerWidth < 768 ? 200 : 380;
   });
 
   // ウィンドウサイズ変更時にタスク一覧の幅を調整
   useEffect(() => {
     const handleResize = () => {
-      setListWidth(window.innerWidth < 768 ? 180 : 350);
+      setListWidth(window.innerWidth < 768 ? 200 : 380);
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // マウント確認用（一時的なログ）
-  useEffect(() => {
-    console.log('[StageGanttChart] mounted with', stages.length, 'stages');
-  }, []);
+  // 行の高さ
+  const stageRowHeight = 48; // 工程行の高さ（2行分のスペース）
+  const taskRowHeight = 32;  // タスク行の高さ
 
-  // 行の高さ（コンパクト版）
-  const stageRowHeight = 32; // 工程行の高さ
-  const taskRowHeight = 28;  // タスク行の高さ（展開時）
-
-  // 日付範囲を計算（安定した範囲を維持）
-  // stages から全タスクを抽出して日付範囲を計算
+  // 日付範囲を計算
   const allTasks = useMemo(() => {
     return stages.flatMap(stage => stage.tasks);
   }, [stages]);
@@ -125,15 +137,15 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
 
   // ズーム機能
   const handleZoomIn = () => {
-    setPxPerDay(prev => Math.min(prev * 1.2, 40)); // 最大40px/day
+    setPxPerDay(prev => Math.min(prev * 1.2, 60)); // 最大60px/day
   };
 
   const handleZoomOut = () => {
-    setPxPerDay(prev => Math.max(prev / 1.2, 1)); // 最小1px/day
+    setPxPerDay(prev => Math.max(prev / 1.2, 5)); // 最小5px/day
   };
 
   // 今日へジャンプ
-  const scrollToToday = () => {
+  const scrollToToday = useCallback(() => {
     if (!timelineRef.current) return;
 
     const today = new Date();
@@ -143,7 +155,6 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
     const daysFromStart = Math.floor((today.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24));
 
     if (daysFromStart < 0 || daysFromStart > totalDays) {
-      // 今日が範囲外の場合は何もしない
       return;
     }
 
@@ -151,29 +162,64 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
     const scrollX = Math.max(0, todayX - timelineRef.current.clientWidth / 3);
 
     timelineRef.current.scrollLeft = scrollX;
-  };
+  }, [dateRange, containerWidth]);
 
   // 工程の展開/折りたたみトグル
-  const toggleStageExpanded = (stageId: string) => {
+  const toggleStageExpanded = useCallback((stageId: string) => {
     setExpandedStageIds(prev => {
       const newSet = new Set(prev);
-      const wasExpanded = newSet.has(stageId);
-      if (wasExpanded) {
+      if (newSet.has(stageId)) {
         newSet.delete(stageId);
-        console.log(`[StageGanttChart] Collapsed stage: ${stageId}`);
       } else {
         newSet.add(stageId);
-        const stage = stages.find(s => s.id === stageId);
-        console.log(`[StageGanttChart] Expanded stage: ${stageId}, tasks: ${stage?.tasks.length || 0}`);
       }
       return newSet;
     });
-  };
+  }, []);
+
+  // 工程選択ハンドラ
+  const handleStageSelect = useCallback((stageId: string) => {
+    if (onSelectionChange) {
+      onSelectionChange({ stageId, taskId: null });
+    } else {
+      setInternalSelectedStageId(stageId);
+      setInternalSelectedTaskId(null);
+    }
+
+    // 工程を展開
+    setExpandedStageIds(prev => {
+      const newSet = new Set(prev);
+      newSet.add(stageId);
+      return newSet;
+    });
+
+    // コールバック
+    const stage = stages.find(s => s.id === stageId);
+    if (stage && onStageClick) {
+      onStageClick(stage);
+    }
+  }, [stages, onStageClick, onSelectionChange]);
+
+  // タスク選択ハンドラ
+  const handleTaskSelect = useCallback((taskId: string, stageId: string) => {
+    if (onSelectionChange) {
+      onSelectionChange({ stageId, taskId });
+    } else {
+      setInternalSelectedStageId(stageId);
+      setInternalSelectedTaskId(taskId);
+    }
+
+    // コールバック
+    const stage = stages.find(s => s.id === stageId);
+    const task = stage?.tasks.find(t => t.id === taskId);
+    if (stage && task && onTaskClick) {
+      onTaskClick(task, stage);
+    }
+  }, [stages, onTaskClick, onSelectionChange]);
 
   // キーボードショートカット
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // タイムラインがフォーカスされている場合のみ
       if (!timelineRef.current) return;
 
       const isCtrlOrCmd = e.ctrlKey || e.metaKey;
@@ -191,7 +237,7 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
       // Ctrl/Cmd + 0 : リセット
       else if (isCtrlOrCmd && e.key === '0') {
         e.preventDefault();
-        setPxPerDay(30); // 初期値に戻す
+        setPxPerDay(30);
         scrollToToday();
       }
       // T : 今日へジャンプ
@@ -201,44 +247,45 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
           scrollToToday();
         }
       }
-      // ← : 左スクロール（半画面）
+      // ← : 左スクロール
       else if (e.key === 'ArrowLeft' && !isCtrlOrCmd && !e.shiftKey) {
         e.preventDefault();
         if (timelineRef.current) {
           timelineRef.current.scrollLeft -= timelineRef.current.clientWidth / 2;
         }
       }
-      // → : 右スクロール（半画面）
+      // → : 右スクロール
       else if (e.key === 'ArrowRight' && !isCtrlOrCmd && !e.shiftKey) {
         e.preventDefault();
         if (timelineRef.current) {
           timelineRef.current.scrollLeft += timelineRef.current.clientWidth / 2;
         }
       }
-      // Shift + ← : 左スクロール（1画面）
-      else if (e.key === 'ArrowLeft' && e.shiftKey) {
+      // Escape : 選択解除
+      else if (e.key === 'Escape') {
         e.preventDefault();
-        if (timelineRef.current) {
-          timelineRef.current.scrollLeft -= timelineRef.current.clientWidth;
-        }
-      }
-      // Shift + → : 右スクロール（1画面）
-      else if (e.key === 'ArrowRight' && e.shiftKey) {
-        e.preventDefault();
-        if (timelineRef.current) {
-          timelineRef.current.scrollLeft += timelineRef.current.clientWidth;
+        if (onSelectionChange) {
+          onSelectionChange({ stageId: null, taskId: null });
+        } else {
+          setInternalSelectedStageId(null);
+          setInternalSelectedTaskId(null);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pxPerDay, dateRange, containerWidth]);
+  }, [pxPerDay, scrollToToday, onSelectionChange]);
 
+  // 空の状態
   if (stages.length === 0) {
     return (
       <div className="h-full flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-sm text-slate-500">
-        表示できる工程がありません
+        <div className="text-center">
+          <div className="text-lg mb-2">📋</div>
+          <div>表示できる工程がありません</div>
+          <div className="text-xs text-slate-400 mt-1">プロジェクト編集画面から工程を追加してください</div>
+        </div>
       </div>
     );
   }
@@ -285,9 +332,14 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
             onToggleStage={toggleStageExpanded}
             onTaskToggleComplete={onTaskToggleComplete}
             onProjectClick={onProjectClick}
+            onStageSelect={handleStageSelect}
+            onTaskSelect={handleTaskSelect}
+            selectedStageId={selectedStageId}
+            selectedTaskId={selectedTaskId}
             projectMap={projectMap}
             stageRowHeight={stageRowHeight}
             taskRowHeight={taskRowHeight}
+            projectHeaderHeight={28}
           />
         </div>
 
@@ -298,8 +350,7 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
           style={{
             direction: 'ltr',
             order: 1,
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
+            scrollbarWidth: 'thin',
           }}
           onScroll={(e) => {
             const left = e.currentTarget.scrollLeft;
@@ -314,12 +365,19 @@ export const StageGanttChart: React.FC<StageGanttChartProps> = ({
         >
           <StageTimelinePanel
             stages={stages}
+            expandedStageIds={expandedStageIds}
             ticks={ticks}
             dateRange={dateRange}
             containerWidth={containerWidth}
             stageRowHeight={stageRowHeight}
+            taskRowHeight={taskRowHeight}
+            projectHeaderHeight={28}
             viewMode={viewMode}
             projectMap={projectMap}
+            selectedStageId={selectedStageId}
+            selectedTaskId={selectedTaskId}
+            onStageSelect={handleStageSelect}
+            onTaskSelect={handleTaskSelect}
           />
         </div>
       </div>
