@@ -22,6 +22,8 @@ interface GanttTimelineProps {
   dateRange: { start: Date; end: Date };
   containerWidth: number;
   rowHeight: number;
+  stageRowHeight?: number; // 工程行の高さ（デフォルト: 48）
+  taskRowHeight?: number;  // タスク行の高さ（デフォルト: 36）
   viewMode: 'day' | 'week' | 'month';
   onTaskClick?: (task: GanttTask) => void;
   onTaskUpdate?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
@@ -49,6 +51,8 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   dateRange,
   containerWidth,
   rowHeight,
+  stageRowHeight = 48,
+  taskRowHeight = 36,
   viewMode,
   onTaskClick,
   onTaskUpdate,
@@ -166,7 +170,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
         const taskLeft = position.left;
         const taskRight = position.left + position.width;
         const taskTop = position.top;
-        const taskBottom = position.top + rowHeight;
+        const taskBottom = position.top + position.height;
 
         const isInSelection =
           taskRight >= minX &&
@@ -300,15 +304,23 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [tasks, projectMap, projectMilestones]);
 
   // タスクの総高さを計算（プロジェクトヘッダー分も含む + 最後に空白のプロジェクト行）
+  // 工程とタスクで異なる行の高さを使用
   const projectHeaderHeight = 32;
-  const totalHeight = tasks.length * rowHeight + projectGroups.length * projectHeaderHeight + projectHeaderHeight;
+  const totalHeight = useMemo(() => {
+    let height = projectGroups.length * projectHeaderHeight + projectHeaderHeight; // ヘッダー分
+    tasks.forEach(task => {
+      const isStage = task.type === 'stage';
+      height += isStage ? stageRowHeight : taskRowHeight;
+    });
+    return height;
+  }, [tasks, projectGroups.length, projectHeaderHeight, stageRowHeight, taskRowHeight]);
 
   // 依存関係を解決
   const dependencies = useMemo(() => resolveDependencies(tasks), [tasks]);
 
-  // タスクの位置マップを作成（プロジェクトヘッダーを考慮）
+  // タスクの位置マップを作成（プロジェクトヘッダーを考慮、工程/タスクで異なる高さ）
   const taskPositions = useMemo(() => {
-    const positions = new Map<string, { left: number; width: number; top: number }>();
+    const positions = new Map<string, { left: number; width: number; top: number; height: number }>();
     let currentTop = 0;
 
     projectGroups.forEach((group, groupIndex) => {
@@ -316,27 +328,31 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       currentTop += projectHeaderHeight;
 
       group.tasks.forEach((task, taskIndexInGroup) => {
+        const isStage = task.type === 'stage';
+        const currentRowHeight = isStage ? stageRowHeight : taskRowHeight;
+
         const position = calculateTaskBarPosition(
           task,
           dateRange,
           containerWidth,
-          rowHeight,
+          currentRowHeight,
           0  // 個別の位置計算には使わない
         );
 
         positions.set(task.id, {
           left: position.left,
           width: position.width,
-          top: currentTop
+          top: currentTop,
+          height: currentRowHeight
         });
 
         // 次のタスクのために位置を進める
-        currentTop += rowHeight;
+        currentTop += currentRowHeight;
       });
     });
 
     return positions;
-  }, [tasks, dateRange, containerWidth, rowHeight, projectGroups, projectHeaderHeight]);
+  }, [tasks, dateRange, containerWidth, stageRowHeight, taskRowHeight, projectGroups, projectHeaderHeight]);
 
   // 範囲選択ボックスの計算
   const selectionBox = useMemo(() => {
@@ -359,7 +375,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     <div style={{ width: `${containerWidth}px`, minWidth: `${containerWidth}px` }}>
       {/* 時間軸（sticky固定、高さ64px） */}
       <div className="sticky top-0 bg-white border-b border-slate-200" style={{ height: '64px', zIndex: 30 }}>
-        <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} />
+        <GanttTimeAxis ticks={ticks} containerWidth={containerWidth} viewMode={viewMode} height={64} />
       </div>
 
       {/* タスクバー描画エリア */}
@@ -396,7 +412,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
             {/* プロジェクトヘッダーと横線 */}
             {projectGroups.map((group, groupIndex) => {
-              const headerTop = groupIndex === 0 ? 0 : projectGroups.slice(0, groupIndex).reduce((sum, g) => sum + g.rowCount * rowHeight + projectHeaderHeight, 0);
+              // プロジェクトヘッダーの位置を計算（工程/タスクで異なる高さを考慮）
+              const headerTop = groupIndex === 0 ? 0 : projectGroups.slice(0, groupIndex).reduce((sum, g) => {
+                const groupHeight = g.tasks.reduce((h, t) => h + (t.type === 'stage' ? stageRowHeight : taskRowHeight), 0);
+                return sum + groupHeight + projectHeaderHeight;
+              }, 0);
 
               // このプロジェクトのマイルストーンを取得
               const projectMilestonesForThisProject = projectMilestones.filter(
@@ -461,9 +481,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                     );
                   })}
 
-                  {/* プロジェクト内のタスク区切り線 */}
-                  {group.tasks.map((_, taskIndex) => {
-                    const y = headerTop + projectHeaderHeight + (taskIndex + 1) * rowHeight;
+                  {/* プロジェクト内のタスク区切り線（工程/タスクで異なる高さを考慮） */}
+                  {group.tasks.map((task, taskIndex) => {
+                    const position = taskPositions.get(task.id);
+                    if (!position) return null;
+                    const y = position.top + position.height;
                     return (
                       <div
                         key={`${group.projectId}-${taskIndex}`}
@@ -571,7 +593,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                       left: `${position.left}px`,
                       top: `${position.top}px`,
                       width: `${position.width}px`,
-                      height: `${rowHeight}px`,
+                      height: `${position.height}px`,
                       border: '2px solid #3b82f6',
                       borderRadius: '8px',
                       backgroundColor: 'rgba(59, 130, 246, 0.1)',
