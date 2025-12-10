@@ -129,6 +129,11 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
       setCollaboratorsLoading(true);
       setCollaboratorError(null);
       const data = await listCollaborators();
+      console.log('[DEBUG] loadCollaborators response:', data);
+      console.log('[DEBUG] collaborators array:', data.collaborators);
+      if (data.collaborators && data.collaborators.length > 0) {
+        console.log('[DEBUG] First collaborator sample:', data.collaborators[0]);
+      }
       setCollaborators(data.collaborators || []);
     } catch (err) {
       setCollaboratorError(err instanceof Error ? err.message : '協力者の読み込みに失敗しました');
