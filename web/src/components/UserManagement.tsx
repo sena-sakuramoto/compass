@@ -643,6 +643,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
               <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">協力者名</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メールアドレス</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">登録日</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">操作</th>
                 </tr>
@@ -653,7 +654,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                     <td className="px-4 py-3">
                       {editingCollaboratorId === collaborator.id ? (
                         <div className="flex items-center gap-2">
-                          <Users className="w-5 h-5 text-gray-600" />
+                          <Users className="w-5 h-5 text-gray-600 flex-shrink-0" />
                           <input
                             type="text"
                             value={editingCollaboratorName}
@@ -669,6 +670,57 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                             className="flex-1 px-2 py-1 text-sm border border-gray-400 rounded focus:outline-none focus:ring-1 focus:ring-gray-500"
                             autoFocus
                           />
+                        </div>
+                      ) : (
+                        <div
+                          className="flex items-center gap-2 cursor-pointer group hover:bg-slate-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
+                          onClick={() => handleStartEditCollaborator(collaborator)}
+                        >
+                          <Users className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
+                          <div className="text-sm font-medium text-slate-900 group-hover:text-slate-600 transition-colors flex-1">
+                            {collaborator.name}
+                          </div>
+                          <Pencil className="w-4 h-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCollaboratorId === collaborator.id ? (
+                        <div className="flex items-center gap-2">
+                          <Mail className="w-5 h-5 text-gray-600 flex-shrink-0" />
+                          <input
+                            type="email"
+                            value={editingCollaboratorEmail}
+                            onChange={(e) => setEditingCollaboratorEmail(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleUpdateCollaborator(collaborator.id);
+                              } else if (e.key === 'Escape') {
+                                handleCancelEditCollaborator();
+                              }
+                            }}
+                            className="flex-1 px-2 py-1 text-sm border border-gray-400 rounded focus:outline-none focus:ring-1 focus:ring-gray-500"
+                            placeholder="メールアドレス (任意)"
+                          />
+                        </div>
+                      ) : (
+                        <div
+                          className="cursor-pointer group hover:bg-slate-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
+                          onClick={() => handleStartEditCollaborator(collaborator)}
+                        >
+                          <div className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">
+                            {collaborator.email || '-'}
+                          </div>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {collaborator.createdAt?.toDate ? new Date(collaborator.createdAt.toDate()).toLocaleDateString('ja-JP') : '-'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCollaboratorId === collaborator.id ? (
+                        <div className="flex items-center gap-2">
                           <button
                             onClick={() => handleUpdateCollaborator(collaborator.id)}
                             disabled={!editingCollaboratorName.trim()}
@@ -686,29 +738,14 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                           </button>
                         </div>
                       ) : (
-                        <div
-                          className="flex items-center gap-2 cursor-pointer group hover:bg-slate-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
-                          onClick={() => handleStartEditCollaborator(collaborator)}
+                        <button
+                          onClick={() => handleDeleteCollaborator(collaborator.id, collaborator.name)}
+                          className="p-2 text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                          title="削除"
                         >
-                          <Users className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
-                          <div className="text-sm font-medium text-slate-900 group-hover:text-slate-600 transition-colors flex-1">
-                            {collaborator.name}
-                          </div>
-                          <Pencil className="w-4 h-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                      {collaborator.createdAt?.toDate ? new Date(collaborator.createdAt.toDate()).toLocaleDateString('ja-JP') : '-'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleDeleteCollaborator(collaborator.id, collaborator.name)}
-                        className="p-2 text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                        title="削除"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </td>
                   </tr>
                 ))}

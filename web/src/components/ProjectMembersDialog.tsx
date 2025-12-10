@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase } from 'lucide-react';
+import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users } from 'lucide-react';
 import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, JobTitleType } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
 import { buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator } from '../lib/api';
@@ -359,6 +359,27 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     }
   };
 
+  const getMemberTypeBadge = (memberType: ProjectMember['memberType']) => {
+    switch (memberType) {
+      case 'external':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700 border border-gray-300">
+            <Users className="w-3 h-3" />
+            外部協力者
+          </span>
+        );
+      case 'internal':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700 border border-blue-300">
+            <Building2 className="w-3 h-3" />
+            Compassユーザー
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
@@ -700,9 +721,10 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <h4 className="font-medium text-gray-900">{member.displayName}</h4>
                         {getStatusBadge(member.status)}
+                        {getMemberTypeBadge(member.memberType)}
                       </div>
                       <p className="text-sm text-gray-600">{member.email}</p>
                       <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
