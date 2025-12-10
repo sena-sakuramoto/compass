@@ -75,13 +75,13 @@ router.post('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    const { name } = req.body;
+    const { name, email, company, jobTitle, phoneNumber, notes } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Collaborator name is required' });
     }
 
-    // 重複チェック
+    // 重複チェック（名前またはメールアドレス）
     const existingSnapshot = await db
       .collection('orgs')
       .doc(user.orgId)
@@ -94,6 +94,21 @@ router.post('/', async (req: any, res, next) => {
       return res.status(400).json({ error: 'Collaborator already exists' });
     }
 
+    // メールアドレスが提供されている場合、重複チェック
+    if (email && email.trim()) {
+      const emailSnapshot = await db
+        .collection('orgs')
+        .doc(user.orgId)
+        .collection('collaborators')
+        .where('email', '==', email.trim().toLowerCase())
+        .limit(1)
+        .get();
+
+      if (!emailSnapshot.empty) {
+        return res.status(400).json({ error: 'Collaborator with this email already exists' });
+      }
+    }
+
     // 協力者を作成
     const now = Timestamp.now();
     const collaboratorRef = db
@@ -102,13 +117,30 @@ router.post('/', async (req: any, res, next) => {
       .collection('collaborators')
       .doc();
 
-    const collaborator = {
+    const collaborator: any = {
       id: collaboratorRef.id,
       name: name.trim(),
       createdAt: now,
       createdBy: req.uid,
       updatedAt: now,
     };
+
+    // オプションフィールドを追加
+    if (email && email.trim()) {
+      collaborator.email = email.trim().toLowerCase();
+    }
+    if (company && company.trim()) {
+      collaborator.company = company.trim();
+    }
+    if (jobTitle && jobTitle.trim()) {
+      collaborator.jobTitle = jobTitle.trim();
+    }
+    if (phoneNumber && phoneNumber.trim()) {
+      collaborator.phoneNumber = phoneNumber.trim();
+    }
+    if (notes && notes.trim()) {
+      collaborator.notes = notes.trim();
+    }
 
     await collaboratorRef.set(collaborator);
 
@@ -135,25 +167,7 @@ router.patch('/:id', async (req: any, res, next) => {
     }
 
     const { id } = req.params;
-    const { name } = req.body;
-
-    if (!name || !name.trim()) {
-      return res.status(400).json({ error: 'Collaborator name is required' });
-    }
-
-    // 重複チェック（自分以外）
-    const existingSnapshot = await db
-      .collection('orgs')
-      .doc(user.orgId)
-      .collection('collaborators')
-      .where('name', '==', name.trim())
-      .limit(2)
-      .get();
-
-    const duplicates = existingSnapshot.docs.filter(doc => doc.id !== id);
-    if (duplicates.length > 0) {
-      return res.status(400).json({ error: 'Collaborator with this name already exists' });
-    }
+    const { name, email, company, jobTitle, phoneNumber, notes } = req.body;
 
     const collaboratorRef = db
       .collection('orgs')
@@ -166,11 +180,72 @@ router.patch('/:id', async (req: any, res, next) => {
       return res.status(404).json({ error: 'Collaborator not found' });
     }
 
-    const now = Timestamp.now();
-    await collaboratorRef.update({
-      name: name.trim(),
-      updatedAt: now,
-    });
+    // 更新データを準備
+    const updates: any = {
+      updatedAt: Timestamp.now(),
+    };
+
+    // 名前が提供されている場合
+    if (name !== undefined) {
+      if (!name.trim()) {
+        return res.status(400).json({ error: 'Collaborator name cannot be empty' });
+      }
+
+      // 重複チェック（自分以外）
+      const existingSnapshot = await db
+        .collection('orgs')
+        .doc(user.orgId)
+        .collection('collaborators')
+        .where('name', '==', name.trim())
+        .limit(2)
+        .get();
+
+      const duplicates = existingSnapshot.docs.filter(doc => doc.id !== id);
+      if (duplicates.length > 0) {
+        return res.status(400).json({ error: 'Collaborator with this name already exists' });
+      }
+
+      updates.name = name.trim();
+    }
+
+    // メールアドレスが提供されている場合
+    if (email !== undefined) {
+      if (email.trim()) {
+        // メールアドレスの重複チェック（自分以外）
+        const emailSnapshot = await db
+          .collection('orgs')
+          .doc(user.orgId)
+          .collection('collaborators')
+          .where('email', '==', email.trim().toLowerCase())
+          .limit(2)
+          .get();
+
+        const emailDuplicates = emailSnapshot.docs.filter(doc => doc.id !== id);
+        if (emailDuplicates.length > 0) {
+          return res.status(400).json({ error: 'Collaborator with this email already exists' });
+        }
+
+        updates.email = email.trim().toLowerCase();
+      } else {
+        updates.email = null;
+      }
+    }
+
+    // その他のフィールド
+    if (company !== undefined) {
+      updates.company = company.trim() || null;
+    }
+    if (jobTitle !== undefined) {
+      updates.jobTitle = jobTitle.trim() || null;
+    }
+    if (phoneNumber !== undefined) {
+      updates.phoneNumber = phoneNumber.trim() || null;
+    }
+    if (notes !== undefined) {
+      updates.notes = notes.trim() || null;
+    }
+
+    await collaboratorRef.update(updates);
 
     const updated = await collaboratorRef.get();
     res.json({ id: updated.id, ...updated.data() });

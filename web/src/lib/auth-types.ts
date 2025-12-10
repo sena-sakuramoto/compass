@@ -166,6 +166,7 @@ export interface Collaborator {
   id: string;
   orgId: string;
   name: string;
+  email?: string;
   company?: string;
   jobTitle?: string;
   phoneNumber?: string;
@@ -180,6 +181,7 @@ export interface Collaborator {
  */
 export interface CollaboratorInput {
   name: string;           // Required
+  email?: string;
   company?: string;
   jobTitle?: string;
   phoneNumber?: string;

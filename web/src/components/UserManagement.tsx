@@ -4,7 +4,7 @@ import { ROLE_LABELS } from '../lib/auth-types';
 import { OrgMemberInvitationModal } from './OrgMemberInvitationModal';
 import { UserEditModal } from './UserEditModal';
 import type { Project } from '../lib/types';
-import { Building2, Plus, Trash2, Check, X, Users, Pencil } from 'lucide-react';
+import { Building2, Plus, Trash2, Check, X, Users, Pencil, Mail } from 'lucide-react';
 
 interface UserManagementProps {
   projects?: Project[];
@@ -28,9 +28,11 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editingClientName, setEditingClientName] = useState('');
   const [newCollaboratorName, setNewCollaboratorName] = useState('');
+  const [newCollaboratorEmail, setNewCollaboratorEmail] = useState('');
   const [showCollaboratorForm, setShowCollaboratorForm] = useState(false);
   const [editingCollaboratorId, setEditingCollaboratorId] = useState<string | null>(null);
   const [editingCollaboratorName, setEditingCollaboratorName] = useState('');
+  const [editingCollaboratorEmail, setEditingCollaboratorEmail] = useState('');
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
 
   useEffect(() => {
@@ -252,9 +254,13 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
 
     try {
       setCollaboratorError(null);
-      await createCollaborator(newCollaboratorName.trim());
+      await createCollaborator({
+        name: newCollaboratorName.trim(),
+        email: newCollaboratorEmail.trim() || undefined,
+      });
       await loadCollaborators();
       setNewCollaboratorName('');
+      setNewCollaboratorEmail('');
       setShowCollaboratorForm(false);
     } catch (err) {
       setCollaboratorError(err instanceof Error ? err.message : '協力者の作成に失敗しました');
@@ -267,10 +273,14 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
 
     try {
       setCollaboratorError(null);
-      await updateCollaborator(collaboratorId, editingCollaboratorName.trim());
+      await updateCollaborator(collaboratorId, {
+        name: editingCollaboratorName.trim(),
+        email: editingCollaboratorEmail.trim() || undefined,
+      });
       await loadCollaborators();
       setEditingCollaboratorId(null);
       setEditingCollaboratorName('');
+      setEditingCollaboratorEmail('');
     } catch (err) {
       setCollaboratorError(err instanceof Error ? err.message : '協力者の更新に失敗しました');
       console.error('Failed to update collaborator:', err);
@@ -295,11 +305,13 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   function handleStartEditCollaborator(collaborator: Collaborator) {
     setEditingCollaboratorId(collaborator.id);
     setEditingCollaboratorName(collaborator.name);
+    setEditingCollaboratorEmail(collaborator.email || '');
   }
 
   function handleCancelEditCollaborator() {
     setEditingCollaboratorId(null);
     setEditingCollaboratorName('');
+    setEditingCollaboratorEmail('');
   }
 
   if (loading) {
@@ -567,29 +579,43 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
         {/* 新規協力者追加フォーム */}
         {showCollaboratorForm && (
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <div className="flex gap-2 items-center">
-              <Users className="w-5 h-5 text-gray-600" />
-              <input
-                type="text"
-                value={newCollaboratorName}
-                onChange={(e) => setNewCollaboratorName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleCreateCollaborator();
-                  }
-                }}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
-                placeholder="協力者名を入力"
-                autoFocus
-              />
-              <button
-                onClick={handleCreateCollaborator}
-                disabled={!newCollaboratorName.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-gray-600 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Plus className="w-5 h-5" />
-              </button>
+            <div className="space-y-3">
+              <div className="flex gap-2 items-center">
+                <Users className="w-5 h-5 text-gray-600" />
+                <input
+                  type="text"
+                  value={newCollaboratorName}
+                  onChange={(e) => setNewCollaboratorName(e.target.value)}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
+                  placeholder="協力者名を入力 (必須)"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2 items-center">
+                <Mail className="w-5 h-5 text-gray-600" />
+                <input
+                  type="email"
+                  value={newCollaboratorEmail}
+                  onChange={(e) => setNewCollaboratorEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreateCollaborator();
+                    }
+                  }}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
+                  placeholder="メールアドレス (任意)"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={handleCreateCollaborator}
+                  disabled={!newCollaboratorName.trim()}
+                  className="px-4 py-2 text-sm font-medium text-white bg-gray-600 rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  追加
+                </button>
+              </div>
             </div>
           </div>
         )}

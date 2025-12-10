@@ -501,6 +501,11 @@ export async function deleteClient(clientId: string) {
 export interface Collaborator {
   id: string;
   name: string;
+  email?: string;
+  company?: string;
+  jobTitle?: string;
+  phoneNumber?: string;
+  notes?: string;
   createdAt: any;
   createdBy: string;
   updatedAt: any;
@@ -510,17 +515,17 @@ export async function listCollaborators() {
   return request<{ collaborators: Collaborator[] }>('/collaborators');
 }
 
-export async function createCollaborator(name: string) {
+export async function createCollaborator(data: { name: string; email?: string; company?: string; jobTitle?: string; phoneNumber?: string; notes?: string }) {
   return request<Collaborator>('/collaborators', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(data),
   });
 }
 
-export async function updateCollaborator(collaboratorId: string, name: string) {
+export async function updateCollaborator(collaboratorId: string, data: { name?: string; email?: string; company?: string; jobTitle?: string; phoneNumber?: string; notes?: string }) {
   return request<Collaborator>(`/collaborators/${collaboratorId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(data),
   });
 }
 

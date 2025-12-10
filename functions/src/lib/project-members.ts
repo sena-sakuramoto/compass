@@ -41,53 +41,91 @@ export async function addProjectMember(
   // メールアドレスからユーザーを検索
   const user = await getUserByEmail(input.email);
 
-  // ユーザーが存在しない場合はエラー（新規ユーザーは作らない）
+  let member: ProjectMember;
+  let memberOrgId: string;
+
   if (!user) {
-    throw new Error('このメールアドレスのユーザーは登録されていません。先に組織メンバーとして招待してください。');
+    // ユーザーが存在しない場合 - 外部協力者として「招待中」で追加
+    console.log(`[addProjectMember] User not found for email ${input.email}, adding as external collaborator`);
+
+    // 外部メンバー用の仮IDを生成
+    const externalUserId = `external_${projectId}_${Date.now()}`;
+    const memberId = `${projectId}_${externalUserId}`;
+
+    // 権限を設定
+    const permissions: ProjectPermissions = input.permissions
+      ? { ...getProjectRolePermissions(input.role), ...input.permissions }
+      : getProjectRolePermissions(input.role);
+
+    member = {
+      id: memberId,
+      projectId,
+      userId: externalUserId,
+      email: input.email,
+      displayName: input.displayName || input.email,
+      orgId: orgId, // 招待元の組織ID
+      orgName: '外部協力者',
+      memberType: 'external',
+      role: input.role,
+      jobTitle: input.jobTitle,
+      permissions,
+      invitedBy,
+      invitedAt: now,
+      joinedAt: null, // 外部ユーザーは未参加
+      status: 'invited', // 招待中ステータス
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    memberOrgId = orgId; // 招待元の組織で集計
+  } else {
+    // ユーザーが存在する場合 - 既存の処理
+
+    // ユーザーが非アクティブの場合はエラー
+    if (user.isActive === false) {
+      throw new Error('このユーザーのアカウントは無効です');
+    }
+
+    // 権限を設定
+    const permissions: ProjectPermissions = input.permissions
+      ? { ...getProjectRolePermissions(input.role), ...input.permissions }
+      : getProjectRolePermissions(input.role);
+
+    // 既存ユーザーの場合 - 直接アクティブ化
+    const org = await getOrganization(user.orgId);
+
+    const memberId = `${projectId}_${user.id}`;
+    member = {
+      id: memberId,
+      projectId,
+      userId: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      orgId: user.orgId,  // ユーザーの所属組織ID
+      orgName: org?.name || user.orgId,
+      memberType: user.memberType,
+      role: input.role,
+      jobTitle: input.jobTitle || user.jobTitle,
+      permissions,
+      invitedBy,
+      invitedAt: now,
+      joinedAt: now, // 既存ユーザーは即座に参加
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    memberOrgId = user.orgId;
   }
-
-  // ユーザーが非アクティブの場合はエラー
-  if (user.isActive === false) {
-    throw new Error('このユーザーのアカウントは無効です');
-  }
-
-  // 権限を設定（カスタム権限がある場合はそれを使用、なければロールのデフォルト権限）
-  const permissions: ProjectPermissions = input.permissions
-    ? { ...getProjectRolePermissions(input.role), ...input.permissions }
-    : getProjectRolePermissions(input.role);
-
-  // 既存ユーザーの場合 - 直接アクティブ化
-  const org = await getOrganization(user.orgId);
-
-  const memberId = `${projectId}_${user.id}`;
-  const member: ProjectMember = {
-    id: memberId,
-    projectId,
-    userId: user.id,
-    email: user.email,
-    displayName: user.displayName,
-    orgId: user.orgId,  // ユーザーの所属組織ID（招待元ではない）
-    orgName: org?.name || user.orgId,
-    memberType: user.memberType,  // ユーザーの memberType を使用
-    role: input.role,
-    jobTitle: input.jobTitle || user.jobTitle,
-    permissions,
-    invitedBy,
-    invitedAt: now,
-    joinedAt: now, // 既存ユーザーは即座に参加
-    status: 'active',
-    createdAt: now,
-    updatedAt: now,
-  };
 
   // Top-level collection with composite ID
-  await db.collection('project_members').doc(memberId).set(member);
+  await db.collection('project_members').doc(member.id).set(member);
 
   // プロジェクトのメンバー数を更新（インクリメント）
-  await updateProjectMemberCount(orgId, projectId, member.orgId, true);
+  await updateProjectMemberCount(orgId, projectId, memberOrgId, true);
 
   // メール通知は実装していません
-  console.log(`Project member added: ${input.email} to project ${projectName}`);
+  console.log(`Project member added: ${input.email} to project ${projectName} (status: ${member.status})`);
 
   return member;
 }

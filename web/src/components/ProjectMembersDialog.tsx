@@ -161,10 +161,19 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       setSelectedCollaboratorId('');
     } else {
       setSelectedCollaboratorId(collaborator.id);
-      setInviteName(collaborator.name);
       setSelectedCandidateId('');
       setCandidateType('collaborator');
-      setInputMode('text'); // 協力者を選択したらテキストモードに切り替え
+
+      // メールアドレスがあればemailモード、なければtextモード
+      if (collaborator.email && collaborator.email.trim()) {
+        setInputMode('email');
+        setInviteEmail(collaborator.email);
+        setInviteName('');
+      } else {
+        setInputMode('text');
+        setInviteName(collaborator.name);
+        setInviteEmail('');
+      }
     }
   };
 
@@ -521,10 +530,13 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                                     className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-gray-50 border-l-4 border-gray-600' : 'hover:bg-gray-50'}`}
                                   >
                                     <div className="flex items-center justify-between gap-4">
-                                      <div>
+                                      <div className="flex-1 min-w-0">
                                         <p className="font-medium text-gray-900 truncate">{collaborator.name}</p>
+                                        {collaborator.email && (
+                                          <p className="text-xs text-gray-500 truncate">{collaborator.email}</p>
+                                        )}
                                       </div>
-                                      {isSelected && <span className="text-xs text-gray-600 font-semibold">選択中</span>}
+                                      {isSelected && <span className="text-xs text-gray-600 font-semibold whitespace-nowrap">選択中</span>}
                                     </div>
                                   </button>
                                 );
