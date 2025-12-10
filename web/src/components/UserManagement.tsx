@@ -496,25 +496,39 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
               <tbody className="divide-y divide-slate-200">
                 {clients.map((client) => (
                   <tr key={client.id} className="hover:bg-slate-50">
+                    <td
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => editingClientId !== client.id && handleStartEditClient(client)}
+                    >
+                      {editingClientId === client.id ? (
+                        <input
+                          type="text"
+                          value={editingClientName}
+                          onChange={(e) => setEditingClientName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdateClient(client.id);
+                            } else if (e.key === 'Escape') {
+                              handleCancelEditClient();
+                            }
+                          }}
+                          className="w-full px-2 py-1 text-sm border border-slate-400 rounded focus:outline-none focus:ring-1 focus:ring-slate-500"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <div className="text-sm font-medium text-slate-900">
+                          {client.name}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {client.createdAt?.toDate ? new Date(client.createdAt.toDate()).toLocaleDateString('ja-JP') : '-'}
+                    </td>
                     <td className="px-4 py-3">
                       {editingClientId === client.id ? (
                         <div className="flex items-center gap-2">
-                          <Building2 className="w-5 h-5 text-slate-600" />
-                          <input
-                            type="text"
-                            value={editingClientName}
-                            onChange={(e) => setEditingClientName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleUpdateClient(client.id);
-                              } else if (e.key === 'Escape') {
-                                handleCancelEditClient();
-                              }
-                            }}
-                            className="flex-1 px-2 py-1 text-sm border border-slate-400 rounded focus:outline-none focus:ring-1 focus:ring-slate-500"
-                            autoFocus
-                          />
                           <button
                             onClick={() => handleUpdateClient(client.id)}
                             disabled={!editingClientName.trim()}
@@ -532,29 +546,14 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                           </button>
                         </div>
                       ) : (
-                        <div
-                          className="flex items-center gap-2 cursor-pointer group hover:bg-slate-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
-                          onClick={() => handleStartEditClient(client)}
+                        <button
+                          onClick={() => handleDeleteClient(client.id, client.name)}
+                          className="p-2 text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                          title="削除"
                         >
-                          <Building2 className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
-                          <div className="text-sm font-medium text-slate-900 group-hover:text-slate-600 transition-colors flex-1">
-                            {client.name}
-                          </div>
-                          <Pencil className="w-4 h-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                      {client.createdAt?.toDate ? new Date(client.createdAt.toDate()).toLocaleDateString('ja-JP') : '-'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleDeleteClient(client.id, client.name)}
-                        className="p-2 text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                        title="削除"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
                     </td>
                   </tr>
                 ))}
@@ -651,67 +650,57 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
               <tbody className="divide-y divide-slate-200">
                 {collaborators.map((collaborator) => (
                   <tr key={collaborator.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
+                    <td
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => editingCollaboratorId !== collaborator.id && handleStartEditCollaborator(collaborator)}
+                    >
                       {editingCollaboratorId === collaborator.id ? (
-                        <div className="flex items-center gap-2">
-                          <Users className="w-5 h-5 text-gray-600 flex-shrink-0" />
-                          <input
-                            type="text"
-                            value={editingCollaboratorName}
-                            onChange={(e) => setEditingCollaboratorName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleUpdateCollaborator(collaborator.id);
-                              } else if (e.key === 'Escape') {
-                                handleCancelEditCollaborator();
-                              }
-                            }}
-                            className="flex-1 px-2 py-1 text-sm border border-gray-400 rounded focus:outline-none focus:ring-1 focus:ring-gray-500"
-                            autoFocus
-                          />
-                        </div>
+                        <input
+                          type="text"
+                          value={editingCollaboratorName}
+                          onChange={(e) => setEditingCollaboratorName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdateCollaborator(collaborator.id);
+                            } else if (e.key === 'Escape') {
+                              handleCancelEditCollaborator();
+                            }
+                          }}
+                          className="w-full px-2 py-1 text-sm border border-gray-400 rounded focus:outline-none focus:ring-1 focus:ring-gray-500"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
                       ) : (
-                        <div
-                          className="flex items-center gap-2 cursor-pointer group hover:bg-slate-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
-                          onClick={() => handleStartEditCollaborator(collaborator)}
-                        >
-                          <Users className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors" />
-                          <div className="text-sm font-medium text-slate-900 group-hover:text-slate-600 transition-colors flex-1">
-                            {collaborator.name}
-                          </div>
-                          <Pencil className="w-4 h-4 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="text-sm font-medium text-slate-900">
+                          {collaborator.name}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td
+                      className="px-4 py-3 cursor-pointer"
+                      onClick={() => editingCollaboratorId !== collaborator.id && handleStartEditCollaborator(collaborator)}
+                    >
                       {editingCollaboratorId === collaborator.id ? (
-                        <div className="flex items-center gap-2">
-                          <Mail className="w-5 h-5 text-gray-600 flex-shrink-0" />
-                          <input
-                            type="email"
-                            value={editingCollaboratorEmail}
-                            onChange={(e) => setEditingCollaboratorEmail(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleUpdateCollaborator(collaborator.id);
-                              } else if (e.key === 'Escape') {
-                                handleCancelEditCollaborator();
-                              }
-                            }}
-                            className="flex-1 px-2 py-1 text-sm border border-gray-400 rounded focus:outline-none focus:ring-1 focus:ring-gray-500"
-                            placeholder="メールアドレス (任意)"
-                          />
-                        </div>
+                        <input
+                          type="email"
+                          value={editingCollaboratorEmail}
+                          onChange={(e) => setEditingCollaboratorEmail(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdateCollaborator(collaborator.id);
+                            } else if (e.key === 'Escape') {
+                              handleCancelEditCollaborator();
+                            }
+                          }}
+                          className="w-full px-2 py-1 text-sm border border-gray-400 rounded focus:outline-none focus:ring-1 focus:ring-gray-500"
+                          placeholder="メールアドレス (任意)"
+                          onClick={(e) => e.stopPropagation()}
+                        />
                       ) : (
-                        <div
-                          className="cursor-pointer group hover:bg-slate-50 rounded px-2 py-1 -mx-2 -my-1 transition-colors"
-                          onClick={() => handleStartEditCollaborator(collaborator)}
-                        >
-                          <div className="text-sm text-slate-600 group-hover:text-slate-900 transition-colors">
-                            {collaborator.email || '-'}
-                          </div>
+                        <div className="text-sm text-slate-600">
+                          {collaborator.email || '-'}
                         </div>
                       )}
                     </td>
