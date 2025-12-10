@@ -498,7 +498,11 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                   <tr key={client.id} className="hover:bg-slate-50">
                     <td
                       className="px-4 py-3 cursor-pointer"
-                      onClick={() => editingClientId !== client.id && handleStartEditClient(client)}
+                      onClick={() => {
+                        if (editingClientId !== client.id) {
+                          handleStartEditClient(client);
+                        }
+                      }}
                     >
                       {editingClientId === client.id ? (
                         <input
@@ -652,7 +656,11 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                   <tr key={collaborator.id} className="hover:bg-slate-50">
                     <td
                       className="px-4 py-3 cursor-pointer"
-                      onClick={() => editingCollaboratorId !== collaborator.id && handleStartEditCollaborator(collaborator)}
+                      onClick={() => {
+                        if (editingCollaboratorId !== collaborator.id) {
+                          handleStartEditCollaborator(collaborator);
+                        }
+                      }}
                     >
                       {editingCollaboratorId === collaborator.id ? (
                         <input
@@ -679,7 +687,11 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                     </td>
                     <td
                       className="px-4 py-3 cursor-pointer"
-                      onClick={() => editingCollaboratorId !== collaborator.id && handleStartEditCollaborator(collaborator)}
+                      onClick={() => {
+                        if (editingCollaboratorId !== collaborator.id) {
+                          handleStartEditCollaborator(collaborator);
+                        }
+                      }}
                     >
                       {editingCollaboratorId === collaborator.id ? (
                         <input
