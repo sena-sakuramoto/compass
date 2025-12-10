@@ -74,9 +74,25 @@ export function GoogleMapsAddressInput({
     }
   }, [isLoaded, onChange]);
 
+  const handleMapClick = () => {
+    if (value) {
+      // Google Mapで検索を開く
+      const encodedAddress = encodeURIComponent(value);
+      window.open(`https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, '_blank');
+    }
+  };
+
   return (
     <div className="relative">
-      <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+      <button
+        type="button"
+        onClick={handleMapClick}
+        disabled={!value}
+        className="absolute left-3 top-1/2 -translate-y-1/2 z-10 hover:text-blue-600 disabled:hover:text-gray-400 transition-colors"
+        title={value ? 'Google Mapで開く' : ''}
+      >
+        <MapPin className="w-5 h-5 text-gray-400" />
+      </button>
       <input
         ref={inputRef}
         type="text"
@@ -85,11 +101,6 @@ export function GoogleMapsAddressInput({
         className={`w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${className}`}
         placeholder={placeholder}
       />
-      {error && (
-        <p className="mt-1 text-xs text-amber-600">
-          {error}（通常の入力フィールドとして使用できます）
-        </p>
-      )}
     </div>
   );
 }

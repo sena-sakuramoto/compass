@@ -6,8 +6,6 @@ import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import type { GanttTask } from './types';
 import type { ProjectMember } from '../../lib/auth-types';
-import type { Stage } from '../../lib/types';
-import { listProjectMembers, listStages } from '../../lib/api';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -23,6 +21,8 @@ interface TaskEditModalProps {
   task: GanttTask | null;
   allTasks: GanttTask[];
   people?: Person[];
+  projectMembers?: ProjectMember[];
+  stages?: GanttTask[];
   onClose: () => void;
   onSave: (task: GanttTask & { assigneeEmail?: string }) => void;
   onDelete?: (task: GanttTask) => void;
@@ -32,6 +32,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   task,
   allTasks,
   people = [],
+  projectMembers = [],
+  stages = [],
   onClose,
   onSave,
   onDelete
@@ -44,39 +46,10 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   const [notifyDayBefore, setNotifyDayBefore] = useState(false);
   const [notifyDue, setNotifyDue] = useState(false);
   const [notifyOverdue, setNotifyOverdue] = useState(false);
-  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
-  const [stages, setStages] = useState<Stage[]>([]);
-  const [stagesLoading, setStagesLoading] = useState(false);
   const [stageId, setStageId] = useState('');
 
-  // プロジェクトメンバーと工程を取得
   useEffect(() => {
-    if (task?.projectId) {
-      setMembersLoading(true);
-      setStagesLoading(true);
-
-      Promise.all([
-        listProjectMembers(task.projectId, { status: 'active' }),
-        listStages(task.projectId),
-      ])
-        .then(([members, stagesData]) => {
-          setProjectMembers(members);
-          setStages(stagesData.stages);
-        })
-        .catch(error => {
-          console.error('Failed to load project data:', error);
-          setProjectMembers([]);
-          setStages([]);
-        })
-        .finally(() => {
-          setMembersLoading(false);
-          setStagesLoading(false);
-        });
-    }
-  }, [task?.projectId]);
-
-  useEffect(() => {
+    console.log('[TaskEditModal useEffect] task.id changed to:', task?.id, 'parentId:', (task as any)?.parentId);
     setEditedTask(task);
     setTempStartDate(null);
     // 初期化時に担当者から自動的にメールアドレスを取得
@@ -92,8 +65,10 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     setNotifyDue(task?.notificationSettings?.期限当日 || false);
     setNotifyOverdue(task?.notificationSettings?.超過 || false);
     // 工程を復元
-    setStageId((task as any)?.parentId || '');
-  }, [task, projectMembers]);
+    const initialParentId = (task as any)?.parentId || '';
+    console.log('[TaskEditModal useEffect] Setting stageId to:', initialParentId);
+    setStageId(initialParentId);
+  }, [task?.id]);
 
   // 担当者が変更されたら、自動的にメールアドレスを補完
   useEffect(() => {
@@ -106,6 +81,12 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   }, [editedTask?.assignee, projectMembers]);
 
   if (!task || !editedTask) return null;
+
+  // 工程の場合は編集不可メッセージを表示
+  const isStage = task.type === 'stage';
+
+  // デバッグ: 工程の状況を確認
+  console.log('[TaskEditModal] task.projectId:', task.projectId, 'task.type:', task.type, 'stages:', stages.length, stages);
 
   // マイルストーンチェックボックスが有効かどうか
   const isMilestoneCheckboxEnabled =
@@ -121,6 +102,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   const cannotComplete = incompleteDependencies.length > 0;
 
   const handleSave = () => {
+    console.log('[TaskEditModal handleSave] stageId value:', stageId, 'type:', typeof stageId, 'length:', stageId.length);
     // 通知設定とマイルストーンを含めて保存
     const taskToSave = {
       ...editedTask,
@@ -134,6 +116,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
         超過: notifyOverdue,
       }
     };
+    console.log('[TaskEditModal] Saving task with parentId:', stageId, 'taskToSave:', taskToSave);
+    console.log('[TaskEditModal] taskToSave.parentId after spread:', taskToSave.parentId);
     onSave(taskToSave);
     onClose();
   };
@@ -192,6 +176,29 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     t.id !== task.id && t.projectId === task.projectId
   );
 
+  // 工程の場合は編集不可メッセージを表示
+  if (isStage) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">工程の編集</h2>
+          <p className="text-slate-600 mb-6">
+            工程の編集は、プロジェクト編集画面の「工程」タブから行ってください。
+          </p>
+          <button
+            onClick={onClose}
+            className="w-full px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+          >
+            閉じる
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
       <div
@@ -216,11 +223,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
           {/* 担当者 */}
           <div>
             <label className="mb-1 block text-xs text-slate-500">担当者</label>
-            {membersLoading ? (
-              <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
-                メンバー読み込み中...
-              </div>
-            ) : projectMembers.length > 0 ? (
+            {projectMembers.length > 0 ? (
               <select
                 value={editedTask.assignee}
                 onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
@@ -234,15 +237,53 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                 ))}
               </select>
             ) : (
-              <input
-                type="text"
+              <select
                 value={editedTask.assignee}
                 onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="メンバーが見つかりません - 直接入力してください"
-              />
+              >
+                <option value="">未割り当て</option>
+                {people.map((person) => (
+                  <option key={person.id} value={person.氏名}>
+                    {person.氏名}
+                  </option>
+                ))}
+              </select>
             )}
           </div>
+
+          {/* タスク名 */}
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">タスク名</label>
+            <input
+              type="text"
+              value={editedTask.name}
+              onChange={(e) => setEditedTask({ ...editedTask, name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          {/* 工程 */}
+          {stages.length > 0 && (
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">工程</label>
+              <select
+                value={stageId}
+                onChange={(e) => {
+                  console.log('[TaskEditModal] Stage selected:', e.target.value);
+                  setStageId(e.target.value);
+                }}
+                className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">未割り当て</option>
+                {stages.map((stage) => (
+                  <option key={stage.id} value={stage.id}>
+                    {stage.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* 通知送信先メール */}
           <div>
@@ -253,36 +294,6 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
               value={assigneeEmail}
               onChange={(e) => setAssigneeEmail(e.target.value)}
               placeholder="担当者メールアドレス"
-            />
-          </div>
-
-          {/* 工程 */}
-          {stages.length > 0 && (
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">工程</label>
-              <select
-                value={stageId}
-                onChange={(e) => setStageId(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">未割り当て</option>
-                {stages.map((stage) => (
-                  <option key={stage.id} value={stage.id}>
-                    {stage.タスク名}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          {/* タスク名 */}
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">タスク名</label>
-            <input
-              type="text"
-              value={editedTask.name}
-              onChange={(e) => setEditedTask({ ...editedTask, name: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
 

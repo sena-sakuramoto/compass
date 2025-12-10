@@ -113,11 +113,6 @@ export function GoogleDriveFolderPicker({
           選択
         </button>
       )}
-      {error && (
-        <p className="absolute -bottom-5 left-0 text-xs text-amber-600">
-          {error}
-        </p>
-      )}
     </div>
   );
 }

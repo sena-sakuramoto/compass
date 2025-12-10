@@ -29,7 +29,8 @@ export interface GanttTask {
   notificationSettings?: TaskNotificationSettings;
   isPending?: boolean; // 楽観的更新中かどうか
   type?: 'stage' | 'task'; // 工程かタスクかを区別
-  parentStageId?: string; // 親工程のID（タスクの場合のみ）
+  parentId?: string | null; // 親工程のID（タスクの場合のみ）
+  parentStageId?: string; // 親工程のID（後方互換性のため残す）
 }
 
 export interface GanttViewState {

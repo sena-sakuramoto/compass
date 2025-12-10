@@ -10,7 +10,7 @@ router.use(authMiddleware());
 
 /**
  * GET /api/clients
- * クライアント一覧を取得
+ * クライアント一覧を取得（クロスオーガナイゼーション対応）
  */
 router.get('/', async (req: any, res, next) => {
   try {
@@ -19,19 +19,45 @@ router.get('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // 組織のクライアント一覧を取得
-    const clientsSnapshot = await db
-      .collection('orgs')
-      .doc(user.orgId)
-      .collection('clients')
-      .orderBy('name', 'asc')
-      .get();
+    // アクセス可能な組織のIDを収集
+    const accessibleOrgIds = new Set<string>();
+    accessibleOrgIds.add(user.orgId); // 自組織
 
-    const clients = clientsSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    // ユーザーが参加しているプロジェクトを取得してプロジェクト所有組織を特定
+    const { listUserProjects } = await import('../lib/project-members');
+    const userProjectMemberships = await listUserProjects(null, req.uid);
 
+    // プロジェクトの所有組織IDを収集
+    for (const membership of userProjectMemberships) {
+      if (membership.project?.ownerOrgId) {
+        accessibleOrgIds.add(membership.project.ownerOrgId);
+      }
+    }
+
+    // 各組織のクライアントを取得
+    const clientsMap = new Map<string, any>();
+
+    for (const orgId of accessibleOrgIds) {
+      const clientsSnapshot = await db
+        .collection('orgs')
+        .doc(orgId)
+        .collection('clients')
+        .orderBy('name', 'asc')
+        .get();
+
+      clientsSnapshot.docs.forEach((doc) => {
+        const clientId = doc.id;
+        // 既に存在しない場合のみ追加（自組織のデータを優先）
+        if (!clientsMap.has(clientId)) {
+          clientsMap.set(clientId, {
+            id: clientId,
+            ...doc.data(),
+          });
+        }
+      });
+    }
+
+    const clients = Array.from(clientsMap.values());
     res.json({ clients });
   } catch (error) {
     next(error);

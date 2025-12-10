@@ -46,9 +46,8 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
   // ステータスに応じた色を取得
   const overdue = isOverdue(task);
-  // 工程はエメラルド系（ガントリストと統一）、タスクは通常の色
-  const stageColor = '#059669'; // emerald-600
-  const stageBorderColor = '#10b981'; // emerald-500
+  // 工程はシンプルなグレー系、タスクは通常の色
+  const stageColor = '#64748b'; // slate-500
   const color = isStage ? stageColor : (overdue ? '#dc2626' : getStatusColor(task.status));
 
   // バーの高さ（工程は大きく、タスクは少し小さく）
@@ -275,13 +274,12 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         className={`h-full flex items-center text-white text-xs shadow-sm transition-all duration-200 ${interactive ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'
           } ${isHovered || isDragging ? 'shadow-md transform -translate-y-0.5' : ''} ${isCopyMode ? 'ring-2 ring-blue-400' : ''
           } ${isStage
-            ? 'rounded-md border-2 border-emerald-400 font-bold px-3'
-            : 'rounded px-2 font-normal'
+            ? 'rounded-lg font-semibold px-3'
+            : 'rounded-lg px-2 font-normal'
           }`}
         style={{
           backgroundColor: color,
-          opacity: task.status === 'completed' ? 0.5 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1,
-          boxShadow: isStage ? '0 2px 4px rgba(5, 150, 105, 0.3)' : undefined
+          opacity: task.status === 'completed' ? 0.5 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1
         }}
         onMouseDown={(e) => handleMouseDown(e, 'move')}
       >
@@ -301,10 +299,10 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
       {/* ホバー時のツールチップ（ドラッグ中は非表示） */}
       {isHovered && !isDragging && (
-        <div className={`absolute top-full left-0 mt-2 z-[9999] min-w-[220px] rounded-xl border bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none ${isStage ? 'border-emerald-300' : 'border-slate-200'}`}>
+        <div className={`absolute top-full left-0 mt-2 z-[9999] min-w-[220px] rounded-xl border bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none ${isStage ? 'border-slate-300' : 'border-slate-200'}`}>
           {/* 工程/タスクのラベル */}
           <div className="flex items-center gap-2 mb-1">
-            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isStage ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isStage ? 'bg-slate-100 text-slate-700' : 'bg-slate-100 text-slate-600'}`}>
               {isStage ? '工程' : 'タスク'}
             </span>
           </div>
@@ -319,8 +317,8 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
           )}
           {task.progress > 0 && (
             <div className="mt-2 flex items-center gap-2">
-              <div className={`h-1.5 flex-1 overflow-hidden rounded-full ${isStage ? 'bg-emerald-100' : 'bg-slate-100'}`}>
-                <div className={`h-1.5 ${isStage ? 'bg-emerald-600' : 'bg-slate-800'}`} style={{ width: `${task.progress}%` }} />
+              <div className={`h-1.5 flex-1 overflow-hidden rounded-full ${isStage ? 'bg-slate-200' : 'bg-slate-100'}`}>
+                <div className={`h-1.5 ${isStage ? 'bg-slate-600' : 'bg-slate-800'}`} style={{ width: `${task.progress}%` }} />
               </div>
               <span className="text-[11px] font-medium text-slate-700">{task.progress}%</span>
             </div>

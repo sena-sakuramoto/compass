@@ -184,7 +184,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
               const isStage = task.type === 'stage';
 
               // 親工程が折りたたまれている場合、子タスクは非表示
-              if (task.parentStageId && !expandedStageIds.has(task.parentStageId)) {
+              if (task.parentId && !expandedStageIds.has(task.parentId)) {
                 return null;
               }
 
@@ -204,18 +204,17 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
                     id={`task-row-${task.id}`}
                     className={`
                       flex items-center px-3 border-b border-slate-200
-                      bg-gradient-to-r from-emerald-50 to-teal-50
-                      cursor-pointer transition-all
-                      border-l-4 border-l-emerald-500
-                      ${isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:from-emerald-100 hover:to-teal-100'}
+                      bg-slate-50
+                      cursor-pointer transition-colors
+                      ${isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:bg-slate-100'}
                     `}
                     style={{ height: `${stageRowHeight}px` }}
                     onClick={() => onTaskClick?.(task)}
                   >
                     {/* トグルアイコン + 工程アイコン */}
-                    <div className="w-8 flex items-center justify-center gap-0.5">
+                    <div className="w-8 flex items-center justify-start gap-1">
                       <button
-                        className="p-0.5 hover:bg-emerald-200 rounded transition-colors"
+                        className="p-0.5 hover:bg-slate-200 rounded transition-colors"
                         onClick={(e) => {
                           e.stopPropagation();
                           if (onToggleStage) {
@@ -234,18 +233,18 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
                         }}
                       >
                         {isExpanded ? (
-                          <ChevronDown className="w-4 h-4 text-emerald-700" />
+                          <ChevronDown className="w-4 h-4 text-slate-600" />
                         ) : (
-                          <ChevronRight className="w-4 h-4 text-emerald-700" />
+                          <ChevronRight className="w-4 h-4 text-slate-600" />
                         )}
                       </button>
-                      <Layers className="w-4 h-4 text-emerald-600" />
+                      <Layers className="w-3.5 h-3.5 text-slate-500" />
                     </div>
 
                     {/* 工程名 */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-800 truncate">
+                        <span className="text-sm font-semibold text-slate-700 truncate">
                           {task.name}
                         </span>
                         {getStatusIcon(task.status)}
@@ -265,7 +264,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
                           style={{ width: `${task.progress}%` }}
                         />
                       </div>
-                      <span className="text-xs font-semibold text-slate-700">
+                      <span className="text-xs font-medium text-slate-600">
                         {task.progress}%
                       </span>
                     </div>
@@ -275,19 +274,23 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
 
               // ========================================
               // タスク（Task）行の表示
-              // - インデント表示
+              // - インデント表示（親がいる場合）
               // - チェックボックス
               // - 通常フォント
               // - 担当者表示
               // ========================================
+              const hasParent = !!task.parentId;
               return (
                 <div
                   key={task.id}
                   id={`task-row-${task.id}`}
-                  className={`flex items-center px-4 border-b border-slate-100 transition-all ${isCompleted ? 'opacity-60' : ''
+                  className={`flex items-center border-b border-slate-100 transition-all ${isCompleted ? 'opacity-60' : ''
                     } ${isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:bg-slate-50'
                     }`}
-                  style={{ height: `${taskRowHeight}px` }}
+                  style={{
+                    height: `${taskRowHeight}px`,
+                    paddingLeft: hasParent ? '2rem' : '1rem' // 親がいる場合は2rem、それ以外は1rem
+                  }}
                 >
                   {/* チェックボックス */}
                   <div className="w-8 relative group">

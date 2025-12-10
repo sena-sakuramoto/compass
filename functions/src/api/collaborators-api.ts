@@ -10,7 +10,7 @@ router.use(authMiddleware());
 
 /**
  * GET /api/collaborators
- * 協力者一覧を取得
+ * 協力者一覧を取得（クロスオーガナイゼーション対応）
  */
 router.get('/', async (req: any, res, next) => {
   try {
@@ -19,19 +19,45 @@ router.get('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // 組織の協力者一覧を取得
-    const collaboratorsSnapshot = await db
-      .collection('orgs')
-      .doc(user.orgId)
-      .collection('collaborators')
-      .orderBy('name', 'asc')
-      .get();
+    // アクセス可能な組織のIDを収集
+    const accessibleOrgIds = new Set<string>();
+    accessibleOrgIds.add(user.orgId); // 自組織
 
-    const collaborators = collaboratorsSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
+    // ユーザーが参加しているプロジェクトを取得してプロジェクト所有組織を特定
+    const { listUserProjects } = await import('../lib/project-members');
+    const userProjectMemberships = await listUserProjects(null, req.uid);
 
+    // プロジェクトの所有組織IDを収集
+    for (const membership of userProjectMemberships) {
+      if (membership.project?.ownerOrgId) {
+        accessibleOrgIds.add(membership.project.ownerOrgId);
+      }
+    }
+
+    // 各組織の協力者を取得
+    const collaboratorsMap = new Map<string, any>();
+
+    for (const orgId of accessibleOrgIds) {
+      const collaboratorsSnapshot = await db
+        .collection('orgs')
+        .doc(orgId)
+        .collection('collaborators')
+        .orderBy('name', 'asc')
+        .get();
+
+      collaboratorsSnapshot.docs.forEach((doc) => {
+        const collaboratorId = doc.id;
+        // 既に存在しない場合のみ追加（自組織のデータを優先）
+        if (!collaboratorsMap.has(collaboratorId)) {
+          collaboratorsMap.set(collaboratorId, {
+            id: collaboratorId,
+            ...doc.data(),
+          });
+        }
+      });
+    }
+
+    const collaborators = Array.from(collaboratorsMap.values());
     res.json({ collaborators });
   } catch (error) {
     next(error);

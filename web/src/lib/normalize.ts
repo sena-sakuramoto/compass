@@ -66,6 +66,8 @@ function normalizeTask(raw: any, index: number): Task {
     TaskID: finalId,
     projectId,
     ProjectID: projectId,
+    type: raw.type || 'task',
+    parentId: raw.parentId ?? null,
     タスク名: raw['タスク名'] ?? raw.name ?? '',
     タスク種別: raw['タスク種別'] ?? '',
     担当者: raw['担当者'] ?? '',

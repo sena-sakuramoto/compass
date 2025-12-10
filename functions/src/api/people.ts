@@ -15,32 +15,59 @@ router.get('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // ユーザーが参加しているプロジェクトのメンバーを取得（クロスオーガナイゼーション対応）
+    const { db } = await import('../lib/firestore');
+    const peopleMap = new Map<string, any>();
+
+    // 1. 自組織のpeopleコレクションから担当者を取得
+    const ownOrgPeopleSnapshot = await db
+      .collection('orgs')
+      .doc(user.orgId)
+      .collection('people')
+      .get();
+
+    ownOrgPeopleSnapshot.docs.forEach(doc => {
+      const person = doc.data();
+      const personId = doc.id;
+      peopleMap.set(personId, {
+        id: personId,
+        氏名: person.氏名 || '',
+        役割: person.役割 || '',
+        部署: person.部署 || '',
+        メール: person.メール || '',
+        電話: person.電話 || '',
+        '稼働時間/日(h)': person['稼働時間/日(h)'] || null,
+        職種: person.職種 || null,
+      });
+    });
+
+    // 2. ユーザーが参加しているプロジェクトのメンバーを取得（クロスオーガナイゼーション対応）
     const { listUserProjects } = await import('../lib/project-members');
     const userProjectMemberships = await listUserProjects(null, req.uid);
 
-    // 各プロジェクトのメンバーを取得
-    const { db } = await import('../lib/firestore');
-    const memberEmails = new Set<string>();
-    const peopleMap = new Map();
+    // プロジェクトIDのリストを取得
+    const projectIds = userProjectMemberships.map(m => m.projectId);
 
-    for (const { projectId } of userProjectMemberships) {
-      // プロジェクトのメンバーを取得
+    // 各プロジェクトのメンバーを取得
+    for (const projectId of projectIds) {
       const membersSnapshot = await db.collection('project_members')
         .where('projectId', '==', projectId)
         .get();
 
       membersSnapshot.docs.forEach(doc => {
         const member = doc.data();
-        if (member.email && !memberEmails.has(member.email)) {
-          memberEmails.add(member.email);
-          peopleMap.set(member.email, {
-            氏名: member.displayName || member.email.split('@')[0],
-            役割: member.role,
-            メール: member.email,
-            職種: member.職種 || null,
-            電話: null,
+        // メールアドレスをキーとして使用（組織をまたいで一意）
+        const memberKey = member.email || member.userId;
+
+        // 既に存在しない場合のみ追加（自組織のpeopleデータを優先）
+        if (memberKey && !Array.from(peopleMap.values()).some(p => p.メール === member.email)) {
+          peopleMap.set(memberKey, {
+            氏名: member.displayName || member.email?.split('@')[0] || '',
+            役割: member.role || '',
+            部署: member.部署 || '',
+            メール: member.email || '',
+            電話: member.電話 || '',
             '稼働時間/日(h)': null,
+            職種: member.職種 || null,
           });
         }
       });

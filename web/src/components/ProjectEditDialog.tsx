@@ -24,6 +24,8 @@ interface ProjectEditDialogProps {
   onDelete?: (project: Project) => Promise<void>;
   onTaskCreate?: (taskData: Partial<Task>) => Promise<void>;
   people?: Array<{ id: string; 氏名: string; メール?: string }>;
+  projectMembers?: ProjectMember[];
+  stages?: Task[];
   onStagesChanged?: () => void | Promise<void>;
 }
 
@@ -47,7 +49,7 @@ const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
-export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [], onStagesChanged }: ProjectEditDialogProps) {
+export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [], projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
@@ -68,7 +70,6 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
   });
   const [saving, setSaving] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
@@ -109,10 +110,10 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
   const [taskCreating, setTaskCreating] = useState(false);
 
   // 工程管理用の状態
-  const [stages, setStages] = useState<Stage[]>([]);
-  const [stagesLoading, setStagesLoading] = useState(false);
+  const [stages, setStages] = useState<Task[]>([]);
+  const [hasLocalStageChanges, setHasLocalStageChanges] = useState(false); // 楽観的更新中フラグ
   const [showStageForm, setShowStageForm] = useState(false);
-  const [editingStage, setEditingStage] = useState<Stage | null>(null);
+  const [editingStage, setEditingStage] = useState<Task | null>(null);
   const [stageName, setStageName] = useState('');
   const [stageStartDate, setStageStartDate] = useState('');
   const [stageEndDate, setStageEndDate] = useState('');
@@ -122,37 +123,32 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
   useEffect(() => {
     if (project) {
       setFormData(project);
-      // プロジェクトメンバーを取得（編集モード時のみ）
-      if (project.id) {
-        setMembersLoading(true);
-        setLogsLoading(true);
-        setStagesLoading(true);
+      // propsから受け取ったメンバーと工程を使用（API呼び出し不要）
+      setProjectMembers(propsProjectMembers);
+      // 楽観的更新中でなければpropsで更新
+      if (!hasLocalStageChanges) {
+        console.log('[ProjectEditDialog] Updating stages from propsStages:', propsStages.map(s => ({ id: s.id, name: s.タスク名, type: s.type })));
+        setStages(propsStages);
+      } else {
+        console.log('[ProjectEditDialog] Skipping propsStages update (hasLocalStageChanges=true)');
+      }
 
-        Promise.all([
-          listProjectMembers(project.id, { status: 'active' }),
-          listActivityLogs({ projectId: project.id, limit: 20 }),
-          listStages(project.id),
-        ])
-          .then(([members, logsData, stagesData]) => {
-            setProjectMembers(members);
+      // アクティビティログのみAPIから取得
+      if (project.id) {
+        setLogsLoading(true);
+        listActivityLogs({ projectId: project.id, limit: 20 })
+          .then((logsData) => {
             setActivityLogs(logsData.logs);
-            setStages(stagesData.stages);
           })
           .catch(error => {
-            console.error('Failed to load project data:', error);
-            setProjectMembers([]);
+            console.error('Failed to load activity logs:', error);
             setActivityLogs([]);
-            setStages([]);
           })
           .finally(() => {
-            setMembersLoading(false);
             setLogsLoading(false);
-            setStagesLoading(false);
           });
       } else {
-        setProjectMembers([]);
         setActivityLogs([]);
-        setStages([]);
       }
     } else {
       // Reset to default values for new project
@@ -175,8 +171,10 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
         施工費: undefined,
       });
       setProjectMembers([]);
+      setActivityLogs([]);
+      setStages([]);
     }
-  }, [project]);
+  }, [project, propsProjectMembers, propsStages]);
 
   // 招待フォームが開かれたときに候補ユーザーと協力者をロード
   useEffect(() => {
@@ -652,7 +650,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
     setShowStageForm(true);
   };
 
-  const handleStageEdit = (stage: Stage) => {
+  const handleStageEdit = (stage: Task) => {
     setEditingStage(stage);
     setStageName(stage.タスク名);
     setStageStartDate(stage.予定開始日 || '');
@@ -663,30 +661,78 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
   const handleStageSave = async () => {
     if (!project?.id || !stageName.trim()) return;
 
+    const stageData = {
+      タスク名: stageName.trim(),
+      予定開始日: stageStartDate || null,
+      期限: stageEndDate || null,
+    };
+
     try {
       setStageSaving(true);
       setError(null);
 
+      setHasLocalStageChanges(true); // 楽観的更新フラグを立てる
+
       if (editingStage) {
-        await updateStage(editingStage.id, {
-          タスク名: stageName.trim(),
-          予定開始日: stageStartDate || null,
-          期限: stageEndDate || null,
-        });
+        // 楽観的更新：先にUIを更新
+        setStages(stages.map(s =>
+          s.id === editingStage.id
+            ? { ...s, ...stageData, 予定開始日: stageData.予定開始日 || undefined, 期限: stageData.期限 || undefined }
+            : s
+        ));
+
+        // バックグラウンドで保存
+        updateStage(editingStage.id, stageData)
+          .then(() => {
+            // 保存成功後、App.tsxのtasksを更新してpropsStagesと同期
+            return onStagesChanged?.();
+          })
+          .then(() => {
+            // 同期完了後、フラグを下ろす
+            setHasLocalStageChanges(false);
+          })
+          .catch(err => {
+            console.error('Failed to update stage:', err);
+            setError(err.message || '工程の更新に失敗しました');
+            setHasLocalStageChanges(false);
+          });
       } else {
-        await createStage(project.id, {
-          タスク名: stageName.trim(),
-          予定開始日: stageStartDate || null,
-          期限: stageEndDate || null,
-        });
+        // 新規作成は一時IDでUIに即座に追加
+        const tempId = `temp-stage-${Date.now()}`;
+        const newStage: any = {
+          id: tempId,
+          projectId: project.id,
+          type: 'stage',
+          ...stageData,
+        };
+        console.log('[ProjectEditDialog] Creating new stage with temp data:', newStage);
+        setStages([...stages, newStage]);
+
+        // バックグラウンドで保存し、実際のIDで置き換え
+        createStage(project.id, stageData)
+          .then(response => {
+            console.log('[ProjectEditDialog] Stage created successfully, response:', response);
+            const newId = response.id;
+            setStages(prev => prev.map(s =>
+              s.id === tempId ? { ...s, id: String(newId) } : s
+            ));
+            // 保存成功後、App.tsxのtasksを更新してpropsStagesと同期
+            console.log('[ProjectEditDialog] Calling onStagesChanged to reload tasks...');
+            return onStagesChanged?.();
+          })
+          .then(() => {
+            // 同期完了後、フラグを下ろす
+            console.log('[ProjectEditDialog] Tasks reloaded, setting hasLocalStageChanges to false');
+            setHasLocalStageChanges(false);
+          })
+          .catch(err => {
+            console.error('Failed to create stage:', err);
+            setError(err.message || '工程の追加に失敗しました');
+            // エラー時は一時工程を削除
+            setStages(prev => prev.filter(s => s.id !== tempId));
+            setHasLocalStageChanges(false);
+          });
       }
-
-      // 工程リストを再読み込み
-      const { stages: stageList } = await listStages(project.id);
-      setStages(stageList);
-
-      // App.tsx の tasks を更新
-      onStagesChanged?.();
 
       setShowStageForm(false);
       setStageName('');
@@ -707,21 +753,37 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
 
     try {
       setError(null);
-      await deleteStage(stageId);
+      setHasLocalStageChanges(true); // 楽観的更新フラグを立てる
 
-      // 工程リストを再読み込み
-      if (project?.id) {
-        const { stages: stageList } = await listStages(project.id);
-        setStages(stageList);
+      // 楽観的更新：先にUIから削除
+      const deletedStage = stages.find(s => s.id === stageId);
+      setStages(stages.filter(s => s.id !== stageId));
 
-        // App.tsx の tasks を更新
-        onStagesChanged?.();
-      }
+      // バックグラウンドで削除
+      deleteStage(stageId)
+        .then(() => {
+          // App.tsx の tasks を更新（バックグラウンド）
+          return onStagesChanged?.();
+        })
+        .then(() => {
+          // 同期完了後、フラグを下ろす
+          setHasLocalStageChanges(false);
+        })
+        .catch(err => {
+          console.error('Failed to delete stage:', err);
+          setError('工程の削除に失敗しました');
+          // エラー時は元に戻す
+          if (deletedStage) {
+            setStages(prev => [...prev, deletedStage]);
+          }
+          setHasLocalStageChanges(false);
+        });
 
       setSuccess('工程を削除しました');
     } catch (err: any) {
       console.error('Failed to delete stage:', err);
       setError('工程の削除に失敗しました');
+      setHasLocalStageChanges(false);
     }
   };
 
@@ -981,11 +1043,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                     {/* 担当者 */}
                     <div>
                       <label className="mb-1 block text-xs text-slate-500">担当者</label>
-                      {membersLoading ? (
-                        <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
-                          メンバー読み込み中...
-                        </div>
-                      ) : projectMembers.length > 0 ? (
+                      {projectMembers.length > 0 ? (
                         <select
                           value={newTaskAssignee}
                           onChange={(e) => setNewTaskAssignee(e.target.value)}
@@ -1311,9 +1369,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                 )}
 
                 {/* 工程一覧 */}
-                {stagesLoading ? (
-                  <div className="text-sm text-slate-400 text-center py-4">読み込み中...</div>
-                ) : stages.length > 0 ? (
+                {stages.length > 0 ? (
                   <div className="space-y-2">
                     {stages.map((stage) => (
                       <div
@@ -1606,9 +1662,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                 )}
 
                 {/* メンバー一覧 */}
-                {membersLoading ? (
-                  <div className="text-sm text-slate-400 text-center py-4">読み込み中...</div>
-                ) : projectMembers.length > 0 ? (
+                {projectMembers.length > 0 ? (
                   <div className="space-y-2">
                     {projectMembers.map((member) => (
                       <div

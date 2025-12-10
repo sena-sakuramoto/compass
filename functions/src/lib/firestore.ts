@@ -504,6 +504,9 @@ export async function updateTask(taskId: string, payload: Partial<TaskInput>, or
 
   console.log('[updateTask] About to update with data:', {
     taskId,
+    parentId_in_payload: payload.parentId,
+    parentId_in_normalized: normalizedPayload.parentId,
+    parentId_in_updateData: updateData.parentId,
     milestone_in_payload: payload['マイルストーン'],
     milestone_in_normalized: normalizedPayload['マイルストーン'],
     milestone_in_merged: merged['マイルストーン'],

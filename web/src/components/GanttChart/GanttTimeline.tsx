@@ -266,7 +266,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
     tasks.forEach((task, index) => {
       // 親工程が折りたたまれている場合、子タスクはスキップ
-      if (task.parentStageId && !expandedStageIds.has(task.parentStageId)) {
+      if (task.parentId && !expandedStageIds.has(task.parentId)) {
         return;
       }
 
@@ -317,7 +317,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     let height = projectGroups.length * projectHeaderHeight + projectHeaderHeight; // ヘッダー分
     tasks.forEach(task => {
       // 親工程が折りたたまれている場合、子タスクはスキップ
-      if (task.parentStageId && !expandedStageIds.has(task.parentStageId)) {
+      if (task.parentId && !expandedStageIds.has(task.parentId)) {
         return;
       }
       const isStage = task.type === 'stage';
@@ -456,9 +456,9 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                     // 範囲外のマイルストーンはスキップ
                     if (daysFromStart < 0 || daysFromStart >= totalDaysInclusive) return null;
 
-                    // セルの中心に配置（マイルストーンはプロジェクトヘッダーの下部、タスク行の直前に表示）
+                    // セルの中心に配置（マイルストーンはプロジェクトヘッダーの中心に表示）
                     const milestoneX = daysFromStart * dayWidth + (dayWidth / 2);
-                    const milestoneY = headerTop + projectHeaderHeight * 0.85; // 下部に表示（タスク行の直前）
+                    const milestoneY = headerTop + projectHeaderHeight / 2; // プロジェクトヘッダーの中心に表示
 
                     // マイルストーンの色を種類別に設定
                     let milestoneColor = 'bg-blue-500';
@@ -474,7 +474,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                           left: `${milestoneX}px`,
                           top: `${milestoneY}px`,
                           transform: 'translate(-50%, -50%)',
-                          zIndex: 5,
+                          zIndex: 20, // ガントチャートバーより上に表示
                         }}
                       >
                         {/* ダイヤモンド型のマーカー */}

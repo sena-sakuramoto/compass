@@ -29,6 +29,7 @@ interface SidebarProps {
   onNavigationChange?: (items: NavigationItem[]) => void;
   user?: User | null;
   onSignOut?: () => void;
+  loading?: boolean;
 }
 
 const iconMap = {
@@ -41,7 +42,7 @@ const iconMap = {
   HelpCircle,
 };
 
-export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut }: SidebarProps) {
+export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, loading = false }: SidebarProps) {
   const location = useLocation();
   const [isConfigMode, setIsConfigMode] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => {
@@ -134,7 +135,7 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut }
       </button>
 
       <aside
-        className={`fixed left-0 top-0 z-40 h-screen w-64 border-r border-slate-200 bg-white transition-transform duration-300 ${
+        className={`fixed left-0 top-0 z-40 h-screen w-56 border-r border-slate-200 bg-white transition-transform duration-300 ${
           isDesktop || isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -206,6 +207,15 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut }
           </nav>
 
           <div className="border-t border-slate-200 px-6 py-4 space-y-3">
+            {loading && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                同期中...
+              </div>
+            )}
             {user && onSignOut && (
               <button
                 onClick={() => {

@@ -44,28 +44,30 @@ service cloud.firestore {
     // ===== プロジェクトコレクション =====
 
     match /orgs/{orgId}/projects/{projectId} {
-      // プロジェクトメンバーかどうかをチェック
+      // プロジェクトメンバーかどうかをチェック（他組織から招待された場合）
       function isMember() {
         return isAuthenticated() &&
                exists(/databases/$(database)/documents/orgs/$(orgId)/projects/$(projectId)/members/$(request.auth.uid));
       }
 
-      // ユーザーの組織IDが一致するかチェック
+      // ユーザーの組織IDが一致するかチェック（プロジェクト作成組織のメンバー）
       function isOrgMember() {
         let user = getUserData();
         return user != null && user.orgId == orgId;
       }
 
-      // メンバーは読み取り可能
-      allow read: if isMember() || isAdmin();
+      // プロジェクト作成組織のメンバー全員 + 招待されたメンバーが閲覧可能
+      allow read: if isMember() || isOrgMember() || isAdmin();
       // 管理者とPMは自組織内でのみ作成・更新可能
       allow create, update: if (isAdmin() || isProjectManager()) && isOrgMember();
       allow delete: if isAdmin() && isOrgMember();
 
       // プロジェクトメンバー
       match /members/{memberId} {
-        allow read: if isMember() || isAdmin();
-        allow write: if isAdmin() || isProjectManager();
+        // プロジェクト作成組織のメンバー全員 + 招待されたメンバーが閲覧可能
+        allow read: if isMember() || isOrgMember() || isAdmin();
+        // 書き込みは組織の管理者・PMのみ（組織チェック追加）
+        allow write: if (isAdmin() || isProjectManager()) && isOrgMember();
       }
     }
 
@@ -104,8 +106,16 @@ service cloud.firestore {
     // ===== 担当者コレクション =====
 
     match /orgs/{orgId}/people/{personId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isProjectManager();
+      // ユーザーの組織IDが一致するかチェック
+      function isOrgMember() {
+        let user = getUserData();
+        return user != null && user.orgId == orgId;
+      }
+
+      // 自組織のメンバーまたは管理者が閲覧可能
+      // （プロジェクトベースの細かいアクセス制御はAPI層で実装）
+      allow read: if isAuthenticated() && (isOrgMember() || isAdmin());
+      allow write: if (isAdmin() || isProjectManager()) && isOrgMember();
     }
 
     // ===== クライアントコレクション =====
