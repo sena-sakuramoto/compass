@@ -161,11 +161,6 @@ router.patch('/:id', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // 管理者・PMのみ更新可能
-    if (user.role !== 'admin' && user.role !== 'super_admin' && user.role !== 'project_manager') {
-      return res.status(403).json({ error: 'Forbidden: Only admins and PMs can update collaborators' });
-    }
-
     const { id } = req.params;
     const { name, email, company, jobTitle, phoneNumber, notes } = req.body;
 
