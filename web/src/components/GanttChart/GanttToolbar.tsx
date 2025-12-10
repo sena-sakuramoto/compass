@@ -52,8 +52,8 @@ export const GanttToolbar: React.FC<GanttToolbarProps> = ({
         </button>
       </div>
 
-      {/* 右側：ズームボタン */}
-      <div className="flex items-center gap-1">
+      {/* 右側：ズームボタン（非表示） */}
+      {/* <div className="flex items-center gap-1">
         <button
           onClick={onZoomOut}
           className="w-8 h-8 flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
@@ -72,7 +72,7 @@ export const GanttToolbar: React.FC<GanttToolbarProps> = ({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
         </button>
-      </div>
+      </div> */}
     </div>
   );
 };

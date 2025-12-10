@@ -70,7 +70,9 @@
       "Bash(gcloud auth application-default login:*)",
       "Bash(git checkout:*)",
       "Bash(python3:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(firebase firestore:get:*)",
+      "Bash(git reset:*)"
     ],
     "deny": [],
     "ask": []

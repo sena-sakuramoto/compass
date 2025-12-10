@@ -42,6 +42,14 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     loadCurrentUser();
   }, []);
 
+  useEffect(() => {
+    console.log('[DEBUG] editingCollaboratorId changed:', editingCollaboratorId);
+  }, [editingCollaboratorId]);
+
+  useEffect(() => {
+    console.log('[DEBUG] editingClientId changed:', editingClientId);
+  }, [editingClientId]);
+
   async function loadCurrentUser() {
     try {
       const { getAuth } = await import('firebase/auth');
@@ -116,6 +124,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   }
 
   async function loadCollaborators() {
+    console.log('[DEBUG] loadCollaborators called', new Error().stack);
     try {
       setCollaboratorsLoading(true);
       setCollaboratorError(null);
@@ -240,11 +249,13 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   }
 
   function handleStartEditClient(client: Client) {
+    console.log('[DEBUG] handleStartEditClient called', client);
     setEditingClientId(client.id);
     setEditingClientName(client.name);
   }
 
   function handleCancelEditClient() {
+    console.log('[DEBUG] handleCancelEditClient called - WHO CALLED ME?', new Error().stack);
     setEditingClientId(null);
     setEditingClientName('');
   }
@@ -269,14 +280,20 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   }
 
   async function handleUpdateCollaborator(collaboratorId: string) {
-    if (!editingCollaboratorName.trim()) return;
+    console.log('[DEBUG] handleUpdateCollaborator called', collaboratorId, editingCollaboratorName, editingCollaboratorEmail);
+    if (!editingCollaboratorName.trim()) {
+      console.log('[DEBUG] handleUpdateCollaborator - name is empty, returning');
+      return;
+    }
 
     try {
       setCollaboratorError(null);
+      console.log('[DEBUG] Calling API updateCollaborator...');
       await updateCollaborator(collaboratorId, {
         name: editingCollaboratorName.trim(),
         email: editingCollaboratorEmail.trim() || undefined,
       });
+      console.log('[DEBUG] API updateCollaborator succeeded');
       await loadCollaborators();
       setEditingCollaboratorId(null);
       setEditingCollaboratorName('');
@@ -303,12 +320,14 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   }
 
   function handleStartEditCollaborator(collaborator: Collaborator) {
+    console.log('[DEBUG] handleStartEditCollaborator called', collaborator);
     setEditingCollaboratorId(collaborator.id);
     setEditingCollaboratorName(collaborator.name);
     setEditingCollaboratorEmail(collaborator.email || '');
   }
 
   function handleCancelEditCollaborator() {
+    console.log('[DEBUG] handleCancelEditCollaborator called - WHO CALLED ME?', new Error().stack);
     setEditingCollaboratorId(null);
     setEditingCollaboratorName('');
     setEditingCollaboratorEmail('');
@@ -498,7 +517,9 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                   <tr key={client.id} className="hover:bg-slate-50">
                     <td
                       className="px-4 py-3 cursor-pointer"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('[DEBUG] Client cell clicked', client.id, 'editing:', editingClientId);
                         if (editingClientId !== client.id) {
                           handleStartEditClient(client);
                         }
@@ -656,7 +677,9 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                   <tr key={collaborator.id} className="hover:bg-slate-50">
                     <td
                       className="px-4 py-3 cursor-pointer"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('[DEBUG] Collaborator cell clicked', collaborator.id, 'editing:', editingCollaboratorId);
                         if (editingCollaboratorId !== collaborator.id) {
                           handleStartEditCollaborator(collaborator);
                         }
@@ -687,7 +710,9 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                     </td>
                     <td
                       className="px-4 py-3 cursor-pointer"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('[DEBUG] Collaborator cell clicked', collaborator.id, 'editing:', editingCollaboratorId);
                         if (editingCollaboratorId !== collaborator.id) {
                           handleStartEditCollaborator(collaborator);
                         }
