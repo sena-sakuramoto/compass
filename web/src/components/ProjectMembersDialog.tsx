@@ -728,8 +728,15 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       </div>
                       <p className="text-sm text-gray-600">{member.email}</p>
                       <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
-                        <span>{member.orgName}</span>
-                        {member.jobTitle && <span>• {member.jobTitle}</span>}
+                        {member.memberType !== 'external' && member.orgName && (
+                          <span>{member.orgName}</span>
+                        )}
+                        {member.jobTitle && (
+                          <>
+                            {member.memberType !== 'external' && member.orgName && <span>•</span>}
+                            <span>{member.jobTitle}</span>
+                          </>
+                        )}
                       </div>
                     </div>
 
