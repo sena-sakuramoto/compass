@@ -7,6 +7,7 @@ import { GanttTimeline, ProjectMilestone } from './GanttTimeline';
 import { TaskEditModal } from './TaskEditModal';
 import type { GanttTask, ViewMode } from './types';
 import { calculateDateRange, calculateDateTicks } from './utils';
+import type { ProjectMember } from '../../lib/auth-types';
 
 interface Person {
   id: string;
@@ -28,6 +29,7 @@ interface GanttChartProps {
   initialViewMode?: ViewMode;
   projectMap?: Record<string, { ステータス?: string;[key: string]: any }>;
   people?: Person[];
+  allProjectMembers?: Map<string, ProjectMember[]>;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -42,7 +44,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onProjectClick,
   initialViewMode = 'day',
   projectMap,
-  people = []
+  people = [],
+  allProjectMembers
 }) => {
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -174,30 +177,34 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       if (containerRef.current) {
         const availableWidth = containerRef.current.clientWidth - taskListWidth - 2; // ボーダー分を引く
 
-        // 基準となる幅を計算
-        let baseWidth: number;
+        // 1単位あたりの幅を計算（ズームレベルを適用）
+        let baseUnitWidth: number;
         if (viewMode === 'day') {
-          // 1日あたりの基準幅を30pxとする
-          const baseDayWidth = 30;
-          const totalDays = ticks.length;
-          baseWidth = Math.max(availableWidth, totalDays * baseDayWidth);
+          // 1日あたりの基準幅を30pxとし、ズームレベルで調整
+          baseUnitWidth = 30 * zoomLevel;
         } else if (viewMode === 'week') {
-          baseWidth = Math.max(availableWidth, 800);
+          // 1週あたりの基準幅を100pxとし、ズームレベルで調整
+          baseUnitWidth = 100 * zoomLevel;
         } else {
-          baseWidth = Math.max(availableWidth, 600);
+          // 1ヶ月あたりの基準幅を120pxとし、ズームレベルで調整
+          baseUnitWidth = 120 * zoomLevel;
         }
 
-        // ズームレベルを適用
-        let zoomedWidth = baseWidth * zoomLevel;
+        // 総幅を計算（単位数 × 単位幅）
+        const totalUnits = ticks.length;
+        let calculatedWidth = totalUnits * baseUnitWidth;
+
+        // 最小幅を確保（利用可能な幅以上）
+        calculatedWidth = Math.max(availableWidth, calculatedWidth);
 
         // 日表示の場合は、幅が日数の整数倍になるように調整（サブピクセルレンダリング対策）
         // これにより、各日の列幅が正確に整数のピクセル幅になり、ヘッダーとグリッドのずれを防ぐ
         if (viewMode === 'day' && ticks.length > 0) {
-          const tickWidth = Math.round(zoomedWidth / ticks.length);
-          zoomedWidth = tickWidth * ticks.length;
+          const tickWidth = Math.round(calculatedWidth / ticks.length);
+          calculatedWidth = tickWidth * ticks.length;
         }
 
-        setContainerWidth(zoomedWidth);
+        setContainerWidth(calculatedWidth);
       }
     };
 
@@ -259,65 +266,51 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
 
   const handleZoomIn = () => {
-    // ズームイン処理：今日を基準に範囲を縮小（未来重視：前25%、後75%）
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
+    // ズームイン処理：現在表示されている範囲を縮小
     const currentRangeMs = dateRange.end.getTime() - dateRange.start.getTime();
     const newRangeMs = Math.max(
       7 * 24 * 60 * 60 * 1000, // 最小7日
-      currentRangeMs / 1.2
+      currentRangeMs / 1.5
     );
 
-    // todayが範囲外の場合は範囲に含める
-    if (today < dateRange.start || today > dateRange.end) {
-      const pastRange = newRangeMs * 0.17;
-      const futureRange = newRangeMs * 0.83;
-      const newStart = new Date(today.getTime() - pastRange);
-      const newEnd = new Date(today.getTime() + futureRange);
-      setDateRange({ start: newStart, end: newEnd });
-      return;
-    }
+    // 現在の表示範囲の中心を計算（スクロール位置を考慮）
+    const viewportWidth = timelineRef.current?.clientWidth || containerWidth;
+    const viewportCenterX = scrollLeft + viewportWidth / 2;
+    const scrollRatio = viewportCenterX / containerWidth;
 
-    // todayを基準に新しい範囲を計算（前17%、後83%）
-    const pastRange = newRangeMs * 0.17;
-    const futureRange = newRangeMs * 0.83;
-    const newStart = new Date(today.getTime() - pastRange);
-    const newEnd = new Date(today.getTime() + futureRange);
+    // 中心日付を計算
+    const centerMs = dateRange.start.getTime() + currentRangeMs * scrollRatio;
+
+    // 中心を維持して範囲を縮小
+    const newStart = new Date(centerMs - newRangeMs * scrollRatio);
+    const newEnd = new Date(centerMs + newRangeMs * (1 - scrollRatio));
 
     setDateRange({ start: newStart, end: newEnd });
-    setZoomLevel(prev => Math.min(prev * 1.2, 3.0));
+    setZoomLevel(prev => Math.min(prev * 1.5, 3.0));
   };
 
   const handleZoomOut = () => {
-    // ズームアウト処理：今日を基準に範囲を拡大（未来重視：前17%、後83%）
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
+    // ズームアウト処理：現在表示されている範囲を拡大
     const currentRangeMs = dateRange.end.getTime() - dateRange.start.getTime();
     const newRangeMs = Math.min(
-      365 * 24 * 60 * 60 * 1000, // 最大365日
-      currentRangeMs * 1.2
+      730 * 24 * 60 * 60 * 1000, // 最大730日(2年)
+      currentRangeMs * 1.5
     );
 
-    // todayが範囲外の場合は範囲に含める
-    if (today < dateRange.start || today > dateRange.end) {
-      const pastRange = newRangeMs * 0.17;
-      const futureRange = newRangeMs * 0.83;
-      const newStart = new Date(today.getTime() - pastRange);
-      const newEnd = new Date(today.getTime() + futureRange);
-      setDateRange({ start: newStart, end: newEnd });
-      return;
-    }
+    // 現在の表示範囲の中心を計算（スクロール位置を考慮）
+    const viewportWidth = timelineRef.current?.clientWidth || containerWidth;
+    const viewportCenterX = scrollLeft + viewportWidth / 2;
+    const scrollRatio = viewportCenterX / containerWidth;
 
-    // todayを基準に新しい範囲を計算（前17%、後83%）
-    const pastRange = newRangeMs * 0.17;
-    const futureRange = newRangeMs * 0.83;
-    const newStart = new Date(today.getTime() - pastRange);
-    const newEnd = new Date(today.getTime() + futureRange);
+    // 中心日付を計算
+    const centerMs = dateRange.start.getTime() + currentRangeMs * scrollRatio;
+
+    // 中心を維持して範囲を拡大
+    const newStart = new Date(centerMs - newRangeMs * scrollRatio);
+    const newEnd = new Date(centerMs + newRangeMs * (1 - scrollRatio));
 
     setDateRange({ start: newStart, end: newEnd });
-    setZoomLevel(prev => Math.max(prev / 1.2, 0.3));
+    setZoomLevel(prev => Math.max(prev / 1.5, 0.1));
   };
 
   // Alt+クリックで表示モード切り替え
@@ -509,14 +502,28 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       </div>
 
       {/* タスク編集モーダル */}
-      <TaskEditModal
-        task={selectedTask}
-        allTasks={tasks}
-        people={people}
-        onClose={handleModalClose}
-        onSave={handleTaskSaveInternal}
-        onDelete={onTaskDelete}
-      />
+      {selectedTask && (() => {
+        const projectStages = tasks.filter(t => t.type === 'stage' && t.projectId === selectedTask.projectId);
+        const projectMembers = selectedTask.projectId && allProjectMembers
+          ? allProjectMembers.get(selectedTask.projectId) || []
+          : [];
+        console.log('[GanttChart] selectedTask:', selectedTask.name, 'projectId:', selectedTask.projectId);
+        console.log('[GanttChart] all tasks with type=stage:', tasks.filter(t => t.type === 'stage').map(t => ({ name: t.name, projectId: t.projectId, type: t.type })));
+        console.log('[GanttChart] filtered projectStages:', projectStages.map(t => ({ name: t.name, id: t.id, type: t.type })));
+        console.log('[GanttChart] Passing stages to TaskEditModal:', projectStages);
+        return (
+          <TaskEditModal
+            task={selectedTask}
+            allTasks={tasks}
+            people={people}
+            projectMembers={projectMembers}
+            stages={projectStages}
+            onClose={handleModalClose}
+            onSave={handleTaskSaveInternal}
+            onDelete={onTaskDelete}
+          />
+        );
+      })()}
     </div>
   );
 };

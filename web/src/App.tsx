@@ -17,6 +17,9 @@ import {
   LogOut,
   X,
   Menu,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
 } from 'lucide-react';
 import {
   listProjects,
@@ -40,6 +43,7 @@ import {
   syncTaskCalendar,
   listProjectMembers,
   listStages,
+  listActivityLogs,
   ApiError,
   getCurrentUser,
 } from './lib/api';
@@ -55,7 +59,6 @@ import { ToastStack, ToastMessage } from './components/ToastStack';
 import { ProjectEditDialog } from './components/ProjectEditDialog';
 import { PersonEditDialog } from './components/PersonEditDialog';
 import ProjectMembersDialog from './components/ProjectMembersDialog';
-import { InvitationNotifications } from './components/InvitationNotifications';
 import { NotificationBell } from './components/NotificationBell';
 import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
@@ -69,6 +72,7 @@ import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import { useZoom } from './hooks/useZoom';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -229,6 +233,7 @@ function AppLayout({
   onImportSnapshot,
   onImportExcel,
   onNotify,
+  loading,
 }: {
   children: React.ReactNode;
   onOpenTask(): void;
@@ -247,6 +252,7 @@ function AppLayout({
   onImportSnapshot(payload: SnapshotPayload): Promise<void>;
   onImportExcel(file: File): Promise<void>;
   onNotify(message: ToastInput): void;
+  loading?: boolean;
 }) {
   const navLinks = [
     { path: '/', label: '工程表' },
@@ -257,10 +263,18 @@ function AppLayout({
   ];
   const offline = !authSupported || !user;
 
+  // ズーム機能
+  const { zoom, zoomIn, zoomOut, resetZoom } = useZoom({
+    minZoom: 0.5,
+    maxZoom: 2.0,
+    zoomStep: 0.1,
+    initialZoom: 1.0,
+  });
+
   return (
     <div className="h-screen flex flex-col bg-slate-50">
-      <Sidebar user={user} onSignOut={onSignOut} />
-      <div className="flex-1 flex flex-col lg:pl-64 min-h-0">
+      <Sidebar user={user} onSignOut={onSignOut} loading={loading} />
+      <div className="flex-1 flex flex-col lg:pl-56 min-h-0">
         <header className="flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2 lg:px-8">
             <div className="flex items-center justify-between gap-2">
@@ -275,7 +289,6 @@ function AppLayout({
               {/* 右側：通知とその他のアクション */}
               <div className="flex items-center gap-2">
                 {/* 通知は常に表示 */}
-                {authSupported && user && <InvitationNotifications />}
                 {authSupported && user && <NotificationBell />}
 
                 {/* その他のアクションはPCのみ */}
@@ -341,7 +354,17 @@ function AppLayout({
             <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
           </div>
         ) : null}
-        <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8">{children}</main>
+        <main
+          className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8"
+          style={{
+            transform: `scale(${zoom})`,
+            transformOrigin: 'top left',
+            width: `${100 / zoom}%`,
+            height: `${100 / zoom}%`,
+          }}
+        >
+          {children}
+        </main>
         <BottomBar
           onOpenTask={onOpenTask}
           onOpenProject={onOpenProject}
@@ -354,6 +377,37 @@ function AppLayout({
           authError={authError}
           canEdit={canEdit}
         />
+
+        {/* ズームコントロール */}
+        <div className="fixed bottom-6 left-6 lg:left-auto lg:right-24 z-40 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={zoomIn}
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white border-2 border-slate-300 text-slate-700 shadow-lg hover:bg-slate-50 transition-all hover:scale-110"
+            title="ズームイン (Ctrl/Cmd + +)"
+          >
+            <ZoomIn className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={resetZoom}
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white border-2 border-slate-300 text-slate-700 shadow-lg hover:bg-slate-50 transition-all hover:scale-110"
+            title="リセット (Ctrl/Cmd + 0)"
+          >
+            <Maximize2 className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={zoomOut}
+            className="flex items-center justify-center w-12 h-12 rounded-full bg-white border-2 border-slate-300 text-slate-700 shadow-lg hover:bg-slate-50 transition-all hover:scale-110"
+            title="ズームアウト (Ctrl/Cmd + -)"
+          >
+            <ZoomOut className="h-5 w-5" />
+          </button>
+          <div className="text-center text-xs text-slate-600 bg-white/90 rounded-full px-2 py-1 shadow">
+            {Math.round(zoom * 100)}%
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -518,7 +572,6 @@ function HeaderActions({
         <FileSpreadsheet className="h-4 w-4" /> Excel読み込み
       </button>
       <div className="h-6 w-px bg-slate-200" />
-      {authSupported && user && <InvitationNotifications />}
       {authSupported ? (
         user ? (
           <div className="flex items-center gap-2">
@@ -2348,6 +2401,7 @@ function SchedulePage({
   setState,
   canEdit,
   canSync,
+  allProjectMembers,
 }: {
   filtersProps: FiltersProps;
   filteredTasks: Task[];
@@ -2366,6 +2420,7 @@ function SchedulePage({
   setState: React.Dispatch<React.SetStateAction<CompassState>>;
   canEdit: boolean;
   canSync: boolean;
+  allProjectMembers?: Map<string, ProjectMember[]>;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
@@ -2558,6 +2613,7 @@ function SchedulePage({
             超過: false,
           },
           type: task.type === 'stage' ? 'stage' : 'task', // 工程かタスクかを区別
+          parentId: task.parentId || null, // 親工程のID
         };
       })
       .map((task) => {
@@ -2578,30 +2634,57 @@ function SchedulePage({
       projectGroups.get(task.projectId)!.push(task);
     });
 
-    // 各プロジェクト内のタスクを並び替え（工程を先に、その後タスクを開始日順）
+    // 各プロジェクト内のタスクを階層的に並び替え（工程 → その配下の子タスク → 次の工程...）
     projectGroups.forEach((projectTasks) => {
-      projectTasks.sort((a, b) => {
-        // 工程を先に表示
-        if (a.type === 'stage' && b.type !== 'stage') return -1;
-        if (a.type !== 'stage' && b.type === 'stage') return 1;
+      // 工程とスタンドアロンタスク（親を持たないタスク）を分離
+      const stages = projectTasks.filter(t => t.type === 'stage');
+      const standaloneTasks = projectTasks.filter(t => t.type !== 'stage' && !t.parentId);
 
-        // 開始日で比較
+      // 工程を開始日順にソート
+      stages.sort((a, b) => {
         const startDiff = a.startDate.getTime() - b.startDate.getTime();
         if (startDiff !== 0) return startDiff;
-
-        // 終了日で比較
         const endDiff = a.endDate.getTime() - b.endDate.getTime();
         if (endDiff !== 0) return endDiff;
-
-        // タスク名で比較
-        const nameA = a.name || '';
-        const nameB = b.name || '';
-        const nameDiff = nameA.localeCompare(nameB);
-        if (nameDiff !== 0) return nameDiff;
-
-        // IDで比較
         return a.id.localeCompare(b.id);
       });
+
+      // スタンドアロンタスクを開始日順にソート
+      standaloneTasks.sort((a, b) => {
+        const startDiff = a.startDate.getTime() - b.startDate.getTime();
+        if (startDiff !== 0) return startDiff;
+        const endDiff = a.endDate.getTime() - b.endDate.getTime();
+        if (endDiff !== 0) return endDiff;
+        return a.id.localeCompare(b.id);
+      });
+
+      // 階層的に並べる: 工程 → その配下のタスク → 次の工程...
+      const hierarchical: GanttTask[] = [];
+
+      stages.forEach(stage => {
+        // 工程を追加
+        hierarchical.push(stage);
+
+        // この工程の配下のタスクを取得して開始日順にソート
+        const childTasks = projectTasks
+          .filter(t => t.type !== 'stage' && t.parentId === stage.id)
+          .sort((a, b) => {
+            const startDiff = a.startDate.getTime() - b.startDate.getTime();
+            if (startDiff !== 0) return startDiff;
+            const endDiff = a.endDate.getTime() - b.endDate.getTime();
+            if (endDiff !== 0) return endDiff;
+            return a.id.localeCompare(b.id);
+          });
+
+        // 配下のタスクを追加
+        hierarchical.push(...childTasks);
+      });
+
+      // 最後にスタンドアロンタスクを追加
+      hierarchical.push(...standaloneTasks);
+
+      // 元の配列を置き換え
+      projectGroups.set(projectTasks[0].projectId, hierarchical);
     });
 
     // プロジェクトを竣工予定日順にソート（安定化：竣工予定日→プロジェクト名→ID）
@@ -2639,7 +2722,8 @@ function SchedulePage({
     return sortedTasks;
   }, [filteredTasks, projectMap]);
 
-  // 工程ベースのガントチャート用データ
+  // 工程ベースのガントチャート用データ（削除：不要になったコード）
+  /*
   const ganttStages = useMemo((): GanttStage[] => {
     // 工程（type='stage'）を取得
     const stageRecords = filteredTasks.filter(task => task.type === 'stage');
@@ -2920,11 +3004,12 @@ function SchedulePage({
 
     return sortedStages;
   }, [filteredTasks, projectMap]);
+  */
 
   return (
     <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-6 md:-my-8 lg:-mx-8">
       {/* 極小ヘッダー - フィルター統合 (モバイルでは非表示) */}
-      <section className="hidden lg:block border-b border-slate-200 bg-white p-2 flex-shrink-0">
+      <section className="hidden lg:block sticky top-0 z-10 border-b border-slate-200 bg-white p-2 flex-shrink-0">
         <div className="flex flex-col gap-1.5">
           {/* タイトル、フィルター、ボタンを1行に */}
           <div className="flex items-center gap-2">
@@ -2972,7 +3057,7 @@ function SchedulePage({
 
       {/* 予定開始日がないタスクの警告 - 極小化 (モバイルでは非表示) */}
       {filteredTasks.some(task => !task.start && !task.予定開始日) && (
-        <div className="hidden lg:flex rounded border border-amber-200 bg-amber-50 px-2 py-1 items-center gap-1.5 flex-shrink-0">
+        <div className="hidden lg:flex sticky top-[52px] z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 items-center gap-1.5 flex-shrink-0">
           <svg className="h-3 w-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
@@ -2992,6 +3077,7 @@ function SchedulePage({
             interactive={true}
             projectMap={projectMap}
             people={people}
+            allProjectMembers={allProjectMembers}
             onTaskClick={(task) => {
               // タスククリックで編集モーダルを開く
               // Gantt内のモーダルが開くので、ここでは何もしない
@@ -3094,9 +3180,11 @@ function SchedulePage({
                 期限当日: false,
                 超過: false,
               },
+              parentId: (updatedTask as any).parentId, // 工程紐づけ（nullも含めて送信）
             };
 
-            console.log('Updates to apply:', updates);
+            console.log('[App.tsx onTaskSave] updatedTask.parentId:', (updatedTask as any).parentId);
+            console.log('[App.tsx onTaskSave] Updates to apply:', updates);
 
             // onTaskUpdateコールバックに委譲
             if (onTaskUpdate) {
@@ -3365,6 +3453,8 @@ function App() {
   const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
   const [allProjectMembers, setAllProjectMembers] = useState<Map<string, ProjectMember[]>>(new Map());
   const loadedProjectMembersRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
+  const [allActivityLogs, setAllActivityLogs] = useState<Map<string, any[]>>(new Map());
+  const loadedActivityLogsRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
   const [currentUserRole, setCurrentUserRole] = useState<string | undefined>(undefined);
   const toastTimers = useRef<Map<string, number>>(new Map());
@@ -3411,11 +3501,16 @@ function App() {
   const reloadTasks = useCallback(async () => {
     try {
       const result = await listTasks({});
+      console.log('[App.tsx] reloadTasks received', result.tasks.length, 'tasks from API');
+      const stagesInResult = result.tasks.filter(t => t.type === 'stage');
+      console.log('[App.tsx] Found', stagesInResult.length, 'stages with type=stage:', stagesInResult.map(s => ({ id: s.id, name: s.タスク名, type: s.type, projectId: s.projectId })));
       const normalized = normalizeSnapshot({
         projects: state.projects,
         tasks: result.tasks,
         people: state.people,
       });
+      const stagesAfterNormalize = normalized.tasks.filter(t => t.type === 'stage');
+      console.log('[App.tsx] After normalization, found', stagesAfterNormalize.length, 'stages');
       setState((prev) => ({
         ...prev,
         tasks: normalized.tasks,
@@ -3535,8 +3630,11 @@ function App() {
   }, [state.projects]);
 
   const filteredTasks = useMemo(() => {
+    // pendingの変更を適用してから、フィルタリング
+    const tasksWithPending = applyPendingToTasks(state.tasks, pending);
+
     const query = search.trim().toLowerCase();
-    return state.tasks.filter((task) => {
+    return tasksWithPending.filter((task) => {
       // 配列が空の場合は全て表示、配列に値がある場合は含まれているかチェック
       const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
@@ -3556,7 +3654,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, projectFilter, assigneeFilter, statusFilter, search, projectMap]);
+  }, [state.tasks, pending, projectFilter, assigneeFilter, statusFilter, search, projectMap]);
 
   const projectOptions = useMemo(
     () => [
@@ -4428,16 +4526,8 @@ function App() {
         onImportSnapshot={handleImportSnapshot}
         onImportExcel={handleImportExcelSafe}
         onNotify={pushToast}
+        loading={loading}
       >
-        {loading ? (
-          <div className="fixed bottom-4 left-4 z-50 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg shadow-lg text-sm text-blue-700 flex items-center gap-2">
-            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            同期中...
-          </div>
-        ) : null}
         <Routes>
           <Route
             path="/"
@@ -4468,6 +4558,7 @@ function App() {
                 setState={setState}
                 canEdit={canEdit}
                 canSync={canSync}
+                allProjectMembers={allProjectMembers}
               />
             }
           />
@@ -4555,6 +4646,7 @@ function App() {
                 setState={setState}
                 canEdit={canEdit}
                 canSync={canSync}
+                allProjectMembers={allProjectMembers}
               />
             }
           />
@@ -4609,6 +4701,8 @@ function App() {
             });
           }}
           people={state.people}
+          projectMembers={editingProject?.id ? allProjectMembers.get(editingProject.id) || [] : []}
+          stages={editingProject?.id ? state.tasks.filter(t => t.projectId === editingProject.id && t.type === 'stage') : []}
           onStagesChanged={reloadTasks}
         />
       )}
