@@ -163,6 +163,7 @@ router.patch('/:id', async (req: any, res, next) => {
 
     const { id } = req.params;
     const { name, email, company, jobTitle, phoneNumber, notes } = req.body;
+    console.log('[PATCH /collaborators/:id] Request body:', { name, email, company, jobTitle, phoneNumber, notes });
 
     const collaboratorRef = db
       .collection('orgs')
@@ -240,10 +241,13 @@ router.patch('/:id', async (req: any, res, next) => {
       updates.notes = notes.trim() || null;
     }
 
+    console.log('[PATCH /collaborators/:id] Updates to apply:', updates);
     await collaboratorRef.update(updates);
 
     const updated = await collaboratorRef.get();
-    res.json({ id: updated.id, ...updated.data() });
+    const responseData = { id: updated.id, ...updated.data() };
+    console.log('[PATCH /collaborators/:id] Updated document data:', responseData);
+    res.json(responseData);
   } catch (error) {
     next(error);
   }
