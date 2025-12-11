@@ -11,12 +11,15 @@ import { PROJECT_ROLE_LABELS, ROLE_LABELS } from '../lib/auth-types';
 import { GoogleMapsAddressInput } from './GoogleMapsAddressInput';
 import { GoogleDriveFolderPicker } from './GoogleDriveFolderPicker';
 import { ClientSelector } from './ClientSelector';
+import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
+import { formatDate, formatJapaneseEra } from '../lib/date';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
 
 interface ProjectEditDialogProps {
   project: Project | null;
+  mode?: 'create' | 'edit';
   onClose: () => void;
   onSave: (project: Project) => Promise<void>;
   onSaveLocal?: (project: Project) => void;
@@ -49,7 +52,7 @@ const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
-export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [], projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged }: ProjectEditDialogProps) {
+export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [], projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
@@ -116,42 +119,28 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
   const [editingStage, setEditingStage] = useState<Task | null>(null);
   const [stageName, setStageName] = useState('');
   const [stageStartDate, setStageStartDate] = useState('');
-  const [stageEndDate, setStageEndDate] = useState('');
-  const [stageSaving, setStageSaving] = useState(false);
-  const [newTaskStageId, setNewTaskStageId] = useState('');
+const [stageEndDate, setStageEndDate] = useState('');
+const [stageSaving, setStageSaving] = useState(false);
+const [newTaskStageId, setNewTaskStageId] = useState('');
+const [logsExpanded, setLogsExpanded] = useState(false);
+const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(null);
+const holidaySet = useJapaneseHolidaySet();
 
   useEffect(() => {
     if (project) {
-      setFormData(project);
-      // propsから受け取ったメンバーと工程を使用（API呼び出し不要）
-      setProjectMembers(propsProjectMembers);
-      // 楽観的更新中でなければpropsで更新
-      if (!hasLocalStageChanges) {
-        console.log('[ProjectEditDialog] Updating stages from propsStages:', propsStages.map(s => ({ id: s.id, name: s.タスク名, type: s.type })));
-        setStages(propsStages);
+      if (!project.id && mode === 'create') {
+        setFormData((prev) => ({
+          ...prev,
+          ...project,
+        }));
       } else {
-        console.log('[ProjectEditDialog] Skipping propsStages update (hasLocalStageChanges=true)');
+        setFormData(project);
       }
-
-      // アクティビティログのみAPIから取得
-      if (project.id) {
-        setLogsLoading(true);
-        listActivityLogs({ projectId: project.id, limit: 20 })
-          .then((logsData) => {
-            setActivityLogs(logsData.logs);
-          })
-          .catch(error => {
-            console.error('Failed to load activity logs:', error);
-            setActivityLogs([]);
-          })
-          .finally(() => {
-            setLogsLoading(false);
-          });
-      } else {
-        setActivityLogs([]);
+      setProjectMembers(propsProjectMembers);
+      if (!hasLocalStageChanges) {
+        setStages(propsStages);
       }
     } else {
-      // Reset to default values for new project
       setFormData({
         id: '',
         物件名: '',
@@ -174,7 +163,68 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
       setActivityLogs([]);
       setStages([]);
     }
-  }, [project, propsProjectMembers, propsStages]);
+  }, [project, propsProjectMembers, propsStages, mode]);
+
+  const projectId = project?.id;
+
+  const renderDateMeta = (value?: string | null) => {
+    if (!value) return null;
+    const iso = formatDate(value);
+    if (!iso) return null;
+    const holiday = isJapaneseHoliday(iso, holidaySet);
+    const japaneseEra = formatJapaneseEra(value);
+    if (!holiday && !japaneseEra) return null;
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+        {holiday && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+            祝日
+          </span>
+        )}
+        {japaneseEra && <span className="text-slate-500">和暦 {japaneseEra}</span>}
+      </div>
+    );
+  };
+
+  useEffect(() => {
+    setActivityLogs([]);
+    setLogsExpanded(false);
+    setLogsLoadedProjectId(null);
+    setLogsLoading(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId || !logsExpanded) return;
+    if (logsLoadedProjectId === projectId) {
+      return;
+    }
+
+    let cancelled = false;
+    setLogsLoading(true);
+
+    listActivityLogs({ projectId, limit: 20 })
+      .then((logsData) => {
+        if (!cancelled) {
+          setActivityLogs(logsData.logs);
+          setLogsLoadedProjectId(projectId);
+        }
+      })
+      .catch(error => {
+        console.error('Failed to load activity logs:', error);
+        if (!cancelled) {
+          setActivityLogs([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLogsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, logsExpanded, logsLoadedProjectId]);
 
   // 招待フォームが開かれたときに候補ユーザーと協力者をロード
   useEffect(() => {
@@ -271,7 +321,9 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
       setSelectedCandidateId('');
     } else {
       setSelectedCandidateId(candidate.id);
-      setInviteEmail(candidate.email);
+      setInviteEmail(candidate.email?.trim() || '');
+      setInviteName('');
+      setInputMode('email');
       setSelectedCollaboratorId('');
     }
   };
@@ -281,40 +333,85 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
       setSelectedCollaboratorId('');
     } else {
       setSelectedCollaboratorId(collaborator.id);
-      setInviteName(collaborator.name);
+      const trimmedEmail = collaborator.email?.trim();
+      const trimmedName = collaborator.name?.trim() || '';
+      if (trimmedEmail) {
+        setInviteEmail(trimmedEmail);
+        setInviteName('');
+        setInputMode('email');
+      } else {
+        setInviteEmail('');
+        setInviteName(trimmedName);
+        setInputMode('text');
+      }
       setSelectedCandidateId('');
-      setInputMode('text');
     }
   };
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (inputMode === 'email' && !inviteEmail) {
-      setError('\u30e1\u30fc\u30eb\u30a2\u30c9\u30ec\u30b9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
-      return;
-    }
-
-    if (inputMode === 'text' && !inviteName) {
-      setError('\u540d\u524d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
-      return;
-    }
-
     if (!project?.id) {
       setError('\u30d7\u30ed\u30b8\u30a7\u30af\u30c8ID\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093');
       return;
     }
 
+    setError(null);
+
+    const input: ProjectMemberInput = {
+      role: inviteRole,
+      jobTitle: inviteJob || undefined,
+      message: inviteMessage || undefined,
+    };
+
+    if (selectedCandidateId) {
+      const selectedUser = manageableUsers.find(user => user.id === selectedCandidateId);
+      const trimmedEmail = selectedUser?.email?.trim();
+      if (trimmedEmail) {
+        input.email = trimmedEmail;
+      } else {
+        setError('選択したメンバーのメールアドレスを取得できませんでした');
+        return;
+      }
+    } else if (selectedCollaboratorId) {
+      const collaborator = collaborators.find(collab => collab.id === selectedCollaboratorId);
+      if (collaborator) {
+        const trimmedEmail = collaborator.email?.trim();
+        if (trimmedEmail) {
+          input.email = trimmedEmail;
+        } else {
+          const trimmedName = collaborator.name?.trim();
+          if (trimmedName) {
+            input.displayName = trimmedName;
+          }
+        }
+      }
+
+      if (!input.email && !input.displayName) {
+        setError('協力者の情報に名前がありません。名前を入力してください');
+        return;
+      }
+    } else if (inputMode === 'email') {
+      if (!inviteEmail || !inviteEmail.trim()) {
+        setError('\u30e1\u30fc\u30eb\u30a2\u30c9\u30ec\u30b9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
+        return;
+      }
+      input.email = inviteEmail.trim();
+    } else {
+      if (!inviteName || !inviteName.trim()) {
+        setError('\u540d\u524d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
+        return;
+      }
+      input.displayName = inviteName.trim();
+    }
+
+    if (!input.email && !input.displayName) {
+      setError('\u30e1\u30fc\u30eb\u30a2\u30c9\u30ec\u30b9\u307e\u305f\u306f\u540d\u524d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
+      return;
+    }
+
     try {
       setSubmitting(true);
-      setError(null);
-
-      const input: ProjectMemberInput = {
-        email: inviteEmail,
-        role: inviteRole,
-        jobTitle: inviteJob || undefined,
-        message: inviteMessage || undefined,
-      };
 
       const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
@@ -332,7 +429,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
       }
 
       // \u30e1\u30f3\u30d0\u30fc\u4e00\u89a7\u3092\u518d\u8aad\u307f\u8fbc\u307f
-      const members = await listProjectMembers(project.id, { status: 'active' });
+      const members = await listProjectMembers(project.id);
       setProjectMembers(members);
       await loadManageableUsers(true);
       await loadCollaborators(true);
@@ -370,7 +467,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
 
       // メンバーリストを再読み込み
       try {
-        const members = await listProjectMembers(project.id, { status: 'active' });
+        const members = await listProjectMembers(project.id);
         setProjectMembers(members);
       } catch (memberLoadErr) {
         console.error('Failed to reload members:', memberLoadErr);
@@ -410,7 +507,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
       if (!response.ok) throw new Error('Failed to update member');
 
       setSuccess('メンバーのロールを更新しました');
-      const members = await listProjectMembers(project.id, { status: 'active' });
+      const members = await listProjectMembers(project.id);
       setProjectMembers(members);
     } catch (err) {
       console.error('Error updating member:', err);
@@ -435,7 +532,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
       if (!response.ok) throw new Error('Failed to update member');
 
       setSuccess('メンバーの職種を更新しました');
-      const members = await listProjectMembers(project.id, { status: 'active' });
+      const members = await listProjectMembers(project.id);
       setProjectMembers(members);
     } catch (err) {
       console.error('Error updating member job type:', err);
@@ -859,6 +956,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                   onChange={(e) => setFormData({ ...formData, 開始日: e.target.value })}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+                {renderDateMeta(formData.開始日)}
               </div>
 
               <div>
@@ -869,6 +967,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                   onChange={(e) => setFormData({ ...formData, 現地調査日: e.target.value })}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+                {renderDateMeta(formData.現地調査日)}
               </div>
             </div>
 
@@ -881,6 +980,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                   onChange={(e) => setFormData({ ...formData, 着工日: e.target.value })}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+                {renderDateMeta(formData.着工日)}
               </div>
 
               <div>
@@ -891,6 +991,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                   onChange={(e) => setFormData({ ...formData, 竣工予定日: e.target.value })}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+                {renderDateMeta(formData.竣工予定日)}
               </div>
 
               <div>
@@ -901,6 +1002,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                   onChange={(e) => setFormData({ ...formData, 引渡し予定日: e.target.value })}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+                {renderDateMeta(formData.引渡し予定日)}
               </div>
             </div>
 
@@ -913,6 +1015,7 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
                   onChange={(e) => setFormData({ ...formData, 予定完了日: e.target.value })}
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+                {renderDateMeta(formData.予定完了日)}
               </div>
             </div>
 
@@ -1733,11 +1836,24 @@ export function ProjectEditDialog({ project, onClose, onSave, onSaveLocal, onRol
             {/* アクティビティログ表示（編集モード時のみ） */}
             {project && project.id && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  <History className="inline h-4 w-4 mr-1" />
-                  編集履歴
-                </label>
-                {logsLoading ? (
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-700 flex items-center gap-1">
+                    <History className="inline h-4 w-4" />
+                    編集履歴
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setLogsExpanded(prev => !prev)}
+                    className="text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    {logsExpanded ? '閉じる' : '表示'}
+                  </button>
+                </div>
+                {!logsExpanded ? (
+                  <div className="text-xs text-slate-500 border border-dashed border-slate-200 rounded-lg px-3 py-2">
+                    「表示」を押すと直近20件の編集履歴を読み込みます。
+                  </div>
+                ) : logsLoading ? (
                   <div className="text-sm text-slate-400 text-center py-4">
                     読み込み中...
                   </div>

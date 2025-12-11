@@ -137,7 +137,8 @@ export interface ProjectMember {
  * プロジェクトメンバー招待の入力データ (組織メンバーのみ)
  */
 export interface ProjectMemberInput {
-  email: string;                            // Required - organization members only
+  email?: string;                           // Optional - for registered users
+  displayName?: string;                     // Optional - for text-only external members (required if no email)
   role: ProjectRole;
   jobTitle?: JobTitleType | string;         // Changed from 職種
   permissions?: Partial<ProjectPermissions>;

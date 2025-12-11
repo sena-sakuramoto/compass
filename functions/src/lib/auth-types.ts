@@ -143,7 +143,7 @@ export interface ProjectMember {
   id: string;                    // メンバーID（composite: {projectId}_{userId}）
   projectId: string;             // プロジェクトID
   userId: string;                // ユーザーID
-  email: string;                 // メールアドレス
+  email?: string;                // メールアドレス（外部協力者はオプショナル）
   displayName: string;           // 表示名
   orgId: string;                 // 【重要】ユーザーの所属組織ID（実orgId、'external'は使わない）
   orgName: string;               // 所属組織名
@@ -204,13 +204,11 @@ export type JobTitleType =
 
 /**
  * プロジェクトメンバー招待時の入力データ
- * ログイン可能なユーザー（組織メンバー）のみを対象
- *
- * 【重要】協力者（Collaborator）はプロジェクトメンバーにはならない。
- * 協力者はタスクレベルで TaskAssignee として参照される。
+ * ログイン可能なユーザー（組織メンバー）または外部協力者（名前のみ）
  */
 export interface ProjectMemberInput {
-  email: string;                 // 必須：組織メンバーまたは外部組織メンバーのメールアドレス
+  email?: string;                // オプショナル：メールアドレス（外部協力者は名前のみでもOK）
+  displayName?: string;          // オプショナル：表示名（emailがない場合は必須）
   role: ProjectRole;             // プロジェクト内のロール
   jobTitle?: JobTitleType | string; // 職種（オプション）
   permissions?: Partial<ProjectPermissions>; // カスタム権限（オプション）

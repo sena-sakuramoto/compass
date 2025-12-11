@@ -270,10 +270,14 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
 
     try {
       setCollaboratorError(null);
-      await createCollaborator({
+      const payload: any = {
         name: newCollaboratorName.trim(),
-        email: newCollaboratorEmail.trim() || undefined,
-      });
+      };
+      // メールアドレスが入力されている場合のみ送信
+      if (newCollaboratorEmail.trim()) {
+        payload.email = newCollaboratorEmail.trim();
+      }
+      await createCollaborator(payload);
       await loadCollaborators();
       setNewCollaboratorName('');
       setNewCollaboratorEmail('');
@@ -294,10 +298,13 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     try {
       setCollaboratorError(null);
       console.log('[DEBUG] Calling API updateCollaborator...');
-      await updateCollaborator(collaboratorId, {
+      const payload: any = {
         name: editingCollaboratorName.trim(),
-        email: editingCollaboratorEmail.trim() || undefined,
-      });
+      };
+      // 更新時は常にemailフィールドを送信（クリアも可能にするため）
+      payload.email = editingCollaboratorEmail.trim();
+      console.log('[DEBUG] Update payload:', payload);
+      await updateCollaborator(collaboratorId, payload);
       console.log('[DEBUG] API updateCollaborator succeeded');
       await loadCollaborators();
       setEditingCollaboratorId(null);
@@ -743,6 +750,12 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                       ) : (
                         <div className="text-sm text-slate-600">
                           {collaborator.email || '-'}
+                          {collaborator.linkedUser && (
+                            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              <Building2 className="w-3 h-3" />
+                              {collaborator.linkedUser.orgName}
+                            </span>
+                          )}
                         </div>
                       )}
                     </td>

@@ -37,23 +37,34 @@ export interface InAppNotification {
 router.get('/', async (req: any, res) => {
   try {
     const { limit = 50, unreadOnly = false } = req.query;
+    const parsedLimit = Number.parseInt(String(limit), 10);
+    const limitNumber = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 200) : 50;
+    const unreadOnlyFlag = unreadOnly === 'true' || unreadOnly === true;
 
     let query = db
       .collection('notifications')
-      .where('userId', '==', req.uid)
-      .orderBy('createdAt', 'desc')
-      .limit(parseInt(limit as string));
+      .where('userId', '==', req.uid);
 
-    if (unreadOnly === 'true') {
-      query = query.where('read', '==', false) as any;
+    if (unreadOnlyFlag) {
+      query = query.where('read', '==', false);
     }
 
     const snapshot = await query.get();
-    const notifications = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      createdAt: doc.data().createdAt?.toDate().toISOString(),
-    }));
+
+    const notifications = snapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        const createdAt = data.createdAt?.toDate?.() ?? new Date(0);
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: createdAt.toISOString(),
+          _createdAtMs: createdAt.getTime(),
+        };
+      })
+      .sort((a, b) => (b._createdAtMs || 0) - (a._createdAtMs || 0))
+      .slice(0, limitNumber)
+      .map(({ _createdAtMs, ...rest }) => rest);
 
     res.json(notifications);
   } catch (error) {

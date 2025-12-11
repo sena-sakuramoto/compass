@@ -2245,9 +2245,7 @@ function TasksPage({
     [onCalendarSync, runWithBusy]
   );
 
-  const buildScheduleLabel = useCallback((task: Task) => {
-    const startLabel = formatDate(task.start ?? task.予定開始日 ?? null);
-    const endLabel = formatDate(task.end ?? task.期限 ?? null);
+  const buildScheduleLabel = useCallback((startLabel?: string | null, endLabel?: string | null) => {
     if (!startLabel && !endLabel) return '未設定';
     return `${startLabel || '未設定'} → ${endLabel || '未設定'}`;
   }, []);
@@ -2264,17 +2262,25 @@ function TasksPage({
     return person?.氏名 || assigneeValue;
   }, [people]);
 
-  const rows: TaskTableRow[] = filteredTasks.map((task) => ({
-    id: task.id,
-    name: task.タスク名,
-    projectLabel: projectMap[task.projectId]?.物件名 ?? task.projectId,
-    assignee: getAssigneeDisplayName(task.assignee ?? task.担当者 ?? ''),
-    schedule: buildScheduleLabel(task),
-    effort: task['工数見積(h)'] ? String(task['工数見積(h)']) : '-',
-    priority: task['優先度'] ?? '',
-    status: task.ステータス,
-    progress: task.progress,
-  }));
+  const rows: TaskTableRow[] = filteredTasks.map((task) => {
+    const startLabelRaw = formatDate(task.start ?? task.予定開始日 ?? null);
+    const endLabelRaw = formatDate(task.end ?? task.期限 ?? null);
+    const scheduleStart = startLabelRaw || null;
+    const scheduleEnd = endLabelRaw || null;
+    return {
+      id: task.id,
+      name: task.タスク名,
+      projectLabel: projectMap[task.projectId]?.物件名 ?? task.projectId,
+      assignee: getAssigneeDisplayName(task.assignee ?? task.担当者 ?? ''),
+      schedule: buildScheduleLabel(scheduleStart, scheduleEnd),
+      scheduleStart,
+      scheduleEnd,
+      effort: task['工数見積(h)'] ? String(task['工数見積(h)']) : '-',
+      priority: task['優先度'] ?? '',
+      status: task.ステータス,
+      progress: task.progress,
+    };
+  });
 
   // ソート処理
   const sortedRows = useMemo(() => {
@@ -2351,6 +2357,8 @@ function TasksPage({
               projectLabel={row.projectLabel}
               assignee={row.assignee}
               schedule={row.schedule}
+              scheduleStart={row.scheduleStart}
+              scheduleEnd={row.scheduleEnd}
               status={row.status}
               progress={row.progress}
               onComplete={() => onComplete(task, true)}
@@ -2456,33 +2464,6 @@ function SchedulePage({
     });
   }, [filteredTasks, today]);
 
-
-  const scheduleStats = useMemo(
-    () => [
-      {
-        id: 'active_today',
-        label: '進行中',
-        value: `${tasksActiveToday.length} 件`,
-        note: '本日進行中のタスク',
-        tone: 'primary' as const,
-      },
-      {
-        id: 'start_today',
-        label: '今日開始',
-        value: `${tasksStartingToday} 件`,
-        note: '開始予定日が今日のタスク',
-        tone: 'neutral' as const,
-      },
-      {
-        id: 'due_today',
-        label: '今日締切',
-        value: `${tasksDueToday} 件`,
-        note: '期限が今日のタスク',
-        tone: tasksDueToday > 0 ? 'alert' : 'neutral',
-      },
-    ],
-    [tasksActiveToday.length, tasksStartingToday, tasksDueToday]
-  );
 
   const activeFilterChips = useMemo(() => {
     const chips: string[] = [];
@@ -3008,62 +2989,75 @@ function SchedulePage({
 
   return (
     <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-6 md:-my-8 lg:-mx-8">
-      {/* 極小ヘッダー - フィルター統合 (モバイルでは非表示) */}
-      <section className="hidden lg:block sticky top-0 z-10 border-b border-slate-200 bg-white p-2 flex-shrink-0">
-        <div className="flex flex-col gap-1.5">
-          {/* タイトル、フィルター、ボタンを1行に */}
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-slate-800 whitespace-nowrap">工程表</h2>
-            <div className="flex-1 min-w-0">
-              <Filters {...filtersProps} resultCount={undefined} />
+      {/* ヘッダー & フィルター */}
+      <section className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 flex-shrink-0">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-[200px]">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
+                <span>工程表</span>
+                <span className="text-slate-300">/</span>
+                <span>{todayLabel}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
+                <span>進行中 {tasksActiveToday.length}件</span>
+                <span className="text-slate-300">|</span>
+                <span>今日開始 {tasksStartingToday}件</span>
+                <span className="text-slate-300">|</span>
+                <span className={tasksDueToday > 0 ? 'text-rose-600 font-medium' : ''}>
+                  今日締切 {tasksDueToday}件
+                </span>
+                <span className="text-slate-300">|</span>
+                <span>表示中 {newGanttTasks.length} アイテム</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="flex items-center gap-2 ml-auto">
               <button
                 type="button"
                 onClick={onOpenTask}
                 disabled={!canEdit}
-                className="rounded px-2 py-1 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                className="rounded-md border border-emerald-600 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
                 title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
               >
-                +タスク
+                タスク追加
               </button>
               <button
                 type="button"
                 onClick={onOpenProject}
                 disabled={!canEdit}
-                className="rounded px-2 py-1 text-xs font-medium text-slate-700 border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50"
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
                 title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
               >
-                +PJ
+                プロジェクト追加
               </button>
             </div>
           </div>
 
-          {/* 統計情報を1行にコンパクト化 */}
-          <div className="flex items-center gap-2 text-xs text-slate-600">
-            <span className="font-medium">{todayLabel}</span>
-            <span className="text-slate-300">|</span>
-            <span>進行中:{tasksActiveToday.length}</span>
-            <span className="text-slate-300">|</span>
-            <span>今日開始:{tasksStartingToday}</span>
-            <span className="text-slate-300">|</span>
-            <span className={tasksDueToday > 0 ? 'font-medium text-rose-600' : ''}>
-              締切:{tasksDueToday}
-            </span>
-            <span className="ml-auto text-slate-500">{newGanttTasks.length}件</span>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-500">
+              <span>フィルターと検索</span>
+              <span className="text-slate-400">{filteredTasks.length} 件が条件に一致</span>
+            </div>
+            <Filters {...filtersProps} resultCount={filteredTasks.length} />
+            {activeFilterChips.length > 0 && (
+              <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
+                {activeFilterChips.map((chip) => (
+                  <span key={chip} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </section>
 
-      {/* 予定開始日がないタスクの警告 - 極小化 (モバイルでは非表示) */}
       {filteredTasks.some(task => !task.start && !task.予定開始日) && (
-        <div className="hidden lg:flex sticky top-[52px] z-10 rounded border border-amber-200 bg-amber-50 px-2 py-1 items-center gap-1.5 flex-shrink-0">
-          <svg className="h-3 w-3 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="mx-4 my-2 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:mx-6 lg:mx-8">
+          <svg className="h-4 w-4 text-amber-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
-          <p className="text-xs text-amber-800">
-            {filteredTasks.filter(task => !task.start && !task.予定開始日).length}件が開始日未設定
-          </p>
+          <span>{filteredTasks.filter(task => !task.start && !task.予定開始日).length}件のタスクが開始日未設定です</span>
         </div>
       )}
 
@@ -3440,6 +3434,9 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
   return loading;
 }
 
+const EMPTY_PROJECT_MEMBERS: ProjectMember[] = [];
+const EMPTY_PROJECT_STAGES: Task[] = [];
+
 function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
   const [taskModalOpen, setTaskModalOpen] = useState(false);
@@ -3781,6 +3778,19 @@ function App() {
     }
     return copy;
   }, [projectsWithDerived, projectSort]);
+
+  const editingProjectId = editingProject?.id ?? null;
+  const memoizedProjectMembers = useMemo(() => {
+    if (!editingProjectId) return EMPTY_PROJECT_MEMBERS;
+    return allProjectMembers.get(editingProjectId) ?? EMPTY_PROJECT_MEMBERS;
+  }, [editingProjectId, allProjectMembers]);
+
+  const memoizedProjectStages = useMemo(() => {
+    if (!editingProjectId) return EMPTY_PROJECT_STAGES;
+    return state.tasks.filter(
+      (task) => task.projectId === editingProjectId && task.type === 'stage'
+    );
+  }, [editingProjectId, state.tasks]);
 
   const handleComplete = async (task: Task, done: boolean) => {
     if (!canSync) {
@@ -4680,7 +4690,8 @@ function App() {
       <PersonModal open={personModalOpen} onOpenChange={setPersonModalOpen} onSubmit={handleCreatePerson} onNotify={pushToast} />
       {projectDialogOpen && (
         <ProjectEditDialog
-          project={editingProject}
+          project={editingProject || null}
+          mode={projectDialogMode}
           onClose={() => {
             setProjectDialogOpen(false);
             setEditingProject(null);
@@ -4701,8 +4712,8 @@ function App() {
             });
           }}
           people={state.people}
-          projectMembers={editingProject?.id ? allProjectMembers.get(editingProject.id) || [] : []}
-          stages={editingProject?.id ? state.tasks.filter(t => t.projectId === editingProject.id && t.type === 'stage') : []}
+          projectMembers={memoizedProjectMembers}
+          stages={memoizedProjectStages}
           onStagesChanged={reloadTasks}
         />
       )}

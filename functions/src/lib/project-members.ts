@@ -25,21 +25,73 @@ export async function addProjectMember(
 ): Promise<ProjectMember> {
   const now = Timestamp.now();
 
+  const hasEmail = typeof input.email === 'string' && input.email.trim().length > 0;
+  const normalizedEmail = hasEmail ? input.email!.trim().toLowerCase() : undefined;
+  const trimmedDisplayName = typeof input.displayName === 'string' ? input.displayName.trim() : undefined;
+
   // 入力バリデーション
   if (!input.role) {
     throw new Error('Role is required');
   }
 
-  if (!input.email) {
-    throw new Error('Email is required');
+  // emailとdisplayNameのどちらか一方は必須
+  if (!hasEmail && !trimmedDisplayName) {
+    throw new Error('Email or displayName is required');
   }
 
   if (!orgId || !projectId || !invitedBy) {
     throw new Error('Organization ID, project ID, and inviter ID are required');
   }
 
+  // メールアドレスがない場合は、名前のみの外部協力者として追加
+  if (!hasEmail) {
+    // 名前のみの外部協力者
+    const textOnlyUserId = `text_${projectId}_${Date.now()}`;
+    const memberId = `${projectId}_${textOnlyUserId}`;
+
+    const permissions: ProjectPermissions = input.permissions
+      ? { ...getProjectRolePermissions(input.role), ...input.permissions }
+      : getProjectRolePermissions(input.role);
+
+    const member: ProjectMember = {
+      id: memberId,
+      projectId,
+      userId: textOnlyUserId,
+      displayName: trimmedDisplayName || '名前未設定',
+      orgId: orgId,
+      orgName: '外部協力者',
+      memberType: 'external',
+      role: input.role,
+      jobTitle: input.jobTitle,
+      permissions,
+      invitedBy,
+      invitedAt: now,
+      joinedAt: undefined,
+      status: 'active', // 名前のみの場合は即座にactive
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    // プロジェクトメンバーとして保存
+    const memberRef = db.collection('project_members').doc(memberId);
+    await memberRef.set(member);
+
+    // プロジェクトのサブコレクションにも保存
+    const subMemberRef = db
+      .collection('orgs')
+      .doc(orgId)
+      .collection('projects')
+      .doc(projectId)
+      .collection('members')
+      .doc(textOnlyUserId);
+    await subMemberRef.set(member);
+
+    console.log(`[addProjectMember] Added text-only member ${member.displayName} to project ${projectId}`);
+    return member;
+  }
+
   // メールアドレスからユーザーを検索
-  const user = await getUserByEmail(input.email);
+  const user = await getUserByEmail(normalizedEmail!);
 
   let member: ProjectMember;
   let memberOrgId: string;
@@ -61,8 +113,8 @@ export async function addProjectMember(
       id: memberId,
       projectId,
       userId: externalUserId,
-      email: input.email,
-      displayName: input.displayName || input.email,
+      email: normalizedEmail!,
+      displayName: normalizedEmail!,
       orgId: orgId, // 招待元の組織ID
       orgName: '外部協力者',
       memberType: 'external',
@@ -71,7 +123,7 @@ export async function addProjectMember(
       permissions,
       invitedBy,
       invitedAt: now,
-      joinedAt: null, // 外部ユーザーは未参加
+      joinedAt: undefined, // 外部ユーザーは未参加
       status: 'invited', // 招待中ステータス
       createdAt: now,
       updatedAt: now,
@@ -125,7 +177,7 @@ export async function addProjectMember(
   await updateProjectMemberCount(orgId, projectId, memberOrgId, true);
 
   // メール通知は実装していません
-  console.log(`Project member added: ${input.email} to project ${projectName} (status: ${member.status})`);
+  console.log(`Project member added: ${normalizedEmail || trimmedDisplayName} to project ${projectName} (status: ${member.status})`);
 
   return member;
 }

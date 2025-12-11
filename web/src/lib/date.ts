@@ -27,3 +27,20 @@ export function calculateDuration(start?: string | Date | null, end?: string | D
   const diff = Math.max(0, e.getTime() - s.getTime());
   return Math.ceil(diff / DAY_MS);
 }
+
+const japaneseEraFormatter = new Intl.DateTimeFormat('ja-JP-u-ca-japanese', {
+  era: 'short',
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
+
+export function formatJapaneseEra(value?: string | Date | null): string {
+  const date = parseDate(value);
+  if (!date) return '';
+  try {
+    return japaneseEraFormatter.format(date);
+  } catch {
+    return '';
+  }
+}

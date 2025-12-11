@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
-import { Bell, Check, X, Mail, CheckCheck } from 'lucide-react';
+import { Bell, Check, X, Mail, CheckCheck, Trash2 } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
-import { getUnreadNotificationCount, buildAuthHeaders } from '../lib/api';
+import {
+  getUnreadNotificationCount,
+  listNotifications,
+  markNotificationAsRead,
+  deleteNotification,
+  buildAuthHeaders,
+  type InAppNotification,
+} from '../lib/api';
 import { useFirebaseAuth } from '../lib/firebaseClient';
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
@@ -20,24 +27,30 @@ export function NotificationBell() {
   const { user } = useFirebaseAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
+  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [processing, setProcessing] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
 
   useEffect(() => {
-    loadUnreadCount();
-    if (user) {
-      loadInvitations();
+    if (!user) {
+      setUnreadCount(0);
+      setInvitations([]);
+      setNotifications([]);
+      return;
     }
-    // 30秒ごとに更新
-    const interval = setInterval(() => {
+
+    const tick = () => {
       loadUnreadCount();
-      if (user) {
-        loadInvitations();
-      }
-    }, 30000);
+      loadInvitations();
+      loadNotifications();
+    };
+
+    tick();
+    const interval = setInterval(tick, 30000);
     return () => clearInterval(interval);
   }, [user]);
 
@@ -77,6 +90,23 @@ export function NotificationBell() {
       setUnreadCount(count);
     } catch (error) {
       console.error('Failed to load unread notification count:', error);
+    }
+  };
+
+  const loadNotifications = async () => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    try {
+      setNotificationsLoading(true);
+      const data = await listNotifications({ limit: 10 });
+      setNotifications(data);
+    } catch (error) {
+      console.error('Failed to load notifications:', error);
+    } finally {
+      setNotificationsLoading(false);
     }
   };
 
@@ -134,6 +164,8 @@ export function NotificationBell() {
       if (!response.ok) throw new Error('Failed to accept invitation');
 
       await loadInvitations();
+      await loadUnreadCount();
+      await loadNotifications();
     } catch (err) {
       console.error('Error accepting invitation:', err);
       alert('招待の承認に失敗しました');
@@ -170,6 +202,8 @@ export function NotificationBell() {
       }
 
       await loadInvitations();
+      await loadUnreadCount();
+      await loadNotifications();
     } catch (err) {
       console.error('Error accepting all invitations:', err);
       alert('一括承認に失敗しました');
@@ -206,6 +240,8 @@ export function NotificationBell() {
       }
 
       await loadInvitations();
+      await loadUnreadCount();
+      await loadNotifications();
     } catch (err) {
       console.error('Error declining all invitations:', err);
       alert('一括辞退に失敗しました');
@@ -235,11 +271,51 @@ export function NotificationBell() {
       }
 
       await loadInvitations();
+      await loadUnreadCount();
+      await loadNotifications();
     } catch (err) {
       console.error('Error declining invitation:', err);
       alert('招待の辞退に失敗しました: ' + (err instanceof Error ? err.message : '不明なエラー'));
     } finally {
       setProcessing(false);
+    }
+  };
+
+  const handleNotificationMarked = (notificationId: string, read: boolean) => {
+    setNotifications(prev =>
+      prev.map((n) => (n.id === notificationId ? { ...n, read } : n))
+    );
+    if (read) {
+      setUnreadCount((count) => Math.max(0, count - 1));
+    } else {
+      setUnreadCount((count) => count + 1);
+    }
+  };
+
+  const handleNotificationRead = async (notificationId: string) => {
+    try {
+      await markNotificationAsRead(notificationId);
+      handleNotificationMarked(notificationId, true);
+    } catch (error) {
+      console.error('Failed to mark notification as read:', error);
+    }
+  };
+
+  const handleNotificationDelete = async (notificationId: string) => {
+    try {
+      await deleteNotification(notificationId);
+      setNotifications(prev => prev.filter((n) => n.id !== notificationId));
+    } catch (error) {
+      console.error('Failed to delete notification:', error);
+    }
+  };
+
+  const handleNotificationAction = async (notification: InAppNotification) => {
+    if (!notification.read) {
+      await handleNotificationRead(notification.id);
+    }
+    if (notification.actionUrl) {
+      window.open(notification.actionUrl, '_blank', 'noopener,noreferrer');
     }
   };
 
@@ -338,25 +414,84 @@ export function NotificationBell() {
             )}
 
             {/* 一般通知セクション */}
-            <div className="p-3">
-              <Link
-                to="/notifications"
-                className="flex items-center justify-between p-2 hover:bg-gray-50 rounded transition-colors"
-                onClick={() => setShowDropdown(false)}
-              >
-                <div className="flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-gray-500" />
-                  <span className="text-sm text-gray-700">すべての通知を見る</span>
+            <div className="border-b border-gray-200">
+              <div className="p-3 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900">アプリ内通知</h4>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    最新の通知を表示します
+                  </p>
                 </div>
-                {unreadCount > 0 && (
-                  <span className="px-2 py-0.5 text-xs font-semibold text-white bg-red-600 rounded-full">
-                    {unreadCount}
-                  </span>
+                <Link
+                  to="/notifications"
+                  className="text-xs text-blue-600 hover:text-blue-700"
+                  onClick={() => setShowDropdown(false)}
+                >
+                  一覧を開く
+                </Link>
+              </div>
+              <div className="divide-y divide-gray-200 max-h-64 overflow-y-auto">
+                {notificationsLoading ? (
+                  <div className="p-4 text-center text-sm text-gray-500">読み込み中...</div>
+                ) : notifications.length === 0 ? (
+                  <div className="p-4 text-center text-sm text-gray-500">
+                    通知はありません
+                  </div>
+                ) : (
+                  notifications.map((notification) => (
+                    <div
+                      key={notification.id}
+                      className={`p-3 text-sm ${notification.read ? 'bg-white' : 'bg-orange-50'}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-900 truncate">{notification.title}</span>
+                            {!notification.read && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-orange-500 text-white rounded-full">
+                                未読
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-600 mt-1 break-words">{notification.message}</p>
+                          <div className="flex items-center gap-3 text-[11px] text-gray-500 mt-2">
+                            <span>{new Date(notification.createdAt).toLocaleString('ja-JP')}</span>
+                            {notification.actionUrl && (
+                              <button
+                                onClick={() => handleNotificationAction(notification)}
+                                className="text-blue-600 hover:text-blue-700 font-medium"
+                              >
+                                詳細を見る
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          {!notification.read && (
+                            <button
+                              onClick={() => handleNotificationRead(notification.id)}
+                              className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              title="既読にする"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleNotificationDelete(notification.id)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="削除"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
                 )}
-              </Link>
+              </div>
             </div>
 
-            {invitations.length === 0 && unreadCount === 0 && (
+            {invitations.length === 0 && unreadCount === 0 && notifications.length === 0 && (
               <div className="p-8 text-center">
                 <Mail className="w-12 h-12 text-gray-400 mx-auto mb-2" />
                 <p className="text-sm text-gray-600">通知はありません</p>

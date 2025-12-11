@@ -1,6 +1,8 @@
 import React from 'react';
 import { BellRing, CalendarPlus, Trash2 } from 'lucide-react';
 import { computeProgress } from './TaskCard';
+import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
+import { formatJapaneseEra } from '../lib/date';
 
 export interface TaskTableRow {
   id: string;
@@ -8,6 +10,8 @@ export interface TaskTableRow {
   projectLabel: string;
   assignee: string;
   schedule: string;
+  scheduleStart?: string | null;
+  scheduleEnd?: string | null;
   effort: string;
   priority: string;
   status: string;
@@ -26,6 +30,7 @@ interface TaskTableProps {
 }
 
 export function TaskTable({ rows, onToggle, onRowClick, onDelete, onSeedReminders, onCalendarSync, seedBusyIds, calendarBusyIds }: TaskTableProps) {
+  const holidaySet = useJapaneseHolidaySet();
   const showActions = Boolean(onSeedReminders || onCalendarSync || onDelete);
   return (
     <div className="overflow-auto rounded-2xl border border-slate-200">
@@ -74,7 +79,23 @@ export function TaskTable({ rows, onToggle, onRowClick, onDelete, onSeedReminder
                 <td className="p-3 font-medium text-slate-800">{row.name}</td>
                 <td className="p-3 text-slate-600">{row.projectLabel}</td>
                 <td className="p-3 text-slate-600">{row.assignee || '未設定'}</td>
-                <td className="p-3 text-slate-600">{row.schedule}</td>
+                <td className="p-3 text-slate-600">
+                  <div className="flex flex-col gap-1">
+                    <span>{row.schedule}</span>
+                    {(row.scheduleEnd || row.scheduleStart) && (
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                        {row.scheduleEnd && isJapaneseHoliday(row.scheduleEnd, holidaySet) && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+                            祝日
+                          </span>
+                        )}
+                        {row.scheduleEnd && (
+                          <span>和暦 {formatJapaneseEra(row.scheduleEnd)}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </td>
                 <td className="p-3 text-slate-600">{row.effort}</td>
                 <td className="p-3">
                   <div className="h-2 w-40 overflow-hidden rounded-full bg-slate-100">

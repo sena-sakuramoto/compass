@@ -150,7 +150,9 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       setSelectedCandidateId('');
     } else {
       setSelectedCandidateId(candidate.id);
-      setInviteEmail(candidate.email);
+      setInviteEmail(candidate.email?.trim() || '');
+      setInviteName('');
+      setInputMode('email');
       setSelectedCollaboratorId('');
       setCandidateType('user');
     }
@@ -165,13 +167,15 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       setCandidateType('collaborator');
 
       // メールアドレスがあればemailモード、なければtextモード
-      if (collaborator.email && collaborator.email.trim()) {
+      const trimmedEmail = collaborator.email?.trim();
+      const trimmedName = collaborator.name?.trim() || '';
+      if (trimmedEmail) {
         setInputMode('email');
-        setInviteEmail(collaborator.email);
+        setInviteEmail(trimmedEmail);
         setInviteName('');
       } else {
         setInputMode('text');
-        setInviteName(collaborator.name);
+        setInviteName(trimmedName);
         setInviteEmail('');
       }
     }
@@ -180,26 +184,77 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (inputMode === 'email' && !inviteEmail) {
-      setError('メールアドレスを入力してください');
-      return;
-    }
-
-    if (inputMode === 'text' && !inviteName) {
-      setError('名前を入力してください');
-      return;
-    }
-
     try {
       setSubmitting(true);
       setError(null);
 
       const input: ProjectMemberInput = {
-        email: inviteEmail,
         role: inviteRole,
         jobTitle: inviteJob || undefined,
         message: inviteMessage || undefined,
       };
+
+      // 優先順位:
+      // 1. ユーザー候補が選択されている場合
+      if (selectedCandidateId) {
+        const selectedUser = manageableUsers.find(u => u.id === selectedCandidateId);
+        if (selectedUser?.email) {
+          const trimmedEmail = selectedUser.email.trim();
+          if (trimmedEmail) {
+            input.email = trimmedEmail;
+          }
+        }
+        if (!input.email) {
+          setError('選択したユーザーのメールアドレスを取得できませんでした');
+          setSubmitting(false);
+          return;
+        }
+      }
+      // 2. 協力者が選択されている場合
+      else if (selectedCollaboratorId) {
+        const selectedCollab = collaborators.find(c => c.id === selectedCollaboratorId);
+        if (selectedCollab) {
+          const trimmedEmail = selectedCollab.email?.trim();
+          if (trimmedEmail) {
+            input.email = trimmedEmail;
+          } else {
+            const trimmedName = selectedCollab.name?.trim();
+            if (trimmedName) {
+              input.displayName = trimmedName;
+            }
+          }
+        }
+        if (!input.email && !input.displayName) {
+          setError('協力者の情報に名前がありません。名前を入力してください');
+          setSubmitting(false);
+          return;
+        }
+      }
+      // 3. 手動入力の場合
+      else {
+        if (inputMode === 'email') {
+          if (!inviteEmail || !inviteEmail.trim()) {
+            setError('メールアドレスを入力してください');
+            setSubmitting(false);
+            return;
+          }
+          input.email = inviteEmail.trim();
+        } else {
+          if (!inviteName || !inviteName.trim()) {
+            setError('名前を入力してください');
+            setSubmitting(false);
+            return;
+          }
+          input.displayName = inviteName.trim();
+        }
+      }
+
+      // emailもdisplayNameもない場合はエラー
+      if (!input.email && !input.displayName) {
+        setError('メールアドレスまたは名前を入力してください');
+        setSubmitting(false);
+        return;
+      }
 
       const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
@@ -556,6 +611,12 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                                         {collaborator.email && (
                                           <p className="text-xs text-gray-500 truncate">{collaborator.email}</p>
                                         )}
+                                        {collaborator.linkedUser && (
+                                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                            <Building2 className="w-3 h-3" />
+                                            {collaborator.linkedUser.orgName}
+                                          </span>
+                                        )}
                                       </div>
                                       {isSelected && <span className="text-xs text-gray-600 font-semibold whitespace-nowrap">選択中</span>}
                                     </div>
@@ -613,7 +674,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       required
                     />
                     <p className="mt-1 text-xs text-gray-500">
-                      システムに登録されていない人（外部協力会社など）の名前を入力できます
+                      システムに登録されていない外部協力者を名前のみで追加できます
                     </p>
                   </div>
                 )}

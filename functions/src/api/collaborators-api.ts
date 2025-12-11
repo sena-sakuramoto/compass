@@ -58,6 +58,38 @@ router.get('/', async (req: any, res, next) => {
     }
 
     const collaborators = Array.from(collaboratorsMap.values());
+
+    // メールアドレスがある協力者については、既存ユーザーを検索して組織情報を追加
+    const { getUserByEmail } = await import('../lib/users');
+    for (const collaborator of collaborators) {
+      if (collaborator.email && collaborator.email.trim()) {
+        try {
+          const existingUser = await getUserByEmail(collaborator.email.trim());
+          if (existingUser) {
+            // 組織名を取得
+            let orgName = '組織';
+            try {
+              const orgDoc = await db.collection('orgs').doc(existingUser.orgId).get();
+              if (orgDoc.exists) {
+                const orgData = orgDoc.data();
+                orgName = orgData?.name || orgData?.組織名 || '組織';
+              }
+            } catch (orgErr) {
+              // 組織名が取得できない場合はデフォルト値を使用
+            }
+
+            collaborator.linkedUser = {
+              orgId: existingUser.orgId,
+              orgName,
+              displayName: existingUser.displayName,
+            };
+          }
+        } catch (err) {
+          // ユーザーが見つからない場合はスキップ
+        }
+      }
+    }
+
     res.json({ collaborators });
   } catch (error) {
     next(error);

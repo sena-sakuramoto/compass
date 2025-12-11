@@ -1,5 +1,6 @@
 import admin from 'firebase-admin';
 import { deriveTaskFields, STATUS_PROGRESS } from './progress';
+import { getNextTaskId, getNextProjectId } from './counters';
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -227,48 +228,9 @@ export async function listDeletedTasks(orgId?: string) {
     .filter((t) => t.deletedAt); // deletedAtがあるもののみ
 }
 
-async function generateProjectId(orgId: string) {
-  const snapshot = await db.collection('orgs')
-    .doc(orgId)
-    .collection('projects')
-    .orderBy(admin.firestore.FieldPath.documentId(), 'desc')
-    .limit(1)
-    .get();
-  let next = 1;
-  if (!snapshot.empty) {
-    const doc = snapshot.docs[0].id.replace(/^P-?/, '');
-    const parsed = parseInt(doc, 10);
-    if (!Number.isNaN(parsed)) next = parsed + 1;
-  }
-  return `P-${String(next).padStart(4, '0')}`;
-}
-
-async function generateTaskId(orgId?: string) {
-  const targetOrgId = orgId ?? ORG_ID;
-  // 全てのタスクを取得して、数値的に最大のIDを見つける
-  const snapshot = await db.collection('orgs').doc(targetOrgId).collection('tasks').get();
-  console.log('[generateTaskId] orgId:', targetOrgId, 'Total tasks found:', snapshot.size);
-  let maxNum = 0;
-
-  snapshot.docs.forEach(doc => {
-    const id = doc.id;
-    console.log('[generateTaskId] Checking task ID:', id);
-    if (id.startsWith('T')) {
-      const num = parseInt(id.replace(/^T/, ''), 10);
-      console.log('[generateTaskId] Parsed number:', num);
-      if (!Number.isNaN(num) && num > maxNum) {
-        maxNum = num;
-        console.log('[generateTaskId] New max:', maxNum);
-      }
-    }
-  });
-
-  const next = maxNum + 1;
-  console.log('[generateTaskId] Next task number:', next);
-  const result = `T${String(next).padStart(3, '0')}`;
-  console.log('[generateTaskId] Generated ID:', result);
-  return result;
-}
+// Note: generateProjectId() and generateTaskId() have been replaced with
+// counter-based functions in counters.ts to avoid full collection scans.
+// See getNextProjectId() and getNextTaskId() in ./counters.ts
 
 // Sanitize field names: remove special characters that Firestore doesn't allow
 function sanitizeFieldNames(payload: Record<string, any>): Record<string, any> {
@@ -285,7 +247,7 @@ export async function createProject(payload: ProjectInput, orgId?: string, creat
   const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
   // Always generate new ID to prevent accidental overwrites
-  const projectId = await generateProjectId(targetOrgId);
+  const projectId = await getNextProjectId();
   const sanitizedPayload = sanitizeFieldNames(payload);
 
   // バッチ書き込みを使用して複数の操作を一度に実行
@@ -449,7 +411,7 @@ export async function createTask(payload: TaskInput, orgId?: string) {
   const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
   // 常に新しいタスクIDを生成（payloadのidは無視）
-  const taskId = await generateTaskId(targetOrgId);
+  const taskId = await getNextTaskId();
   const docRef = db.collection('orgs').doc(targetOrgId).collection('tasks').doc(taskId);
   const notifications = normalizeNotificationSettings(payload['通知設定']);
   const dependencies = normalizeDependencies(payload['依存タスク']);
@@ -1052,7 +1014,7 @@ export async function createStage(input: {
   orderIndex?: number | null;
 }): Promise<string> {
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const stageId = await generateTaskId(input.orgId);
+  const stageId = await getNextTaskId();
 
   const stageData: Partial<TaskDoc> = {
     projectId: input.projectId,

@@ -48,29 +48,58 @@ router.get('/', async (req: any, res, next) => {
     const projectIds = userProjectMemberships.map(m => m.projectId);
 
     // 各プロジェクトのメンバーを取得
-    for (const projectId of projectIds) {
-      const membersSnapshot = await db.collection('project_members')
-        .where('projectId', '==', projectId)
-        .get();
+    // 最適化: projectIdsが10個以下の場合は'in'クエリを使用、それ以上の場合はバッチ処理
+    if (projectIds.length > 0) {
+      if (projectIds.length <= 10) {
+        // 1回のクエリで全プロジェクトのメンバーを取得
+        const membersSnapshot = await db.collection('project_members')
+          .where('projectId', 'in', projectIds)
+          .get();
 
-      membersSnapshot.docs.forEach(doc => {
-        const member = doc.data();
-        // メールアドレスをキーとして使用（組織をまたいで一意）
-        const memberKey = member.email || member.userId;
+        membersSnapshot.docs.forEach(doc => {
+          const member = doc.data();
+          // メールアドレスをキーとして使用（組織をまたいで一意）
+          const memberKey = member.email || member.userId;
 
-        // 既に存在しない場合のみ追加（自組織のpeopleデータを優先）
-        if (memberKey && !Array.from(peopleMap.values()).some(p => p.メール === member.email)) {
-          peopleMap.set(memberKey, {
-            氏名: member.displayName || member.email?.split('@')[0] || '',
-            役割: member.role || '',
-            部署: member.部署 || '',
-            メール: member.email || '',
-            電話: member.電話 || '',
-            '稼働時間/日(h)': null,
-            職種: member.職種 || null,
+          // 既に存在しない場合のみ追加（自組織のpeopleデータを優先）
+          if (memberKey && !Array.from(peopleMap.values()).some(p => p.メール === member.email)) {
+            peopleMap.set(memberKey, {
+              氏名: member.displayName || member.email?.split('@')[0] || '',
+              役割: member.role || '',
+              部署: member.部署 || '',
+              メール: member.email || '',
+              電話: member.電話 || '',
+              '稼働時間/日(h)': null,
+              職種: member.職種 || null,
+            });
+          }
+        });
+      } else {
+        // 10個を超える場合は10個ずつバッチ処理
+        for (let i = 0; i < projectIds.length; i += 10) {
+          const batch = projectIds.slice(i, i + 10);
+          const membersSnapshot = await db.collection('project_members')
+            .where('projectId', 'in', batch)
+            .get();
+
+          membersSnapshot.docs.forEach(doc => {
+            const member = doc.data();
+            const memberKey = member.email || member.userId;
+
+            if (memberKey && !Array.from(peopleMap.values()).some(p => p.メール === member.email)) {
+              peopleMap.set(memberKey, {
+                氏名: member.displayName || member.email?.split('@')[0] || '',
+                役割: member.role || '',
+                部署: member.部署 || '',
+                メール: member.email || '',
+                電話: member.電話 || '',
+                '稼働時間/日(h)': null,
+                職種: member.職種 || null,
+              });
+            }
           });
         }
-      });
+      }
     }
 
     const people = Array.from(peopleMap.values());

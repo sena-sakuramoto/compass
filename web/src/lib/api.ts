@@ -509,6 +509,11 @@ export interface Collaborator {
   createdAt: any;
   createdBy: string;
   updatedAt: any;
+  linkedUser?: {
+    orgId: string;
+    orgName: string;
+    displayName: string;
+  };
 }
 
 export async function listCollaborators() {
@@ -586,6 +591,22 @@ export async function deleteNotification(notificationId: string) {
   return request<{ success: boolean }>(`/notifications/${notificationId}`, {
     method: 'DELETE',
   });
+}
+
+// ==================== 日本の祝日 API ====================
+export interface JapaneseHoliday {
+  date: string;
+  name: string;
+}
+
+export async function listJapaneseHolidays(params?: { year?: number; from?: string; to?: string }) {
+  const query = new URLSearchParams();
+  if (params?.year) query.set('year', String(params.year));
+  if (params?.from) query.set('from', params.from);
+  if (params?.to) query.set('to', params.to);
+  const qs = query.toString();
+  const suffix = qs ? `?${qs}` : '';
+  return request<{ holidays: JapaneseHoliday[]; sourceUpdatedAt?: string }>(`/japanese-holidays${suffix}`);
 }
 
 // ==================== Stage (工程) API ====================

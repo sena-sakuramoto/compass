@@ -1,5 +1,7 @@
 import { BellRing, CalendarPlus, CheckCircle2, Trash2 } from 'lucide-react';
 import React from 'react';
+import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
+import { formatJapaneseEra } from '../lib/date';
 import { STATUS_PROGRESS } from '../lib/constants';
 
 interface TaskCardProps {
@@ -8,6 +10,8 @@ interface TaskCardProps {
   projectLabel: string;
   assignee: string;
   schedule: string;
+  scheduleStart?: string | null;
+  scheduleEnd?: string | null;
   status: string;
   progress?: number;
   stageName?: string;  // 工程名
@@ -24,6 +28,8 @@ export function TaskCard({
   projectLabel,
   assignee,
   schedule,
+  scheduleStart,
+  scheduleEnd,
   progress,
   status,
   stageName,
@@ -34,6 +40,9 @@ export function TaskCard({
   seedBusy,
   calendarBusy,
 }: TaskCardProps) {
+  const holidaySet = useJapaneseHolidaySet();
+  const isHoliday = scheduleEnd ? isJapaneseHoliday(scheduleEnd, holidaySet) : false;
+  const japaneseEra = scheduleEnd ? formatJapaneseEra(scheduleEnd) : '';
   const pct = Math.round(computeProgress(progress, status) * 100);
   const handleClick = () => onComplete();
 
@@ -60,7 +69,17 @@ export function TaskCard({
           </span>
         )}
       </div>
-      <div className="mt-1 text-xs text-slate-500">{schedule}</div>
+      <div className="mt-1 text-xs text-slate-500 flex items-center gap-2 flex-wrap">
+        <span>{schedule}</span>
+        {isHoliday && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-700">
+            祝日
+          </span>
+        )}
+        {japaneseEra && (
+          <span className="text-[11px] text-slate-400">（和暦 {japaneseEra}）</span>
+        )}
+      </div>
       <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
         <div className="h-2 rounded-full bg-slate-800" style={{ width: `${pct}%` }} />
       </div>

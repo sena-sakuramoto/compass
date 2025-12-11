@@ -158,27 +158,43 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
 router.post('/projects/:projectId/members', authenticate, async (req: any, res) => {
   try {
     const { projectId } = req.params;
-    const input: ProjectMemberInput = req.body;
+    const rawInput: ProjectMemberInput = req.body || {};
 
-    // バリデーション: emailが必須
-    if (!input.email) {
-      return res.status(400).json({ error: 'Email is required' });
+    const normalizedInput: ProjectMemberInput = {
+      ...rawInput,
+      email:
+        typeof rawInput.email === 'string'
+          ? rawInput.email.trim().toLowerCase() || undefined
+          : undefined,
+      displayName:
+        typeof rawInput.displayName === 'string'
+          ? rawInput.displayName.trim() || undefined
+          : undefined,
+    };
+
+    if (!normalizedInput.email && !normalizedInput.displayName) {
+      console.warn('[ProjectMembers] Missing email/displayName, falling back to placeholder name', {
+        projectId,
+        inviterId: req.uid,
+      });
+      normalizedInput.displayName = '名前未設定';
     }
 
-    // メールアドレスのバリデーション
-    const emailError = validateEmail(input.email);
-    if (emailError) {
-      return res.status(400).json({ error: emailError });
+    // メールアドレスがある場合のみバリデーション
+    if (normalizedInput.email) {
+      const emailError = validateEmail(normalizedInput.email);
+      if (emailError) {
+        return res.status(400).json({ error: emailError });
+      }
     }
 
     // バリデーション: ロール
-    const roleError = validateProjectRole(input.role);
+    const roleError = validateProjectRole(normalizedInput.role);
     if (roleError) {
       return res.status(400).json({ error: roleError });
     }
 
-    // メールアドレスを正規化
-    const normalizedEmail = input.email.trim().toLowerCase();
+    const normalizedEmail = normalizedInput.email ?? null;
 
     // プロジェクトを取得
     const project = await getProject(req.user.orgId, projectId);
@@ -192,29 +208,32 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
       return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
     }
 
-    // 自分自身を招待しようとしていないかチェック
-    if (normalizedEmail === req.user.email.toLowerCase()) {
-      return res.status(400).json({ error: 'Cannot invite yourself to the project' });
-    }
+    // メールアドレスがある場合のみ重複チェック
+    if (normalizedEmail) {
+      // 自分自身を招待しようとしていないかチェック
+      if (normalizedEmail === req.user.email.toLowerCase()) {
+        return res.status(400).json({ error: 'Cannot invite yourself to the project' });
+      }
 
-    // 既存メンバーのチェック（メールアドレスで比較）
-    const existingMembers = await listProjectMembers(req.user.orgId, projectId);
-    const isDuplicate = existingMembers.some((member) => {
-      return member.email && member.email.toLowerCase() === normalizedEmail;
-    });
-
-    if (isDuplicate) {
-      return res.status(400).json({
-        error: 'This user is already a member or has been invited to this project',
+      // 既存メンバーのチェック（メールアドレスで比較）
+      const existingMembers = await listProjectMembers(req.user.orgId, projectId);
+      const isDuplicate = existingMembers.some((member) => {
+        return member.email && member.email.toLowerCase() === normalizedEmail;
       });
+
+      if (isDuplicate) {
+        return res.status(400).json({
+          error: 'This user is already a member or has been invited to this project',
+        });
+      }
     }
 
-    // 正規化されたメールアドレスでメンバーを追加
+    // メンバーを追加（emailがある場合は正規化されたものを使用）
     const member = await addProjectMember(
       req.user.orgId,
       projectId,
       (project as any).物件名 || projectId,
-      { ...input, email: normalizedEmail },
+      normalizedInput,
       req.uid,
       req.user.displayName || req.user.email
     );
@@ -234,8 +253,8 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
         targetName: member.displayName,
         action: 'メンバー追加',
         metadata: {
-          role: input.role,
-          jobTitle: input.jobTitle,
+          role: normalizedInput.role,
+          jobTitle: normalizedInput.jobTitle,
           email: normalizedEmail,
         },
       });
@@ -254,9 +273,9 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
           inviterName: req.user.displayName || req.user.email,
           organizationName: req.user.orgId,
           projectName: (project as any).物件名 || projectId,
-          role: input.role,
+          role: normalizedInput.role,
           inviteUrl: `${appUrl}/projects/${projectId}`,
-          message: input.message,
+          message: normalizedInput.message,
         });
       } catch (error) {
         console.error('[ProjectMembers] Failed to send invitation email:', error);
@@ -283,7 +302,7 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
             projectId: projectId,
             projectName: (project as any).物件名 || projectId,
             inviterName: req.user.displayName || req.user.email,
-            role: input.role,
+            role: normalizedInput.role,
           },
         });
       }
@@ -532,4 +551,3 @@ router.get('/users/:userId/projects', authenticate, async (req: any, res) => {
 });
 
 export default router;
-
