@@ -1,4 +1,7 @@
 import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { ensureFirebaseAdmin } from './firebaseAdmin';
+
+ensureFirebaseAdmin();
 
 const db = getFirestore();
 

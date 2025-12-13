@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Building2, Link as LinkIcon, Copy, Check, Trash2 } from 'lucide-react';
+import { Users, Building2, Link as LinkIcon, Copy, Check, Trash2, CreditCard } from 'lucide-react';
 import type { User } from 'firebase/auth';
+import { listOrgBilling, updateOrgBilling, type OrgBillingRecord } from '../lib/api';
 
 interface AdminPageProps {
   user: User | null;
@@ -28,7 +29,7 @@ interface Organization {
 }
 
 export function AdminPage({ user, currentUserRole }: AdminPageProps) {
-  const [activeTab, setActiveTab] = useState<'invitations' | 'organizations' | 'migration'>('invitations');
+  const [activeTab, setActiveTab] = useState<'invitations' | 'organizations' | 'billing' | 'migration'>('invitations');
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
@@ -39,6 +40,10 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const [migratingTaskTypes, setMigratingTaskTypes] = useState(false);
   const [stageTypeFixResult, setStageTypeFixResult] = useState<any>(null);
   const [fixingStageTypes, setFixingStageTypes] = useState(false);
+  const [billingRecords, setBillingRecords] = useState<OrgBillingRecord[]>([]);
+  const [billingForms, setBillingForms] = useState<Record<string, { planType: string; stripeCustomerId: string; notes: string }>>({});
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingSaving, setBillingSaving] = useState<Record<string, boolean>>({});
 
   // 招待フォームの状態
   const [inviteForm, setInviteForm] = useState({
@@ -79,6 +84,12 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     }
   }, [canManage]);
 
+  useEffect(() => {
+    if (isSuperAdmin && activeTab === 'billing') {
+      loadBillingRecords();
+    }
+  }, [isSuperAdmin, activeTab]);
+
   const loadInvitations = async () => {
     try {
       const token = await user?.getIdToken();
@@ -103,6 +114,65 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
       }
     } catch (error) {
       console.error('[AdminPage] 招待リスト取得エラー:', error);
+    }
+  };
+
+  const loadBillingRecords = async () => {
+    try {
+      setBillingLoading(true);
+      const data = await listOrgBilling();
+      setBillingRecords(data.records);
+      const initialForms: Record<string, { planType: string; stripeCustomerId: string; notes: string }> = {};
+      data.records.forEach((record) => {
+        initialForms[record.orgId] = {
+          planType: record.planType || 'stripe',
+          stripeCustomerId: record.stripeCustomerId ?? '',
+          notes: record.notes ?? '',
+        };
+      });
+      setBillingForms(initialForms);
+    } catch (error) {
+      console.error('[AdminPage] 課金情報の読み込みに失敗しました:', error);
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const handleBillingFormChange = (orgId: string, field: 'planType' | 'stripeCustomerId' | 'notes', value: string) => {
+    setBillingForms((prev) => ({
+      ...prev,
+      [orgId]: {
+        planType: prev[orgId]?.planType ?? 'stripe',
+        stripeCustomerId: prev[orgId]?.stripeCustomerId ?? '',
+        notes: prev[orgId]?.notes ?? '',
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleBillingSave = async (orgId: string) => {
+    const form = billingForms[orgId];
+    if (!form) return;
+
+    if (form.planType === 'stripe' && !form.stripeCustomerId.trim()) {
+      alert('Stripe カスタマーIDを入力してください');
+      return;
+    }
+
+    setBillingSaving((prev) => ({ ...prev, [orgId]: true }));
+    try {
+      await updateOrgBilling(orgId, {
+        planType: form.planType,
+        stripeCustomerId: form.planType === 'stripe' ? form.stripeCustomerId.trim() : null,
+        notes: form.notes?.trim() || null,
+      });
+      await loadBillingRecords();
+      alert('課金情報を更新しました');
+    } catch (error) {
+      console.error('[AdminPage] 課金情報の更新に失敗しました:', error);
+      alert('課金情報の更新に失敗しました');
+    } finally {
+      setBillingSaving((prev) => ({ ...prev, [orgId]: false }));
     }
   };
 
@@ -433,6 +503,18 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
               組織管理
             </button>
           )}
+          {isSuperAdmin && (
+            <button
+              onClick={() => setActiveTab('billing')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'billing'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+            >
+              <CreditCard className="inline-block h-4 w-4 mr-2" />
+              課金プラン
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('migration')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'migration'
@@ -679,6 +761,97 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'billing' && isSuperAdmin && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-2">課金プラン管理</h2>
+              <p className="text-sm text-slate-600">
+                Stripeサブスクと法人プランの設定を管理します。planTypeが「stripe」の場合は Customer ID が必須です。
+              </p>
+            </div>
+            {billingLoading ? (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 text-center text-sm text-slate-500">
+                課金情報を読み込み中です…
+              </div>
+            ) : billingRecords.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 text-center text-sm text-slate-500">
+                課金情報がまだ登録されていません
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {billingRecords.map((record) => {
+                  const form = billingForms[record.orgId] || {
+                    planType: record.planType || 'stripe',
+                    stripeCustomerId: record.stripeCustomerId ?? '',
+                    notes: record.notes ?? '',
+                  };
+                  return (
+                    <div key={record.orgId} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{record.orgId}</p>
+                          <p className="text-xs text-slate-500">ステータス: {record.subscriptionStatus || '未連携'}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleBillingSave(record.orgId)}
+                          disabled={billingSaving[record.orgId]}
+                          className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800 disabled:opacity-50"
+                        >
+                          {billingSaving[record.orgId] ? '更新中...' : '保存'}
+                        </button>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">プラン種別</label>
+                          <select
+                            value={form.planType}
+                            onChange={(e) => handleBillingFormChange(record.orgId, 'planType', e.target.value)}
+                            className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          >
+                            <option value="stripe">Stripeサブスク</option>
+                            <option value="enterprise_manual">法人契約（請求書）</option>
+                            <option value="special_admin">特例(管理者手動)</option>
+                            <option value="inactive">停止</option>
+                          </select>
+                        </div>
+                        {form.planType === 'stripe' && (
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-600 mb-1">Stripe Customer ID</label>
+                            <input
+                              type="text"
+                              value={form.stripeCustomerId}
+                              onChange={(e) => handleBillingFormChange(record.orgId, 'stripeCustomerId', e.target.value)}
+                              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              placeholder="cus_XXXX"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-600 mb-1">メモ</label>
+                        <textarea
+                          value={form.notes}
+                          onChange={(e) => handleBillingFormChange(record.orgId, 'notes', e.target.value)}
+                          rows={3}
+                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          placeholder="社内メモ、請求条件など"
+                        />
+                      </div>
+                      {record.stripeCustomerId && (
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                          <p>現在のCustomer ID: <span className="font-mono">{record.stripeCustomerId}</span></p>
+                          <p>最終同期: {record.lastStripeSyncAt ? new Date(record.lastStripeSyncAt).toLocaleString() : '未同期'}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

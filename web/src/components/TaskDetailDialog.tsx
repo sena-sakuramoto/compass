@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { X, Calendar, Bell, User, Clock, CheckCircle2 } from 'lucide-react';
 import type { Task, TaskNotificationSettings } from '../lib/types';
+import { clampToSingleDecimal, parseHoursInput } from '../lib/number';
 
 interface TaskDetailDialogProps {
   task: Task;
@@ -28,8 +29,8 @@ export function TaskDetailDialog({
     期限: task.期限 || '',
     ステータス: task.ステータス,
     優先度: task.優先度 || '',
-    '工数見積(h)': task['工数見積(h)'] || 0,
-    '工数実績(h)': task['工数実績(h)'] || 0,
+    '工数見積(h)': clampToSingleDecimal(task['工数見積(h)'] ?? 0),
+    '工数実績(h)': clampToSingleDecimal(task['工数実績(h)'] ?? 0),
   });
 
   const [notificationSettings, setNotificationSettings] = useState<TaskNotificationSettings>(
@@ -198,9 +199,12 @@ export function TaskDetailDialog({
                 {editing ? (
                   <input
                     type="number"
+                    min="0"
+                    step="0.1"
+                    inputMode="decimal"
                     value={formData['工数見積(h)']}
                     onChange={(e) =>
-                      setFormData({ ...formData, '工数見積(h)': parseFloat(e.target.value) || 0 })
+                      setFormData({ ...formData, '工数見積(h)': parseHoursInput(e.target.value) })
                     }
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-slate-500 focus:outline-none"
                   />
@@ -214,9 +218,12 @@ export function TaskDetailDialog({
                 {editing ? (
                   <input
                     type="number"
+                    min="0"
+                    step="0.1"
+                    inputMode="decimal"
                     value={formData['工数実績(h)']}
                     onChange={(e) =>
-                      setFormData({ ...formData, '工数実績(h)': parseFloat(e.target.value) || 0 })
+                      setFormData({ ...formData, '工数実績(h)': parseHoursInput(e.target.value) })
                     }
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-slate-500 focus:outline-none"
                   />

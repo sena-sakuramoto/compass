@@ -126,6 +126,28 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res as unknown as T;
 }
 
+function normalizeTaskPayloadForApi(payload: Partial<Task>): Partial<Task> {
+  const normalized: Partial<Task> = { ...payload };
+  const hasJapaneseAssignee = Object.prototype.hasOwnProperty.call(payload, '担当者');
+  const hasEnglishAssignee = Object.prototype.hasOwnProperty.call(payload, 'assignee');
+  if (hasJapaneseAssignee && !hasEnglishAssignee) {
+    normalized.assignee = payload.担当者;
+  } else if (hasEnglishAssignee && !hasJapaneseAssignee) {
+    normalized.担当者 = payload.assignee;
+  }
+
+  const hasJapaneseMilestone = Object.prototype.hasOwnProperty.call(payload, 'マイルストーン');
+  const hasEnglishMilestone = Object.prototype.hasOwnProperty.call(payload, 'milestone');
+  if (hasJapaneseMilestone || hasEnglishMilestone) {
+    const milestoneValue = hasJapaneseMilestone ? payload.マイルストーン : payload.milestone;
+    const normalizedMilestone = milestoneValue === true;
+    normalized.マイルストーン = normalizedMilestone;
+    normalized.milestone = normalizedMilestone;
+  }
+
+  return normalized;
+}
+
 export async function listProjects() {
   return request<{ projects: Project[] }>('/projects');
 }
@@ -159,11 +181,12 @@ export async function listPeople() {
 }
 
 export async function createTask(payload: Partial<Task>) {
-  console.log('[api.createTask] Payload being sent:', payload);
-  console.log('[api.createTask] Payload has id?', 'id' in payload, 'TaskID' in payload);
+  const normalizedPayload = normalizeTaskPayloadForApi(payload);
+  console.log('[api.createTask] Payload being sent:', normalizedPayload);
+  console.log('[api.createTask] Payload has id?', 'id' in normalizedPayload, 'TaskID' in normalizedPayload);
   return request<{ id: string }>('/tasks', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(normalizedPayload),
   });
 }
 
@@ -228,9 +251,10 @@ export async function completeTask(taskId: string, done: boolean) {
 }
 
 export async function updateTask(taskId: string, payload: Partial<Task>) {
+  const normalizedPayload = normalizeTaskPayloadForApi(payload);
   return request<{ ok: true }>(`/tasks/${taskId}`, {
     method: 'PATCH',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(normalizedPayload),
   });
 }
 
@@ -493,6 +517,39 @@ export async function updateClient(clientId: string, name: string) {
 export async function deleteClient(clientId: string) {
   return request<{ success: boolean }>(`/clients/${clientId}`, {
     method: 'DELETE',
+  });
+}
+
+// ==================== 課金/Billing API ====================
+
+export interface BillingAccessInfo {
+  allowed: boolean;
+  reason: string;
+  planType: string;
+  subscriptionStatus?: string | null;
+  stripeCustomerId?: string | null;
+  notes?: string | null;
+  entitled?: boolean | null;
+  lastStripeSyncAt?: number | null;
+  details?: Record<string, unknown> | null;
+}
+
+export interface OrgBillingRecord extends BillingAccessInfo {
+  orgId: string;
+}
+
+export async function getBillingAccess() {
+  return request<BillingAccessInfo>('/billing/access');
+}
+
+export async function listOrgBilling() {
+  return request<{ records: OrgBillingRecord[] }>('/billing');
+}
+
+export async function updateOrgBilling(orgId: string, payload: { planType?: string; stripeCustomerId?: string | null; notes?: string | null }) {
+  return request(`/billing/orgs/${orgId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
   });
 }
 

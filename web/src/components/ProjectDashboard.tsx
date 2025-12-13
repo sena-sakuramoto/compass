@@ -3,6 +3,7 @@
 import React from 'react';
 import { TrendingUp, CheckCircle2, Clock, AlertCircle, Users } from 'lucide-react';
 import type { Project, Task } from '../lib/types';
+import { isClosedProjectStatus } from '../lib/constants';
 
 interface ProjectDashboardProps {
   projects: Project[];
@@ -12,7 +13,7 @@ interface ProjectDashboardProps {
 export function ProjectDashboard({ projects, tasks }: ProjectDashboardProps) {
   // 統計情報の計算
   const totalProjects = projects.length;
-  const activeProjects = projects.filter((p) => p.ステータス !== '完了').length;
+  const activeProjects = projects.filter((p) => !isClosedProjectStatus(p.ステータス)).length;
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter((t) => t.ステータス === '完了').length;
   const inProgressTasks = tasks.filter((t) => t.ステータス === '進行中').length;

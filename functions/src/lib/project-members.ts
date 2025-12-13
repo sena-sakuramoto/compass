@@ -3,6 +3,9 @@ import { ProjectMember, ProjectMemberInput, User } from './auth-types';
 import { ProjectRole, getProjectRolePermissions, ProjectPermissions } from './roles';
 import { getUser, getUserByEmail } from './users';
 import { getOrganization } from './users';
+import { ensureFirebaseAdmin } from './firebaseAdmin';
+
+ensureFirebaseAdmin();
 
 const db = getFirestore();
 

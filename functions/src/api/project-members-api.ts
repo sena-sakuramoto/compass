@@ -82,7 +82,15 @@ router.get('/projects/:projectId/members', authenticate, async (req: any, res) =
       orgId,
     });
 
-    res.json(members);
+    // super_admin（システム管理者）はプロジェクトの担当者リスト等に表示しない
+    const superAdmins = await listUsers({ role: 'super_admin', isActive: true });
+    const superAdminIds = new Set(superAdmins.map((user) => user.id));
+    const filteredMembers = members.filter((member) => {
+      if (!member.userId) return true;
+      return !superAdminIds.has(member.userId);
+    });
+
+    res.json(filteredMembers);
   } catch (error) {
     console.error('Error listing project members:', error);
     res.status(500).json({ error: 'Internal server error' });

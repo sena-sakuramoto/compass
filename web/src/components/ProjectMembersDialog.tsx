@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users } from 'lucide-react';
 import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, JobTitleType } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
@@ -49,6 +49,10 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const [collaboratorsLoaded, setCollaboratorsLoaded] = useState(false);
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('');
   const [candidateType, setCandidateType] = useState<'user' | 'collaborator'>('user');
+  const broadcastMemberUpdate = useCallback((members: ProjectMember[]) => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('project-members:updated', { detail: { projectId: project.id, members } }));
+  }, [project.id]);
 
   // デバッグ: コンポーネントのマウント/アンマウントを検知
   useEffect(() => {
@@ -137,6 +141,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
       const data = await response.json();
       setMembers(data);
+      broadcastMemberUpdate(data);
     } catch (err) {
       console.error('Error loading members:', err);
       setError('メンバー一覧の読み込みに失敗しました');
@@ -274,7 +279,11 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       const newMember: ProjectMember = await response.json();
 
       // 【改善】APIレスポンスから直接stateに追加（再取得不要）
-      setMembers(prev => [...prev, newMember]);
+      setMembers(prev => {
+        const next = [...prev, newMember];
+        broadcastMemberUpdate(next);
+        return next;
+      });
 
       await loadManageableUsers(true);
       await loadCollaborators(true);
@@ -308,7 +317,11 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       if (!response.ok) throw new Error('Failed to remove member');
 
       // 【改善】stateから直接削除（再取得不要）
-      setMembers(prev => prev.filter(m => m.userId !== userId));
+      setMembers(prev => {
+        const next = prev.filter(m => m.userId !== userId);
+        broadcastMemberUpdate(next);
+        return next;
+      });
 
       await loadManageableUsers(true);
       await loadCollaborators(true);
@@ -336,9 +349,11 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       const updatedMember: ProjectMember = await response.json();
 
       // 【改善】APIレスポンスから直接stateを更新（再取得不要）
-      setMembers(prev =>
-        prev.map(m => (m.userId === userId ? updatedMember : m))
-      );
+      setMembers(prev => {
+        const next = prev.map(m => (m.userId === userId ? updatedMember : m));
+        broadcastMemberUpdate(next);
+        return next;
+      });
 
       setSuccess('メンバーのロールを更新しました');
     } catch (err) {
@@ -364,9 +379,11 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       const updatedMember: ProjectMember = await response.json();
 
       // 【改善】APIレスポンスから直接stateを更新（再取得不要）
-      setMembers(prev =>
-        prev.map(m => (m.userId === userId ? updatedMember : m))
-      );
+      setMembers(prev => {
+        const next = prev.map(m => (m.userId === userId ? updatedMember : m));
+        broadcastMemberUpdate(next);
+        return next;
+      });
 
       setSuccess('メンバーの職種を更新しました');
     } catch (err) {

@@ -3,6 +3,7 @@
 import { differenceInDays, addDays, format, startOfDay, endOfDay, isWeekend as isFnsWeekend } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import type { GanttTask, ViewMode, DateTick, TaskBarPosition, TaskStatus } from './types';
+import { isJapaneseHoliday } from '../../lib/japaneseHolidays';
 
 // ステータス別の色定義
 export const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -54,7 +55,8 @@ export function calculateDateRange(
 export function calculateDateTicks(
   startDate: Date,
   endDate: Date,
-  viewMode: ViewMode
+  viewMode: ViewMode,
+  holidaySet?: Set<string> | null
 ): DateTick[] {
   const ticks: DateTick[] = [];
   const current = new Date(startDate);
@@ -62,6 +64,7 @@ export function calculateDateTicks(
   while (current <= endDate) {
     const date = new Date(current);
     const isWeekend = isFnsWeekend(date);
+    const isHoliday = isJapaneseHoliday(date, holidaySet);
 
     let label = '';
     if (viewMode === 'day') {
@@ -72,7 +75,7 @@ export function calculateDateTicks(
       label = format(date, 'M月', { locale: ja });
     }
 
-    ticks.push({ date, label, isWeekend });
+    ticks.push({ date, label, isWeekend, isHoliday });
 
     // 次の日付へ
     if (viewMode === 'day') {

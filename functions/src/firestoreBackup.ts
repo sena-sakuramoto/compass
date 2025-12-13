@@ -5,6 +5,9 @@
 
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import * as admin from 'firebase-admin';
+import { ensureFirebaseAdmin } from './lib/firebaseAdmin';
+
+ensureFirebaseAdmin();
 
 const firestore = admin.firestore();
 

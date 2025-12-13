@@ -85,7 +85,8 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
         <div className="absolute top-5 left-0 right-0 bottom-0">
           {ticks.map((tick, index) => {
             const x = index * tickWidth;
-            const isWeekend = tick.isWeekend;
+            const dayOfWeek = tick.date.getDay();
+            const isHoliday = Boolean(tick.isHoliday);
             const day = tick.date.getDate();
             const weekday = format(tick.date, 'EEE', { locale: ja });
 
@@ -95,6 +96,18 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
               tick.date.getFullYear() === today.getFullYear() &&
               tick.date.getMonth() === today.getMonth() &&
               tick.date.getDate() === today.getDate();
+
+            const isSunday = dayOfWeek === 0;
+            const dayColor = isToday
+              ? 'text-blue-700'
+              : (isHoliday || isSunday)
+                ? 'text-rose-500'
+                : 'text-slate-600';
+            const weekdayColor = isToday
+              ? 'text-blue-600'
+              : (isHoliday || isSunday)
+                ? 'text-rose-400'
+                : 'text-slate-400';
 
             return (
               <div
@@ -113,20 +126,20 @@ export const GanttTimeAxis: React.FC<GanttTimeAxisProps> = ({
 
                 {/* 日付 */}
                 <div
-                  className={`relative text-[10px] font-medium leading-none ${
-                    isToday ? 'text-blue-700' : isWeekend ? 'text-rose-500' : 'text-slate-600'
-                  }`}
+                  className={`relative text-[10px] font-medium leading-none ${dayColor}`}
                 >
                   {day}
                 </div>
                 {/* 曜日 */}
                 <div
-                  className={`relative text-[9px] leading-none ${
-                    isToday ? 'text-blue-600' : isWeekend ? 'text-rose-400' : 'text-slate-400'
-                  }`}
+                  className={`relative text-[9px] leading-none ${weekdayColor}`}
                 >
                   {weekday}
                 </div>
+                {/* 祝日ラベル */}
+                {isHoliday && (
+                  <div className="mt-0.5 text-[8px] font-semibold text-rose-500">祝</div>
+                )}
 
                 {/* 縦線 */}
                 {index > 0 && (

@@ -132,8 +132,13 @@ function normalizePeople(raw: any, index: number): Person {
   const fallbackId = `PERSON${String(index + 1).padStart(3, '0')}`;
   const finalId = String(idFromPayload || fallbackId);
 
+  const rawType = typeof raw.type === 'string' ? raw.type.trim() : undefined;
+  const normalizedType: Person['type'] | undefined =
+    rawType === 'client' ? 'client' : rawType === 'person' ? 'person' : undefined;
+
   return {
     id: finalId,
+    ...(normalizedType ? { type: normalizedType } : {}),
     氏名: raw['氏名'],
     役割: raw['役割'] ?? '',
     部署: raw['部署'] ?? '',

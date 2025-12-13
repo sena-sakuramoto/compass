@@ -24,6 +24,7 @@ import collaboratorsRouter from './api/collaborators-api';
 import organizationsRouter from './api/organizations';
 import migrateClientsRouter from './api/migrate-clients-api';
 import japaneseHolidaysRouter from './api/japanese-holidays';
+import billingRouter from './api/billing';
 import commentsRouter from './api/comments-api';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
@@ -82,6 +83,7 @@ app.use('/api', excelRouter);
 app.use('/api', commentsRouter);
 app.use('/api/admin', adminCleanupRouter);
 app.use('/api/admin', migrateClientsRouter);
+app.use('/api', billingRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
@@ -149,3 +151,5 @@ export { cleanupDeletedItems };
 
 // Firestoreバックアップ（毎日2:00に実行）
 export { firestoreBackup };
+
+export { syncStripeCustomers } from './stripeTriggers';

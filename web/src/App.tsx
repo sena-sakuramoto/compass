@@ -17,9 +17,6 @@ import {
   LogOut,
   X,
   Menu,
-  ZoomIn,
-  ZoomOut,
-  Maximize2,
 } from 'lucide-react';
 import {
   listProjects,
@@ -46,7 +43,9 @@ import {
   listActivityLogs,
   ApiError,
   getCurrentUser,
+  getBillingAccess,
 } from './lib/api';
+import type { BillingAccessInfo } from './lib/api';
 import { Filters } from './components/Filters';
 import { ProjectCard } from './components/ProjectCard';
 import { TaskCard, computeProgress } from './components/TaskCard';
@@ -64,15 +63,34 @@ import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
 import { AdminPage } from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
+import BillingGateOverlay from './components/BillingGateOverlay';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage } from './lib/types';
 import type { ProjectMember } from './lib/auth-types';
-import { format } from 'date-fns';
+import { isArchivedProjectStatus, isClosedProjectStatus } from './lib/constants';
+import { clampToSingleDecimal, parseHoursInput } from './lib/number';
+import {
+  format,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  startOfYear,
+  endOfYear,
+  subWeeks,
+  subMonths,
+  subYears,
+  eachDayOfInterval,
+  eachWeekOfInterval,
+  eachMonthOfInterval,
+  startOfDay,
+  endOfDay,
+  differenceInCalendarDays,
+} from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { useZoom } from './hooks/useZoom';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -84,6 +102,9 @@ import {
   YAxis as WorkloadYAxis,
   Tooltip as WorkloadTooltip,
   Bar as WorkloadBar,
+  ComposedChart as WorkloadComposedChart,
+  Area as WorkloadArea,
+  Line as WorkloadLine,
 } from 'recharts';
 import { useFirebaseAuth } from './lib/firebaseClient';
 import type { User } from 'firebase/auth';
@@ -263,26 +284,18 @@ function AppLayout({
   ];
   const offline = !authSupported || !user;
 
-  // ズーム機能
-  const { zoom, zoomIn, zoomOut, resetZoom } = useZoom({
-    minZoom: 0.5,
-    maxZoom: 2.0,
-    zoomStep: 0.1,
-    initialZoom: 1.0,
-  });
-
   return (
     <div className="h-screen flex flex-col bg-slate-50">
       <Sidebar user={user} onSignOut={onSignOut} loading={loading} />
       <div className="flex-1 flex flex-col lg:pl-56 min-h-0">
         <header className="flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-2 lg:px-8">
-            <div className="flex items-center justify-between gap-2">
+          <div className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-1 lg:px-6">
+            <div className="flex items-center justify-between gap-1">
               {/* モバイル：ハンバーガーメニュー用のスペース + タイトル */}
               <div className="flex items-center gap-2 flex-1 min-w-0 lg:ml-0 pl-12 lg:pl-0">
                 <div>
-                  <h1 className="text-base lg:text-lg font-bold text-slate-900 truncate">APDW Project Compass</h1>
-                  <p className="hidden lg:block text-xs text-slate-500">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
+                  <h1 className="text-base lg:text-lg font-semibold text-slate-900 truncate">APDW Project Compass</h1>
+                  <p className="hidden lg:block text-[11px] text-slate-500 leading-tight">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
                 </div>
               </div>
 
@@ -354,15 +367,7 @@ function AppLayout({
             <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
           </div>
         ) : null}
-        <main
-          className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-6 md:pt-8 lg:px-8"
-          style={{
-            transform: `scale(${zoom})`,
-            transformOrigin: 'top left',
-            width: `${100 / zoom}%`,
-            height: `${100 / zoom}%`,
-          }}
-        >
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-1 md:pt-2 lg:px-8">
           {children}
         </main>
         <BottomBar
@@ -378,36 +383,6 @@ function AppLayout({
           canEdit={canEdit}
         />
 
-        {/* ズームコントロール */}
-        <div className="fixed bottom-6 left-6 lg:left-auto lg:right-24 z-40 flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={zoomIn}
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-white border-2 border-slate-300 text-slate-700 shadow-lg hover:bg-slate-50 transition-all hover:scale-110"
-            title="ズームイン (Ctrl/Cmd + +)"
-          >
-            <ZoomIn className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={resetZoom}
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-white border-2 border-slate-300 text-slate-700 shadow-lg hover:bg-slate-50 transition-all hover:scale-110"
-            title="リセット (Ctrl/Cmd + 0)"
-          >
-            <Maximize2 className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={zoomOut}
-            className="flex items-center justify-center w-12 h-12 rounded-full bg-white border-2 border-slate-300 text-slate-700 shadow-lg hover:bg-slate-50 transition-all hover:scale-110"
-            title="ズームアウト (Ctrl/Cmd + -)"
-          >
-            <ZoomOut className="h-5 w-5" />
-          </button>
-          <div className="text-center text-xs text-slate-600 bg-white/90 rounded-full px-2 py-1 shadow">
-            {Math.round(zoom * 100)}%
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -782,6 +757,9 @@ interface TaskModalProps extends ModalProps {
   projects: Project[];
   people: Person[];
   editingTask?: Task | null;
+  defaultProjectId?: string;
+  defaultStageId?: string;
+  allowContinuousCreate?: boolean;
   onSubmit(payload: {
     projectId: string;
     タスク名: string;
@@ -800,7 +778,20 @@ interface TaskModalProps extends ModalProps {
   onNotify?(message: ToastInput): void;
 }
 
-function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit, onUpdate, onDelete, onNotify }: TaskModalProps) {
+function TaskModal({
+  open,
+  onOpenChange,
+  projects,
+  people,
+  editingTask,
+  onSubmit,
+  onUpdate,
+  onDelete,
+  onNotify,
+  defaultProjectId,
+  defaultStageId,
+  allowContinuousCreate,
+}: TaskModalProps) {
   const [project, setProject] = useState('');
   const [assignee, setAssignee] = useState('');
   const [assigneeEmail, setAssigneeEmail] = useState('');
@@ -820,25 +811,45 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
   const [membersLoading, setMembersLoading] = useState(false);
   const [stageId, setStageId] = useState<string>('');
   const [stages, setStages] = useState<Stage[]>([]);
+  const taskNameInputRef = useRef<HTMLInputElement | null>(null);
+  const submitIntentRef = useRef<'close' | 'continue'>('close');
+  const allowContinuous = Boolean(allowContinuousCreate && !editingTask);
+
+  const resetFormFields = useCallback((keepContext: boolean) => {
+    setName('');
+    setStartDate(null);
+    setEndDate(null);
+    setDurationDays(1);
+    setIsMilestone(false);
+    if (keepContext) return;
+    setProject('');
+    setStageId('');
+    setAssignee('');
+    setAssigneeEmail('');
+    setPriority('中');
+    setStatus('未着手');
+    setEstimate(4);
+    setNotifyStart(true);
+    setNotifyDayBefore(true);
+    setNotifyDue(true);
+    setNotifyOverdue(true);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
 
     if (editingTask) {
-      // 編集モード: タスクデータをフォームにセット
       setProject(editingTask.projectId);
       setAssignee(editingTask.担当者 || editingTask.assignee || '');
       setAssigneeEmail(editingTask.担当者メール || '');
       setName(editingTask.タスク名);
       setStageId(editingTask.parentId || '');
 
-      // 日付の設定
       const startDateValue = editingTask.予定開始日 || editingTask.start;
       const endDateValue = editingTask.期限 || editingTask.end;
       setStartDate(startDateValue ? new Date(startDateValue) : null);
       setEndDate(endDateValue ? new Date(endDateValue) : null);
 
-      // 期間の計算
       if (startDateValue && endDateValue) {
         const start = new Date(startDateValue);
         const end = new Date(endDateValue);
@@ -849,45 +860,27 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
 
       setPriority(editingTask.優先度 || '中');
       setStatus(editingTask.ステータス || '未着手');
-      setEstimate(editingTask['工数見積(h)'] || 4);
+      const existingEstimate = editingTask['工数見積(h)'];
+      setEstimate(existingEstimate != null ? clampToSingleDecimal(existingEstimate) : 4);
 
-      // 通知設定
       const notif = editingTask['通知設定'];
       setNotifyStart(notif?.開始日 ?? true);
       setNotifyDayBefore(notif?.期限前日 ?? true);
       setNotifyDue(notif?.期限当日 ?? true);
       setNotifyOverdue(notif?.超過 ?? true);
 
-      // マイルストーン
       const milestoneValue = editingTask['マイルストーン'] === true || editingTask['milestone'] === true;
-      console.log('[TaskModal] Loading milestone value:', {
-        'マイルストーン': editingTask['マイルストーン'],
-        'milestone': editingTask['milestone'],
-        'computed': milestoneValue,
-        'taskId': editingTask.id,
-        'taskName': editingTask.タスク名
-      });
       setIsMilestone(milestoneValue);
     } else {
-      // 新規作成モード: フォームをクリア
-      setProject('');
-      setAssignee('');
-      setAssigneeEmail('');
-      setName('');
-      setStartDate(null);
-      setEndDate(null);
-      setPriority('中');
-      setStatus('未着手');
-      setEstimate(4);
-      setNotifyStart(true);
-      setNotifyDayBefore(true);
-      setNotifyDue(true);
-      setNotifyOverdue(true);
-      setIsMilestone(false);
-      setDurationDays(1);
-      setStageId('');
+      resetFormFields(false);
+      if (defaultProjectId) {
+        setProject(defaultProjectId);
+      }
+      if (defaultStageId) {
+        setStageId(defaultStageId);
+      }
     }
-  }, [open, editingTask]);
+  }, [open, editingTask, defaultProjectId, defaultStageId, resetFormFields]);
 
   // プロジェクト選択時に工程一覧を取得
   useEffect(() => {
@@ -944,6 +937,14 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
       setAssigneeEmail(person?.メール ?? '');
     }
   }, [assignee, projectMembers, people]);
+
+  useEffect(() => {
+    if (!open || editingTask) return;
+    const timer = window.setTimeout(() => {
+      taskNameInputRef.current?.focus();
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [open, editingTask]);
 
   // マイルストーン用の日付変更ハンドラ
   const handleMilestoneDateChange = (date: Date | null) => {
@@ -1006,6 +1007,8 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const intent = submitIntentRef.current;
+    submitIntentRef.current = 'close';
     console.log('[TaskModal] handleSubmit - isMilestone state:', isMilestone);
     try {
       const payload = {
@@ -1042,13 +1045,16 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
       };
 
       if (editingTask && onUpdate) {
-        // 編集モード
         console.log('[TaskModal] Updating task with payload:', payload);
         await onUpdate(editingTask.id, payload);
       } else {
-        // 新規作成モード
         console.log('[TaskModal] Creating task with payload:', payload);
         await onSubmit(payload);
+      }
+      if (!editingTask && allowContinuous && intent === 'continue') {
+        resetFormFields(true);
+        taskNameInputRef.current?.focus();
+        return;
       }
       onOpenChange(false);
     } catch (err) {
@@ -1139,6 +1145,7 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
         <div>
           <label className="mb-1 block text-xs text-slate-500">タスク名</label>
           <input
+            ref={taskNameInputRef}
             className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -1262,9 +1269,11 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
             <input
               type="number"
               min="0"
+              step="0.1"
+              inputMode="decimal"
               className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
               value={estimate}
-              onChange={(e) => setEstimate(Number(e.target.value || 0))}
+              onChange={(e) => setEstimate(parseHoursInput(e.target.value))}
             />
           </div>
         </div>
@@ -1316,11 +1325,28 @@ function TaskModal({ open, onOpenChange, projects, people, editingTask, onSubmit
           )}
 
           {/* キャンセル・保存ボタン */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 justify-end">
             <button type="button" className="rounded-2xl border px-4 py-1.5 text-sm" onClick={() => onOpenChange(false)}>
               キャンセル
             </button>
-            <button type="submit" className="rounded-2xl bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white">
+            {!editingTask && allowContinuous && (
+              <button
+                type="submit"
+                className="rounded-2xl border border-slate-300 px-4 py-1.5 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50"
+                onClick={() => {
+                  submitIntentRef.current = 'continue';
+                }}
+              >
+                続けて追加
+              </button>
+            )}
+            <button
+              type="submit"
+              className="rounded-2xl bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white"
+              onClick={() => {
+                submitIntentRef.current = 'close';
+              }}
+            >
               {editingTask ? '保存' : '追加'}
             </button>
           </div>
@@ -1845,6 +1871,9 @@ function DashboardPage({
   canSync,
   setManagingMembersProject,
   allProjectMembers,
+  showArchivedProjects,
+  archivedProjectsCount,
+  onToggleArchivedProjects,
 }: {
   projects: ProjectWithDerived[];
   filteredTasks: Task[];
@@ -1860,6 +1889,9 @@ function DashboardPage({
   canSync: boolean;
   setManagingMembersProject: (project: Project | null) => void;
   allProjectMembers: Map<string, ProjectMember[]>;
+  showArchivedProjects: boolean;
+  archivedProjectsCount: number;
+  onToggleArchivedProjects(): void;
 }) {
   const today = new Date();
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -2000,6 +2032,23 @@ function DashboardPage({
 
       <section className="space-y-4">
         <Filters {...filtersProps} />
+        <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            {archivedProjectsCount > 0
+              ? showArchivedProjects
+                ? `${archivedProjectsCount}件の失注/引渡し済みプロジェクトを表示中です`
+                : `${archivedProjectsCount}件の失注/引渡し済みプロジェクトを非表示にしています`
+              : '失注/引渡し済みのプロジェクトはありません'}
+          </span>
+          <button
+            type="button"
+            onClick={onToggleArchivedProjects}
+            disabled={archivedProjectsCount === 0}
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {showArchivedProjects ? '非表示にする' : '表示する'}
+          </button>
+        </div>
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">並び順</span>
@@ -2058,8 +2107,8 @@ function DashboardPage({
               let dueLabel: string | undefined;
               let overdue = false;
 
-              // プロジェクトが完了している場合は期限超過判定をスキップ
-              const isProjectCompleted = project.ステータス === '完了';
+              // プロジェクトが完了/失注している場合は期限超過判定をスキップ
+              const isProjectCompleted = isClosedProjectStatus(project.ステータス);
 
               if (isProjectCompleted) {
                 // 完了済みプロジェクトは期限表示なし
@@ -2410,6 +2459,7 @@ function SchedulePage({
   canEdit,
   canSync,
   allProjectMembers,
+  onStageAddTask,
 }: {
   filtersProps: FiltersProps;
   filteredTasks: Task[];
@@ -2429,6 +2479,7 @@ function SchedulePage({
   canEdit: boolean;
   canSync: boolean;
   allProjectMembers?: Map<string, ProjectMember[]>;
+  onStageAddTask?: (stage: GanttTask) => void;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
@@ -2988,69 +3039,69 @@ function SchedulePage({
   */
 
   return (
-    <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-6 md:-my-8 lg:-mx-8">
-      {/* ヘッダー & フィルター */}
-      <section className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-6 lg:px-8 flex-shrink-0">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-start gap-3">
-            <div className="min-w-[200px]">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-slate-500">
-                <span>工程表</span>
-                <span className="text-slate-300">/</span>
-                <span>{todayLabel}</span>
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
-                <span>進行中 {tasksActiveToday.length}件</span>
-                <span className="text-slate-300">|</span>
-                <span>今日開始 {tasksStartingToday}件</span>
-                <span className="text-slate-300">|</span>
-                <span className={tasksDueToday > 0 ? 'text-rose-600 font-medium' : ''}>
-                  今日締切 {tasksDueToday}件
-                </span>
-                <span className="text-slate-300">|</span>
-                <span>表示中 {newGanttTasks.length} アイテム</span>
-              </div>
+    <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-4 md:-my-6 lg:-mx-8">
+      {/* ヘッダー */}
+      <section className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-2 sm:px-6 lg:px-8 flex-shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-[200px]">
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500">
+              <span>工程表</span>
+              <span className="text-slate-300">/</span>
+              <span>{todayLabel}</span>
             </div>
-            <div className="flex items-center gap-2 ml-auto">
-              <button
-                type="button"
-                onClick={onOpenTask}
-                disabled={!canEdit}
-                className="rounded-md border border-emerald-600 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-                title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
-              >
-                タスク追加
-              </button>
-              <button
-                type="button"
-                onClick={onOpenProject}
-                disabled={!canEdit}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
-                title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
-              >
-                プロジェクト追加
-              </button>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
+              <span>進行中 {tasksActiveToday.length}件</span>
+              <span className="text-slate-300">|</span>
+              <span>今日開始 {tasksStartingToday}件</span>
+              <span className="text-slate-300">|</span>
+              <span className={tasksDueToday > 0 ? 'text-rose-600 font-medium' : ''}>
+                今日締切 {tasksDueToday}件
+              </span>
+              <span className="text-slate-300">|</span>
+              <span>表示中 {newGanttTasks.length} アイテム</span>
             </div>
           </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-500">
-              <span>フィルターと検索</span>
-              <span className="text-slate-400">{filteredTasks.length} 件が条件に一致</span>
-            </div>
-            <Filters {...filtersProps} resultCount={filteredTasks.length} />
-            {activeFilterChips.length > 0 && (
-              <div className="flex flex-wrap gap-2 text-[11px] text-slate-600">
-                {activeFilterChips.map((chip) => (
-                  <span key={chip} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
-                    {chip}
-                  </span>
-                ))}
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onOpenTask}
+              disabled={!canEdit}
+              className="rounded-md border border-emerald-600 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+              title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+            >
+              タスク追加
+            </button>
+            <button
+              type="button"
+              onClick={onOpenProject}
+              disabled={!canEdit}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
+              title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+            >
+              プロジェクト追加
+            </button>
           </div>
         </div>
       </section>
+
+      <div className="border-b border-slate-200 bg-white px-4 py-2 sm:px-6 lg:px-8 flex-shrink-0">
+        <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-500">
+          <span>フィルターと検索</span>
+          <span className="text-slate-400">{filteredTasks.length} 件が条件に一致</span>
+        </div>
+        <div className="mt-2">
+          <Filters {...filtersProps} resultCount={filteredTasks.length} />
+        </div>
+        {activeFilterChips.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
+            {activeFilterChips.map((chip) => (
+              <span key={chip} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
+                {chip}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
 
       {filteredTasks.some(task => !task.start && !task.予定開始日) && (
         <div className="mx-4 my-2 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:mx-6 lg:mx-8">
@@ -3099,7 +3150,8 @@ function SchedulePage({
                 end: endStr,
               });
             }
-          }}
+            }}
+            onStageAddTask={onStageAddTask}
           onTaskCopy={(task, newStartDate, newEndDate) => {
             // タスクコピー処理
             const originalTask = filteredTasks.find(t => t.id === task.id);
@@ -3223,6 +3275,17 @@ interface BuildGanttOptions {
   today?: Date;
 }
 
+interface DangerTaskInfo {
+  id: string;
+  name: string;
+  projectName: string;
+  dueDateLabel: string;
+  urgencyLabel: string;
+  status: string;
+  daysDiff: number;
+  assignee: string;
+}
+
 function buildGantt(items: GanttItemInput[], options: BuildGanttOptions = {}) {
   if (!items.length) {
     return { data: [], ticks: [], min: 0, max: 0, minDate: null, maxDate: null, todayX: null };
@@ -3340,56 +3403,584 @@ function buildGantt(items: GanttItemInput[], options: BuildGanttOptions = {}) {
   return { data, ticks, min: 0, max: spanDays, minDate, maxDate, todayX };
 }
 
-function WorkloadPage({ filtersProps, tasks }: { filtersProps: FiltersProps; tasks: Task[] }) {
-  const workload = useMemo(() => {
-    const map: Record<string, { assignee: string; est: number; count: number }> = {};
-    tasks.forEach((task) => {
-      const key = task.assignee ?? task.担当者 ?? '未設定';
-      if (!map[key]) map[key] = { assignee: key, est: 0, count: 0 };
-      map[key].est += toNumber(task['工数見積(h)']);
-      map[key].count += 1;
-    });
-    return Object.values(map).sort((a, b) => b.est - a.est);
-  }, [tasks]);
+type WorkloadScale = 'week' | 'month' | 'year';
+interface DateRange {
+  start: Date;
+  end: Date;
+}
+
+function WorkloadPage({ filtersProps, tasks, projects }: { filtersProps: FiltersProps; tasks: Task[]; projects: Project[] }) {
+  const [timeScale, setTimeScale] = useState<WorkloadScale>('week');
+  const referenceDate = useMemo(() => new Date(), []);
+
+  const currentRange = useMemo(() => getPeriodRange(timeScale, referenceDate), [timeScale, referenceDate]);
+  const previousRange = useMemo(() => getPreviousRange(currentRange, timeScale), [currentRange, timeScale]);
+
+  const tasksInRange = useMemo(() => filterTasksByRange(tasks, currentRange), [tasks, currentRange]);
+  const tasksInPrevRange = useMemo(() => filterTasksByRange(tasks, previousRange), [tasks, previousRange]);
+  const workload = useMemo(() => buildWorkload(tasksInRange, currentRange), [tasksInRange, currentRange]);
+
+  const totalHours = useMemo(() => sumTaskHoursInRange(tasksInRange, currentRange), [tasksInRange, currentRange]);
+  const previousHours = useMemo(
+    () => sumTaskHoursInRange(tasksInPrevRange, previousRange),
+    [tasksInPrevRange, previousRange]
+  );
+  const totalTasks = tasksInRange.length;
+  const previousTasks = tasksInPrevRange.length;
+  const activeMembers = workload.length;
+  const avgHoursPerPerson = activeMembers ? totalHours / activeMembers : 0;
+
+  const revenueSpans = useMemo(() => buildProjectRevenueSpans(projects), [projects]);
+  const periodRevenue = useMemo(() => sumRevenueForRange(revenueSpans, currentRange), [revenueSpans, currentRange]);
+  const previousRevenue = useMemo(() => sumRevenueForRange(revenueSpans, previousRange), [revenueSpans, previousRange]);
+  const completedProjectsCount = useMemo(
+    () => countProjectsInRange(revenueSpans, currentRange),
+    [revenueSpans, currentRange]
+  );
+
+  const hoursDelta = calculateDelta(totalHours, previousHours);
+  const tasksDelta = calculateDelta(totalTasks, previousTasks);
+  const revenueDelta = calculateDelta(periodRevenue, previousRevenue);
+
+  const timelineData = useMemo(
+    () => buildTimelineData(currentRange, timeScale, tasksInRange, revenueSpans),
+    [currentRange, timeScale, tasksInRange, revenueSpans]
+  );
+
+  const periodLabel = formatPeriodLabel(currentRange, timeScale);
+  const comparisonLabel = timeScale === 'week' ? '先週比' : timeScale === 'month' ? '前月比' : '前年比';
+
+  const summaryCards = [
+    {
+      title: '稼働時間',
+      value: `${formatHours(totalHours)} h`,
+      delta: hoursDelta,
+      note: comparisonLabel,
+    },
+    {
+      title: '対象タスク',
+      value: `${totalTasks.toLocaleString()} 件`,
+      delta: tasksDelta,
+      note: comparisonLabel,
+    },
+    {
+      title: '稼ぎ（施工費ベース）',
+      value: formatCurrency(periodRevenue),
+      delta: revenueDelta,
+      note: completedProjectsCount ? `${completedProjectsCount}件のプロジェクト` : '対象プロジェクトなし',
+      accent: 'highlight' as const,
+    },
+    {
+      title: '平均稼働/人',
+      value: `${formatHours(avgHoursPerPerson)} h`,
+      delta: null,
+      note: activeMembers ? `${activeMembers} 名が担当` : '担当者なし',
+    },
+  ];
 
   return (
     <div className="space-y-4">
       <Filters {...filtersProps} />
-      <div className="grid gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <div className="h-[360px] rounded-2xl border border-slate-200 bg-white p-4">
-            <WorkloadChart data={workload} />
+      <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-500">対象期間</p>
+            <p className="text-lg font-semibold text-slate-900">{periodLabel}</p>
+          </div>
+          <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 text-sm font-medium">
+            {(['week', 'month', 'year'] as WorkloadScale[]).map((scale) => (
+              <button
+                key={scale}
+                type="button"
+                onClick={() => setTimeScale(scale)}
+                className={`rounded-full px-3 py-1 transition ${
+                  timeScale === scale ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {scale === 'week' ? '週' : scale === 'month' ? '月' : '年'}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="xl:col-span-1 space-y-3">
-          {workload.map((item) => (
-            <div key={item.assignee} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4">
-              <div>
-                <div className="font-medium text-slate-800">{item.assignee}</div>
-                <div className="text-xs text-slate-500">タスク {item.count} 件</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xl font-semibold text-slate-900">{Math.round(item.est)}</div>
-                <div className="text-xs text-slate-500">h</div>
-              </div>
-            </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {summaryCards.map((card) => (
+            <SummaryCard key={card.title} {...card} />
           ))}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 lg:col-span-3">
+            {timelineData.length ? (
+              <div className="h-[280px]">
+                <WorkloadTimelineChart data={timelineData} />
+              </div>
+            ) : (
+              <div className="flex h-[280px] items-center justify-center text-sm text-slate-500">
+                期間内に稼働や施工費データがありません
+              </div>
+            )}
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4 lg:col-span-2">
+            {workload.length ? (
+              <div className="h-[280px]">
+                <WorkloadChart data={workload} />
+              </div>
+            ) : (
+              <div className="flex h-[280px] items-center justify-center text-sm text-slate-500">
+                この期間に紐づくタスクはありません
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function WorkloadChart({ data }: { data: { assignee: string; est: number }[] }) {
+function SummaryCard({
+  title,
+  value,
+  note,
+  delta,
+  accent,
+}: {
+  title: string;
+  value: string;
+  note?: string;
+  delta: number | null;
+  accent?: 'highlight';
+}) {
+  const deltaLabel =
+    delta == null
+      ? null
+      : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`;
+  const deltaTone =
+    delta == null ? '' : delta >= 0 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50';
+
+  return (
+    <div
+      className={`flex flex-col rounded-2xl border p-4 ${
+        accent === 'highlight'
+          ? 'border-amber-200 bg-amber-50/70'
+          : 'border-slate-100 bg-slate-50/70'
+      }`}
+    >
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{title}</p>
+      <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
+      <div className="mt-2 flex items-center gap-2">
+        {deltaLabel && (
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${deltaTone}`}>{deltaLabel}</span>
+        )}
+        {note && <span className="text-xs text-slate-500">{note}</span>}
+      </div>
+    </div>
+  );
+}
+
+function getPeriodRange(scale: WorkloadScale, reference: Date): DateRange {
+  if (scale === 'week') {
+    return {
+      start: startOfWeek(reference, { weekStartsOn: 1 }),
+      end: endOfWeek(reference, { weekStartsOn: 1 }),
+    };
+  }
+  if (scale === 'month') {
+    return {
+      start: startOfMonth(reference),
+      end: endOfMonth(reference),
+    };
+  }
+  return {
+    start: startOfYear(reference),
+    end: endOfYear(reference),
+  };
+}
+
+function getPreviousRange(range: DateRange, scale: WorkloadScale): DateRange {
+  if (scale === 'week') {
+    return getPeriodRange('week', subWeeks(range.start, 1));
+  }
+  if (scale === 'month') {
+    return getPeriodRange('month', subMonths(range.start, 1));
+  }
+  return getPeriodRange('year', subYears(range.start, 1));
+}
+
+function getTaskRange(task: Task): DateRange | null {
+  const startSource = task.start ?? task.予定開始日 ?? task.実績開始日 ?? task.実績完了日 ?? task.期限 ?? null;
+  const endSource = task.end ?? task.期限 ?? task.実績完了日 ?? task.実績開始日 ?? task.予定開始日 ?? task.start ?? null;
+  const start = startSource ? parseDate(startSource) : null;
+  const end = endSource ? parseDate(endSource) : null;
+  if (!start && !end) return null;
+  const safeStart = start ?? end;
+  const safeEnd = end ?? start;
+  if (!safeStart || !safeEnd) return null;
+  return safeStart <= safeEnd ? { start: safeStart, end: safeEnd } : { start: safeEnd, end: safeStart };
+}
+
+function getOverlapRange(rangeA: DateRange, rangeB: DateRange): DateRange | null {
+  const start = rangeA.start > rangeB.start ? rangeA.start : rangeB.start;
+  const end = rangeA.end < rangeB.end ? rangeA.end : rangeB.end;
+  return start <= end ? { start, end } : null;
+}
+
+function getTaskHoursInRange(task: Task, range: DateRange): number {
+  const taskRange = getTaskRange(task);
+  if (!taskRange) return 0;
+  const overlap = getOverlapRange(taskRange, range);
+  if (!overlap) return 0;
+  const estimate = toNumber(task['工数見積(h)']);
+  if (!estimate) return 0;
+  const taskSpanDays = Math.max(1, differenceInCalendarDays(taskRange.end, taskRange.start) + 1);
+  const overlapDays = Math.max(1, differenceInCalendarDays(overlap.end, overlap.start) + 1);
+  return (estimate * overlapDays) / taskSpanDays;
+}
+
+function sumTaskHoursInRange(tasks: Task[], range: DateRange): number {
+  return tasks.reduce((sum, task) => sum + getTaskHoursInRange(task, range), 0);
+}
+
+function filterTasksByRange(tasks: Task[], range: DateRange): Task[] {
+  return tasks.filter((task) => {
+    const taskRange = getTaskRange(task);
+    return taskRange ? Boolean(getOverlapRange(taskRange, range)) : false;
+  });
+}
+
+function buildWorkload(tasks: Task[], range: DateRange) {
+  const map = new Map<string, { assignee: string; est: number; count: number }>();
+  tasks.forEach((task) => {
+    const key = (task.assignee ?? task.担当者 ?? '未設定').trim() || '未設定';
+    const entry = map.get(key) ?? { assignee: key, est: 0, count: 0 };
+    entry.est += getTaskHoursInRange(task, range);
+    entry.count += 1;
+    map.set(key, entry);
+  });
+  return Array.from(map.values())
+    .filter((item) => item.est > 0)
+    .sort((a, b) => b.est - a.est);
+}
+
+interface ProjectRevenueSpan {
+  projectId: string;
+  start: Date;
+  end: Date;
+  revenue: number;
+}
+
+function pickDate(...sources: (string | undefined | null)[]): Date | null {
+  for (const source of sources) {
+    if (!source) continue;
+    const date = parseDate(source);
+    if (date) return date;
+  }
+  return null;
+}
+
+function resolveProjectRevenueRange(project: Project): DateRange | null {
+  const start = pickDate(project.span?.start, project.開始日, project.着工日, project.現地調査日);
+  const end = pickDate(project.span?.end, project.引渡し予定日, project.竣工予定日, project.予定完了日);
+  if (!start && !end) return null;
+  const safeStart = start ?? end;
+  const safeEnd = end ?? start;
+  if (!safeStart || !safeEnd) return null;
+  return safeStart <= safeEnd ? { start: safeStart, end: safeEnd } : { start: safeEnd, end: safeStart };
+}
+
+function buildProjectRevenueSpans(projects: Project[]): ProjectRevenueSpan[] {
+  return projects
+    .map((project) => {
+      const rawAmount = project.施工費;
+      const amount = typeof rawAmount === 'number' ? rawAmount : rawAmount ? Number(rawAmount) : 0;
+      if (!amount) return null;
+      const range = resolveProjectRevenueRange(project);
+      if (!range) return null;
+      return { projectId: project.id, start: range.start, end: range.end, revenue: amount };
+    })
+    .filter((span): span is ProjectRevenueSpan => Boolean(span));
+}
+
+function getRevenueInRange(span: ProjectRevenueSpan, range: DateRange): number {
+  const overlap = getOverlapRange({ start: span.start, end: span.end }, range);
+  if (!overlap) return 0;
+  const totalDays = Math.max(1, differenceInCalendarDays(span.end, span.start) + 1);
+  const overlapDays = Math.max(1, differenceInCalendarDays(overlap.end, overlap.start) + 1);
+  return (span.revenue * overlapDays) / totalDays;
+}
+
+function sumRevenueForRange(spans: ProjectRevenueSpan[], range: DateRange): number {
+  return spans.reduce((sum, span) => sum + getRevenueInRange(span, range), 0);
+}
+
+function countProjectsInRange(spans: ProjectRevenueSpan[], range: DateRange): number {
+  return spans.filter((span) => Boolean(getOverlapRange({ start: span.start, end: span.end }, range))).length;
+}
+
+function calculateDelta(current: number, previous: number): number | null {
+  if (!previous) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+function formatHours(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return rounded.toLocaleString('ja-JP', { maximumFractionDigits: 1 });
+}
+
+function formatCurrency(value: number): string {
+  return `¥${Math.round(value).toLocaleString('ja-JP')}`;
+}
+
+function formatPeriodLabel(range: DateRange, scale: WorkloadScale): string {
+  if (scale === 'week') {
+    return `${format(range.start, 'M/d')} 〜 ${format(range.end, 'M/d')}`;
+  }
+  if (scale === 'month') {
+    return format(range.start, 'yyyy年M月');
+  }
+  return format(range.start, 'yyyy年');
+}
+
+function sumHoursForRange(tasks: Task[], start: Date, end: Date): number {
+  return sumTaskHoursInRange(tasks, { start, end });
+}
+
+function sumRevenueForWindow(spans: ProjectRevenueSpan[], start: Date, end: Date): number {
+  return spans.reduce((sum, span) => sum + getRevenueInRange(span, { start, end }), 0);
+}
+
+function buildTimelineData(
+  range: DateRange,
+  scale: WorkloadScale,
+  tasks: Task[],
+  revenueSpans: ProjectRevenueSpan[]
+) {
+  if (scale === 'week') {
+    return eachDayOfInterval(range).map((day) => {
+      const bucketStart = startOfDay(day);
+      const bucketEnd = endOfDay(day);
+      return {
+        label: format(day, 'M/d'),
+        hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
+        revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
+      };
+    });
+  }
+
+  if (scale === 'month') {
+    const weeks = eachWeekOfInterval(range, { weekStartsOn: 1 });
+    return weeks.map((weekStart) => {
+      const bucketStart = weekStart < range.start ? range.start : weekStart;
+      const bucketEndCandidate = endOfWeek(weekStart, { weekStartsOn: 1 });
+      const bucketEnd = bucketEndCandidate > range.end ? range.end : bucketEndCandidate;
+      return {
+        label: `${format(bucketStart, 'M/d')}〜${format(bucketEnd, 'M/d')}`,
+        hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
+        revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
+      };
+    });
+  }
+
+  // year
+  const months = eachMonthOfInterval(range);
+  return months.map((monthStart) => {
+    const bucketStart = monthStart < range.start ? range.start : monthStart;
+    const bucketEndCandidate = endOfMonth(monthStart);
+    const bucketEnd = bucketEndCandidate > range.end ? range.end : bucketEndCandidate;
+    return {
+      label: format(bucketStart, 'M月'),
+      hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
+      revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
+    };
+  });
+}
+
+const CRITICAL_THRESHOLD_DAYS = 2;
+
+function buildDangerTasks(tasks: Task[], projectMap: Record<string, Project>): DangerTaskInfo[] {
+  const today = startOfDay(new Date());
+  return tasks
+    .filter((task) => task.ステータス !== '完了')
+    .map((task) => {
+      const due =
+        parseDate(task.期限 ?? task.end ?? task.実績完了日 ?? task.実績開始日 ?? task.予定開始日 ?? task.start ?? null) ||
+        null;
+      if (!due) return null;
+      const diff = differenceInCalendarDays(due, today);
+      if (diff > CRITICAL_THRESHOLD_DAYS) return null;
+      const projectName = projectMap[task.projectId]?.物件名 || task.projectId;
+      const assignee = (task.assignee || task.担当者 || '').trim() || '未設定';
+      const urgencyLabel =
+        diff < 0
+          ? `${Math.abs(diff)}日超過`
+          : diff === 0
+            ? '本日締切'
+            : diff === 1
+              ? '明日締切'
+              : `${diff}日後`;
+      return {
+        id: task.id,
+        name: task.タスク名 || '（無題）',
+        projectName,
+        dueDateLabel: format(due, 'M/d (EEE)'),
+        urgencyLabel,
+        status: task.ステータス,
+        daysDiff: diff,
+        assignee,
+      };
+    })
+    .filter((item): item is DangerTaskInfo => Boolean(item))
+    .sort((a, b) => a.daysDiff - b.daysDiff);
+}
+
+function DangerTasksModal({ tasks, onClose }: { tasks: DangerTaskInfo[]; onClose(): void }) {
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const dueTodayTasks = tasks.filter((task) => task.daysDiff === 0);
+  const otherDangerTasks = tasks.filter((task) => task.daysDiff !== 0);
+
+  const renderTaskCard = (task: DangerTaskInfo) => (
+    <div
+      key={task.id}
+      className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 shadow-sm"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">{task.name}</p>
+          <p className="text-xs text-slate-500">
+            {task.projectName} ・ {task.status}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">担当: {task.assignee}</p>
+        </div>
+        <div className="text-right text-sm font-semibold text-rose-600">{task.urgencyLabel}</div>
+      </div>
+      <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+        <span>期限: {task.dueDateLabel}</span>
+        {task.daysDiff < 0 ? (
+          <span className="rounded-full bg-rose-50 px-2 py-0.5 text-rose-600">要対応</span>
+        ) : task.daysDiff === 0 ? (
+          <span className="rounded-full bg-amber-100/70 px-2 py-0.5 text-amber-700">本日締切</span>
+        ) : (
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-600">要確認</span>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-8">
+      <div className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-rose-500">リマインド</p>
+            <h3 className="text-lg font-semibold text-slate-900">要注意タスク</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100"
+            aria-label="閉じる"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="max-h-[360px] overflow-y-auto px-6 py-4 space-y-5">
+          {dueTodayTasks.length > 0 && (
+            <section>
+              <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                <span className="text-slate-900">今日が期限のタスク</span>
+                <span>{dueTodayTasks.length}件</span>
+              </div>
+              <div className="space-y-3">
+                {dueTodayTasks.map(renderTaskCard)}
+              </div>
+            </section>
+          )}
+          {otherDangerTasks.length > 0 && (
+            <section>
+              <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                <span className="text-slate-900">期限が迫っている / 超過タスク</span>
+                <span>{otherDangerTasks.length}件</span>
+              </div>
+              <div className="space-y-3">
+                {otherDangerTasks.map(renderTaskCard)}
+              </div>
+            </section>
+          )}
+          {tasks.length === 0 && (
+            <p className="py-6 text-center text-sm text-slate-500">危険なタスクはありません。</p>
+          )}
+        </div>
+        <div className="flex justify-end border-t border-slate-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+          >
+            閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WorkloadChart({ data }: { data: { assignee: string; est: number; count: number }[] }) {
   return (
     <WorkloadResponsiveContainer width="100%" height="100%">
       <WorkloadBarChart data={data} margin={{ left: 8, right: 16, top: 16, bottom: 16 }}>
         <WorkloadCartesianGrid vertical={false} strokeDasharray="3 3" />
         <WorkloadXAxis dataKey="assignee" tick={{ fontSize: 12 }} />
         <WorkloadYAxis />
-        <WorkloadTooltip formatter={(value: number) => [`${Math.round(value)} h`, '工数']} />
+        <WorkloadTooltip
+          formatter={(value: number, _name, props) => [
+            `${Math.round(value)} h`,
+            `${props?.payload?.count ?? 0} 件のタスク`,
+          ]}
+        />
         <WorkloadBar dataKey="est" radius={[6, 6, 0, 0]} fill="#0f172a" />
       </WorkloadBarChart>
+    </WorkloadResponsiveContainer>
+  );
+}
+
+function WorkloadTimelineChart({ data }: { data: { label: string; hours: number; revenue: number }[] }) {
+  return (
+    <WorkloadResponsiveContainer width="100%" height="100%">
+      <WorkloadComposedChart data={data} margin={{ left: 8, right: 16, top: 16, bottom: 16 }}>
+        <WorkloadCartesianGrid vertical={false} strokeDasharray="3 3" />
+        <WorkloadXAxis dataKey="label" tick={{ fontSize: 12 }} />
+        <WorkloadYAxis yAxisId="left" tick={{ fontSize: 11 }} width={40} />
+        <WorkloadYAxis
+          yAxisId="right"
+          orientation="right"
+          tick={{ fontSize: 11 }}
+          width={60}
+          tickFormatter={(value) => `¥${Math.round((value as number) / 1000)}k`}
+        />
+        <WorkloadTooltip
+          formatter={(value: number, name: string) =>
+            name === 'hours' ? [`${formatHours(value)} h`, '稼働'] : [formatCurrency(value), '稼ぎ']
+          }
+        />
+        <WorkloadArea
+          yAxisId="left"
+          dataKey="hours"
+          type="monotone"
+          stroke="#2563eb"
+          fill="#93c5fd"
+          fillOpacity={0.4}
+        />
+        <WorkloadLine yAxisId="right" dataKey="revenue" type="monotone" stroke="#f97316" strokeWidth={2} dot={false} />
+      </WorkloadComposedChart>
     </WorkloadResponsiveContainer>
   );
 }
@@ -3440,6 +4031,7 @@ const EMPTY_PROJECT_STAGES: Task[] = [];
 function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [taskModalDefaults, setTaskModalDefaults] = useState<{ projectId?: string; stageId?: string } | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [personModalOpen, setPersonModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -3449,13 +4041,18 @@ function App() {
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
   const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
   const [allProjectMembers, setAllProjectMembers] = useState<Map<string, ProjectMember[]>>(new Map());
+  const [dangerModalTasks, setDangerModalTasks] = useState<DangerTaskInfo[]>([]);
+  const [showDangerModal, setShowDangerModal] = useState(false);
   const loadedProjectMembersRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
+  const dangerModalShownRef = useRef(false);
   const [allActivityLogs, setAllActivityLogs] = useState<Map<string, any[]>>(new Map());
   const loadedActivityLogsRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
   const [currentUserRole, setCurrentUserRole] = useState<string | undefined>(undefined);
   const toastTimers = useRef<Map<string, number>>(new Map());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [billingAccess, setBillingAccess] = useState<BillingAccessInfo | null>(null);
+  const [billingChecking, setBillingChecking] = useState(false);
 
   // 楽観的更新のためのPending Overlayストア
   const { addPending, ackPending, rollbackPending, pending } = usePendingOverlay();
@@ -3487,12 +4084,57 @@ function App() {
     }
   }, [dismissToast]);
 
+  const refreshBillingAccess = useCallback(async () => {
+    if (!authReady || !authSupported || !user) {
+      setBillingAccess(null);
+      setBillingChecking(false);
+      return;
+    }
+    setBillingChecking(true);
+    try {
+      const info = await getBillingAccess();
+      setBillingAccess(info);
+    } catch (error) {
+      console.error('[App] 課金状態の取得に失敗しました:', error);
+    } finally {
+      setBillingChecking(false);
+    }
+  }, [authReady, authSupported, user]);
+
+  const handleCloseDangerModal = useCallback(() => {
+    setShowDangerModal(false);
+  }, []);
+
+  const openTaskModal = useCallback((defaults?: { projectId?: string; stageId?: string }) => {
+    setTaskModalDefaults(defaults ?? null);
+    setTaskModalOpen(true);
+  }, []);
+
+  const handleTaskModalOpenChange = useCallback((open: boolean) => {
+    setTaskModalOpen(open);
+    if (!open) {
+      setTaskModalDefaults(null);
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       toastTimers.current.forEach((timer: number) => window.clearTimeout(timer));
       toastTimers.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    if (!authReady) {
+      return;
+    }
+    if (!user) {
+      setBillingAccess(null);
+      setBillingChecking(false);
+      return;
+    }
+    refreshBillingAccess();
+  }, [authReady, user, refreshBillingAccess]);
 
   // 工程編集後にタスクを再読み込みする
   const reloadTasks = useCallback(async () => {
@@ -3554,6 +4196,24 @@ function App() {
 
     loadNewMembers();
   }, [state.projects, canSync]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleMembersUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectId?: string; members?: ProjectMember[] }>).detail;
+      const projectId = detail?.projectId;
+      const members = detail?.members;
+      if (!projectId || !Array.isArray(members)) return;
+      setAllProjectMembers((prev) => new Map(prev).set(projectId, members));
+      loadedProjectMembersRef.current.add(projectId);
+    };
+
+    window.addEventListener('project-members:updated', handleMembersUpdated as EventListener);
+    return () => {
+      window.removeEventListener('project-members:updated', handleMembersUpdated as EventListener);
+    };
+  }, [setAllProjectMembers]);
 
   // 現在のユーザーのロールを取得
   useEffect(() => {
@@ -3617,6 +4277,7 @@ function App() {
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('due');
+  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
 
   const projectMap = useMemo(() => {
     const map: Record<string, Project> = {};
@@ -3625,6 +4286,26 @@ function App() {
     });
     return map;
   }, [state.projects]);
+
+  const dangerTasks = useMemo(
+    () => buildDangerTasks(state.tasks, projectMap),
+    [state.tasks, projectMap]
+  );
+
+  const handleStageTaskAdd = useCallback(
+    (stage: GanttTask) => {
+      openTaskModal({ projectId: stage.projectId, stageId: stage.id });
+    },
+    [openTaskModal]
+  );
+
+  useEffect(() => {
+    if (!dangerTasks.length) return;
+    if (dangerModalShownRef.current) return;
+    dangerModalShownRef.current = true;
+    setDangerModalTasks(dangerTasks.slice(0, 8));
+    setShowDangerModal(true);
+  }, [dangerTasks]);
 
   const filteredTasks = useMemo(() => {
     // pendingの変更を適用してから、フィルタリング
@@ -3662,23 +4343,33 @@ function App() {
   );
 
   const assigneeOptions = useMemo(() => {
-    // peopleコレクションから人物リストを生成
-    const peopleNames = new Set<string>();
+    const names = new Set<string>();
     state.people.forEach((person) => {
-      if (person.氏名) peopleNames.add(person.氏名);
+      const personType = person.type ?? 'person';
+      if (personType === 'client') return;
+      const trimmed = person.氏名?.trim();
+      if (trimmed) {
+        names.add(trimmed);
+      }
     });
-
-    // タスクに割り当てられている担当者も追加（peopleに登録されていない場合のため）
-    state.tasks.forEach((task) => {
-      const value = task.assignee ?? task.担当者;
-      if (value) peopleNames.add(value);
+    allProjectMembers.forEach((members) => {
+      members.forEach((member) => {
+        const trimmed = member.displayName?.trim();
+        if (!trimmed) return;
+        const isExternal = member.memberType && member.memberType !== 'internal';
+        if (isExternal || !member.email) {
+          names.add(trimmed);
+        }
+      });
     });
-
-    // 重複を除去してソート
-    const sortedNames = Array.from(peopleNames).sort((a, b) => a.localeCompare(b, 'ja'));
-
+    assigneeFilter.forEach((selected) => {
+      if (selected) {
+        names.add(selected);
+      }
+    });
+    const sortedNames = Array.from(names).sort((a, b) => a.localeCompare(b, 'ja'));
     return [{ value: 'all', label: '全員' }, ...sortedNames.map((name) => ({ value: name, label: name }))];
-  }, [state.tasks, state.people]);
+  }, [state.people, allProjectMembers, assigneeFilter]);
 
   const statusOptions = useMemo(() => {
     const statuses = new Set<string>();
@@ -3687,6 +4378,11 @@ function App() {
     });
     return [{ value: 'all', label: '全て' }, ...Array.from(statuses).map((status) => ({ value: status, label: status }))];
   }, [state.tasks]);
+
+  const archivedProjectsCount = useMemo(
+    () => state.projects.filter((project) => isArchivedProjectStatus(project.ステータス)).length,
+    [state.projects]
+  );
 
   const hasActiveFilters =
     projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim() !== '';
@@ -3753,7 +4449,10 @@ function App() {
       }
     };
 
-    const copy = [...projectsWithDerived];
+    const baseProjects = showArchivedProjects
+      ? projectsWithDerived
+      : projectsWithDerived.filter((project) => !isArchivedProjectStatus(project.ステータス));
+    const copy = [...baseProjects];
     switch (projectSort) {
       case 'progress':
         copy.sort((a, b) => (a.progressAggregate ?? 0) - (b.progressAggregate ?? 0));
@@ -3777,7 +4476,7 @@ function App() {
         break;
     }
     return copy;
-  }, [projectsWithDerived, projectSort]);
+  }, [projectsWithDerived, projectSort, showArchivedProjects]);
 
   const editingProjectId = editingProject?.id ?? null;
   const memoizedProjectMembers = useMemo(() => {
@@ -3827,8 +4526,26 @@ function App() {
   };
 
   const handleTaskUpdate = async (taskId: string, updates: Partial<Task>) => {
+    const normalizedUpdates: Partial<Task> = { ...updates };
+    const hasJapaneseAssignee = Object.prototype.hasOwnProperty.call(updates, '担当者');
+    const hasEnglishAssignee = Object.prototype.hasOwnProperty.call(updates, 'assignee');
+    if (hasJapaneseAssignee) {
+      normalizedUpdates.assignee = updates.担当者;
+    } else if (hasEnglishAssignee && !hasJapaneseAssignee) {
+      normalizedUpdates.担当者 = updates.assignee;
+    }
+
+    const hasJapaneseMilestone = Object.prototype.hasOwnProperty.call(updates, 'マイルストーン');
+    const hasEnglishMilestone = Object.prototype.hasOwnProperty.call(updates, 'milestone');
+    if (hasJapaneseMilestone || hasEnglishMilestone) {
+      const milestoneValue = hasJapaneseMilestone ? updates.マイルストーン : updates.milestone;
+      const normalizedMilestone = milestoneValue === true;
+      normalizedUpdates.マイルストーン = normalizedMilestone;
+      normalizedUpdates.milestone = normalizedMilestone;
+    }
+
     const updatesWithTimestamp = {
-      ...updates,
+      ...normalizedUpdates,
       updatedAt: new Date().toISOString(),
     };
 
@@ -3852,7 +4569,7 @@ function App() {
 
     // 3. バックグラウンドでAPIに保存
     try {
-      await updateTask(taskId, updates);
+      await updateTask(taskId, normalizedUpdates);
 
       // 4. ACK - pendingを解除
       ackPending(taskId, opId);
@@ -3877,17 +4594,31 @@ function App() {
     担当者?: string;
     予定開始日?: string;
     期限?: string;
+    マイルストーン?: boolean;
     優先度: string;
     ステータス: string;
     ['工数見積(h)']?: number;
     担当者メール?: string;
     '通知設定'?: TaskNotificationSettings;
     parentId?: string | null;
+    assignee?: string;
+    milestone?: boolean;
   }) => {
     if (!payload.projectId) {
       pushToast({ tone: 'error', title: 'プロジェクトを選択してください' });
       return;
     }
+
+    const normalizedAssignee = payload.assignee ?? payload.担当者 ?? undefined;
+    const normalizedMilestone = payload.milestone === true || payload.マイルストーン === true;
+    const payloadForApi: Partial<Task> = {
+      ...payload,
+      担当者: normalizedAssignee,
+      assignee: normalizedAssignee,
+      マイルストーン: normalizedMilestone,
+      milestone: normalizedMilestone,
+    };
+
     if (!canSync) {
       const id = generateLocalId('task');
       const now = todayString();
@@ -3895,8 +4626,8 @@ function App() {
         id,
         projectId: payload.projectId,
         タスク名: payload.タスク名,
-        担当者: payload.担当者,
-        assignee: payload.担当者,
+        担当者: normalizedAssignee,
+        assignee: normalizedAssignee,
         担当者メール: payload.担当者メール,
         ステータス: payload.ステータス,
         優先度: payload.優先度,
@@ -3904,6 +4635,8 @@ function App() {
         期限: payload.期限,
         start: payload.予定開始日,
         end: payload.期限,
+        マイルストーン: normalizedMilestone,
+        milestone: normalizedMilestone,
         ['工数見積(h)']: payload['工数見積(h)'],
         '通知設定': payload['通知設定'],
         parentId: payload.parentId,
@@ -3923,25 +4656,27 @@ function App() {
     const tempId = `temp-${Date.now()}`;
     const now = todayString();
     const optimisticTask: Task = {
-      id: tempId,
-      projectId: payload.projectId,
-      タスク名: payload.タスク名,
-      担当者: payload.担当者,
-      assignee: payload.担当者,
-      担当者メール: payload.担当者メール,
-      ステータス: payload.ステータス,
-      優先度: payload.優先度,
-      予定開始日: payload.予定開始日,
-      期限: payload.期限,
-      start: payload.予定開始日,
-      end: payload.期限,
-      ['工数見積(h)']: payload['工数見積(h)'],
-      '通知設定': payload['通知設定'],
-      parentId: payload.parentId,
-      progress: 0,
-      createdAt: now,
-      updatedAt: now,
-    };
+        id: tempId,
+        projectId: payload.projectId,
+        タスク名: payload.タスク名,
+        担当者: normalizedAssignee,
+        assignee: normalizedAssignee,
+        担当者メール: payload.担当者メール,
+        ステータス: payload.ステータス,
+        優先度: payload.優先度,
+        予定開始日: payload.予定開始日,
+        期限: payload.期限,
+        start: payload.予定開始日,
+        end: payload.期限,
+        ['工数見積(h)']: payload['工数見積(h)'],
+        '通知設定': payload['通知設定'],
+        parentId: payload.parentId,
+        マイルストーン: normalizedMilestone,
+        milestone: normalizedMilestone,
+        progress: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
 
     setState((prev) => ({
       ...prev,
@@ -3949,7 +4684,7 @@ function App() {
     }));
 
     try {
-      const result = await createTask(payload as unknown as Partial<Task>);
+      const result = await createTask(payloadForApi);
       // 成功: 一時タスクを実際のタスクで置き換え
       setState((prev) => ({
         ...prev,
@@ -4517,7 +5252,7 @@ function App() {
       <Toaster position="top-right" />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <AppLayout
-        onOpenTask={() => setTaskModalOpen(true)}
+        onOpenTask={() => openTaskModal()}
         onOpenProject={() => {
           setEditingProject(null);
           setProjectDialogOpen(true);
@@ -4551,7 +5286,7 @@ function App() {
                 onTaskDateChange={handleTaskDateChange}
                 onTaskAssigneeChange={handleTaskAssigneeChange}
                 onTaskUpdate={handleTaskUpdate}
-                onOpenTask={() => setTaskModalOpen(true)}
+                onOpenTask={() => openTaskModal()}
                 onOpenProject={() => {
                   setProjectDialogMode('create');
                   setEditingProject(null);
@@ -4569,6 +5304,7 @@ function App() {
                 canEdit={canEdit}
                 canSync={canSync}
                 allProjectMembers={allProjectMembers}
+                onStageAddTask={handleStageTaskAdd}
               />
             }
           />
@@ -4580,7 +5316,7 @@ function App() {
                 filteredTasks={filteredTasks}
                 allTasks={state.tasks}
                 filtersProps={filtersProps}
-                onOpenTask={() => setTaskModalOpen(true)}
+                onOpenTask={() => openTaskModal()}
                 onOpenProject={() => {
                   setProjectDialogMode('create');
                   setEditingProject(null);
@@ -4598,6 +5334,9 @@ function App() {
                 canSync={canSync}
                 setManagingMembersProject={setManagingMembersProject}
                 allProjectMembers={allProjectMembers}
+                showArchivedProjects={showArchivedProjects}
+                archivedProjectsCount={archivedProjectsCount}
+                onToggleArchivedProjects={() => setShowArchivedProjects((prev) => !prev)}
               />
             }
           />
@@ -4612,7 +5351,7 @@ function App() {
                 onComplete={handleComplete}
                 onTaskUpdate={handleTaskUpdate}
                 onDeleteTask={handleDeleteTask}
-                onOpenTask={() => setTaskModalOpen(true)}
+                onOpenTask={() => openTaskModal()}
                 onOpenProject={() => {
                   setProjectDialogMode('create');
                   setEditingProject(null);
@@ -4639,7 +5378,7 @@ function App() {
                 onTaskDateChange={handleTaskDateChange}
                 onTaskAssigneeChange={handleTaskAssigneeChange}
                 onTaskUpdate={handleTaskUpdate}
-                onOpenTask={() => setTaskModalOpen(true)}
+                onOpenTask={() => openTaskModal()}
                 onOpenProject={() => {
                   setProjectDialogMode('create');
                   setEditingProject(null);
@@ -4657,10 +5396,14 @@ function App() {
                 canEdit={canEdit}
                 canSync={canSync}
                 allProjectMembers={allProjectMembers}
+                onStageAddTask={handleStageTaskAdd}
               />
             }
           />
-          <Route path="/workload" element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} />} />
+          <Route
+            path="/workload"
+            element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} projects={state.projects} />}
+          />
           <Route path="/users" element={<UserManagement projects={state.projects} />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/help" element={<HelpPage />} />
@@ -4669,11 +5412,14 @@ function App() {
       </AppLayout>
       <TaskModal
         open={taskModalOpen}
-        onOpenChange={setTaskModalOpen}
+        onOpenChange={handleTaskModalOpenChange}
         projects={state.projects}
         people={state.people}
         onSubmit={handleCreateTask}
         onNotify={pushToast}
+        defaultProjectId={taskModalDefaults?.projectId}
+        defaultStageId={taskModalDefaults?.stageId}
+        allowContinuousCreate
       />
       <TaskModal
         open={Boolean(editingTask)}
@@ -4705,10 +5451,15 @@ function App() {
               projectId: taskData.projectId || '',
               タスク名: taskData.タスク名 || '',
               担当者: taskData.担当者,
+              担当者メール: taskData.担当者メール,
               予定開始日: taskData.予定開始日,
               期限: taskData.期限,
               優先度: taskData.優先度 || '中',
               ステータス: taskData.ステータス || '未着手',
+              ['工数見積(h)']: taskData['工数見積(h)'],
+              parentId: taskData.parentId ?? null,
+              マイルストーン: taskData.マイルストーン,
+              '通知設定': taskData['通知設定'],
             });
           }}
           people={state.people}
@@ -4728,6 +5479,10 @@ function App() {
           onClose={() => setManagingMembersProject(null)}
         />
       )}
+      {showDangerModal && dangerModalTasks.length > 0 && (
+        <DangerTasksModal tasks={dangerModalTasks} onClose={handleCloseDangerModal} />
+      )}
+      <BillingGateOverlay billing={billingAccess} loading={billingChecking} onRetry={refreshBillingAccess} />
     </>
   );
 }

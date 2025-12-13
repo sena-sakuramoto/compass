@@ -1,13 +1,14 @@
 // メインのガントチャートコンポーネント
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { GanttToolbar } from './GanttToolbar';
 import { GanttTaskList } from './GanttTaskList';
 import { GanttTimeline, ProjectMilestone } from './GanttTimeline';
 import { TaskEditModal } from './TaskEditModal';
 import type { GanttTask, ViewMode } from './types';
-import { calculateDateRange, calculateDateTicks } from './utils';
+import { calculateDateRange, calculateDateTicks, calculateTodayPosition } from './utils';
 import type { ProjectMember } from '../../lib/auth-types';
+import { useJapaneseHolidaySet } from '../../lib/japaneseHolidays';
 
 interface Person {
   id: string;
@@ -30,6 +31,7 @@ interface GanttChartProps {
   projectMap?: Record<string, { ステータス?: string;[key: string]: any }>;
   people?: Person[];
   allProjectMembers?: Map<string, ProjectMember[]>;
+  onStageAddTask?: (stage: GanttTask) => void;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -45,8 +47,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   initialViewMode = 'day',
   projectMap,
   people = [],
-  allProjectMembers
+  allProjectMembers,
+  onStageAddTask,
 }) => {
+  const holidaySet = useJapaneseHolidaySet();
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
@@ -104,8 +108,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
   // 日付軸のティックを計算
   const ticks = useMemo(
-    () => calculateDateTicks(dateRange.start, dateRange.end, viewMode),
-    [dateRange, viewMode]
+    () => calculateDateTicks(dateRange.start, dateRange.end, viewMode, holidaySet),
+    [dateRange, viewMode, holidaySet]
   );
 
   // プロジェクトマイルストーンを生成（着工日、竣工予定日、引渡し予定日）
@@ -240,8 +244,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     if (!timelineElement) return;
 
     const handleWheel = (e: WheelEvent) => {
-      // Alt+スクロール（ズーム）とShift+スクロール（横スクロール）は処理しない
-      if (e.altKey || e.shiftKey) {
+      // Ctrl+スクロール（ズーム）とShift+スクロール（横スクロール）は処理しない
+      if (e.ctrlKey || e.shiftKey) {
         return;
       }
 
@@ -325,6 +329,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   };
 
   const handleTaskClickInternal = (task: GanttTask) => {
+    if (task.type === 'stage' && onStageAddTask) {
+      onStageAddTask(task);
+      return;
+    }
     setSelectedTask(task);
     if (onTaskClick) {
       onTaskClick(task);
@@ -394,15 +402,35 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     );
   }
 
+  const handleJumpToToday = useCallback(() => {
+    const baseRange = calculateDateRange(tasks);
+    setDateRange(baseRange);
+    setZoomLevel(1);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const timelineEl = timelineRef.current;
+        if (!timelineEl) return;
+        const todayPx = calculateTodayPosition(baseRange, timelineEl.scrollWidth);
+        if (todayPx == null) return;
+        const target = Math.max(todayPx - timelineEl.clientWidth / 2, 0);
+        timelineEl.scrollLeft = target;
+        setScrollLeft(target);
+      });
+    });
+  }, [tasks]);
+
   return (
-    <div ref={containerRef} className="h-full flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-      {/* ツールバー */}
-      <GanttToolbar
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-      />
+    <div ref={containerRef} className="relative h-full flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <div className="pointer-events-none absolute right-4 top-3 z-20 flex justify-end">
+        <GanttToolbar
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onToday={handleJumpToToday}
+          className="pointer-events-auto"
+        />
+      </div>
 
       {/* メインコンテンツ */}
       <div className="flex-1 flex overflow-hidden" style={{ direction: 'rtl' }}>

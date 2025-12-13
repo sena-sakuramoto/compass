@@ -50,6 +50,7 @@ export interface DateTick {
   date: Date;
   label: string;
   isWeekend: boolean;
+  isHoliday?: boolean;
 }
 
 export interface TaskBarPosition {

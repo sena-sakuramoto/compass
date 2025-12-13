@@ -1,7 +1,21 @@
-// ヘルプページ - Compassの使い方と権限説明
+// ヘルプページ - Compassの最新仕様ガイド
 
 import React, { useState } from 'react';
-import { HelpCircle, Users, Shield, UserCheck, ChevronDown, ChevronRight, Info, Database, RefreshCw } from 'lucide-react';
+import {
+  HelpCircle,
+  Users,
+  Shield,
+  UserCheck,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Database,
+  RefreshCw,
+  ListFilter,
+  CalendarDays,
+  BarChart3,
+  AlertTriangle,
+} from 'lucide-react';
 
 export function HelpPage() {
   const [expandedSection, setExpandedSection] = useState<string | null>('getting-started');
@@ -31,11 +45,7 @@ export function HelpPage() {
             <ChevronRight className="h-5 w-5 text-slate-400" />
           )}
         </button>
-        {isExpanded && (
-          <div className="p-6 pt-0 border-t border-slate-100">
-            {children}
-          </div>
-        )}
+        {isExpanded && <div className="p-6 pt-0 border-t border-slate-100">{children}</div>}
       </div>
     );
   };
@@ -43,467 +53,279 @@ export function HelpPage() {
   return (
     <div className="h-full overflow-auto bg-slate-50">
       <div className="max-w-4xl mx-auto p-6 space-y-6">
-        {/* ヘッダー */}
         <div className="bg-gradient-to-r from-teal-600 to-teal-700 rounded-2xl p-8 text-white">
           <div className="flex items-center gap-3 mb-2">
             <HelpCircle className="h-8 w-8" />
             <h1 className="text-3xl font-bold">Compass ヘルプ</h1>
           </div>
-          <p className="text-teal-100">
-            プロジェクト管理システムの使い方、権限、よくある質問
-          </p>
+          <p className="text-teal-100">最新のレイアウトと集計ルールに合わせた使い方ガイドです。</p>
         </div>
 
-        {/* Compassの使い方 */}
         <Section id="getting-started" title="Compassの使い方" icon={HelpCircle}>
           <div className="space-y-4 text-slate-700">
             <div>
               <h3 className="font-semibold text-slate-900 mb-2">Compassとは？</h3>
               <p className="text-sm">
-                Compassは、建設・設計プロジェクトを効率的に管理するためのシステムです。
-                プロジェクトの進捗管理、タスク管理、チームメンバーとのコラボレーションを一元化します。
+                建築・設計プロジェクトを横断し、ガント・タスク・稼働・人員情報を一体管理する社内ツールです。
+                2025年版ではヘッダーとフィルターバーの高さを見直し、ガントやカード領域への表示面積を最大化しました。
               </p>
             </div>
-
             <div>
-              <h3 className="font-semibold text-slate-900 mb-2">基本機能</h3>
+              <h3 className="font-semibold text-slate-900 mb-2">主な画面</h3>
               <ul className="space-y-2 text-sm">
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>プロジェクト管理:</strong> 物件ごとにプロジェクトを作成し、施主（クライアント）、施工費、ステータス、進捗を管理</span>
+                  <span><strong>ダッシュボード:</strong> プロジェクト一覧・危険タスク・フィルター結果を集約。</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>タスク管理:</strong> プロジェクト内のタスクを作成・割り当て・追跡</span>
+                  <span><strong>タスク / 工程表:</strong> ガント領域専用のズーム・今日ボタン・日/週/月切替を装備。</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>工程表:</strong> ガントチャートで全体の工程を可視化（モバイルでは自動的にシンプル表示）</span>
+                  <span><strong>稼働状況:</strong> 週・月・年の切替とサマリーカード、稼ぎタイムライン、担当者別バー。</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>人員管理:</strong> チームメンバーとゲストを管理</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>モバイル対応:</strong> スマホでも快適に使えるレスポンシブデザイン</span>
+                  <span><strong>人員管理:</strong> メンバー・ゲスト・協力者の整理と上限管理。</span>
                 </li>
               </ul>
             </div>
-
             <div>
               <h3 className="font-semibold text-slate-900 mb-2">はじめ方</h3>
               <ol className="space-y-2 text-sm list-decimal list-inside">
-                <li>左上のハンバーガーメニュー（三）から「プロジェクト」を選択</li>
-                <li>プロジェクト一覧から既存のプロジェクトを選択、または新規作成</li>
-                <li>プロジェクト内でタスクを作成し、担当者を割り当て</li>
-                <li>工程表やタスク一覧で進捗を確認・更新</li>
+                <li>左上メニューからページを選択（モバイルはハンバーガー）</li>
+                <li>ページ見出し直下のフィルターバーで対象を絞る</li>
+                <li>カード/ガントでタスク・プロジェクトを開き編集</li>
+                <li>危険タスクモーダルや稼働サマリーで進捗を確認</li>
               </ol>
             </div>
-
             <div>
-              <h3 className="font-semibold text-slate-900 mb-2">スマホでの使い方</h3>
+              <h3 className="font-semibold text-slate-900 mb-2">モバイル最適化</h3>
               <ul className="space-y-2 text-sm">
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>メニューを開く:</strong> 左上のハンバーガーアイコン（三）をタップ</span>
+                  <span>ヘッダーとフィルターが常に密着して表示され、余白がありません。</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>ログアウト:</strong> ハンバーガーメニューを開いて、下部の「ログアウト」をタップ</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>工程表:</strong> モバイルではヘッダーが非表示になり、ガントチャートが見やすく表示されます</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>編集画面:</strong> プロジェクトやタスクの編集画面は全画面表示で使いやすくなっています</span>
+                  <span>工程表はタスク一覧の幅を自動縮小し、ズーム/今日ボタンもタップしやすいサイズに固定しています。</span>
                 </li>
               </ul>
             </div>
           </div>
         </Section>
 
-        {/* メンバーとゲストの違い */}
-        <Section id="member-guest" title="メンバーとゲストの違い" icon={Users}>
+        <Section id="filters" title="ビュー構成とフィルター" icon={ListFilter}>
+          <div className="space-y-4 text-slate-700">
+            <p className="text-sm">
+              全ページで見出しの余白を詰め、フィルターをすぐ下に配置。表示件数はヘッダー左側に一本化し、重複表示をなくしました。
+            </p>
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">フィルターのポイント</h3>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>プロジェクト/担当者/ステータスはマルチセレクト。プルダウンの重なり順を最上位に固定し、カレンダーヘッダーより前面に表示します。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>担当者候補は人員管理のメンバー＋ゲストに加えて、プロジェクト編集で追加した協力者（テキストのみ含む）も自動登録されます。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>クイックフィルター（優先度/スプリント/期限）は折りたたみ式。適用数はバッジで可視化され、1クリックでリセット可能です。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>失注・引渡し済はダッシュボードでデフォルト非表示。案内帯のボタンで即切り替えできます。</span></li>
+              </ul>
+            </div>
+          </div>
+        </Section>
+
+        <Section id="schedule" title="工程表（ガントチャート）の仕様" icon={CalendarDays}>
+          <div className="space-y-4 text-slate-700">
+            <p className="text-sm">
+              工程表ではページ見出しとフィルターを分離しつつも余白をなくし、ガント領域限定のズーム/横スクロールに統一しました。
+            </p>
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">操作と表示</h3>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>ツールバーで日/週/月を切替、同列に「今日」ボタンとズーム（＋/－）。Shift+ホイールで横移動、Ctrl+ホイールでズーム（ガント領域上のみ）。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>土曜は平日と同じ配色、日曜と祝日（振替含む）は赤文字のみで強調。赤背景は廃止しました。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>日本の祝日は最新データから自動判定し、ヘッダーとガント双方に反映します。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>プロジェクト行の上にあった「日/週/月」切替を撤廃し、ガント領域専用のコントロールへ集約しました。</span></li>
+              </ul>
+            </div>
+          </div>
+        </Section>
+
+        <Section id="workload" title="稼働状況 / 稼ぎビュー" icon={BarChart3}>
+          <div className="space-y-4 text-slate-700">
+            <p className="text-sm">
+              稼働状況ページは週・月・年をワンクリックで切替え、期間内/比較期間（先週/前月/前年）の指標を揃えています。
+            </p>
+            <div>
+              <h3 className="font-semibold text-slate-900 mb-2">集計ルール</h3>
+              <ul className="space-y-2 text-sm">
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>稼働時間はタスク期間と対象期間の重なり日数で按分した工数見積(h)の合計。1日のタスクも日割りで算入します。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>稼ぎ（施工費ベース）はプロジェクトの開始〜引渡し予定をスパンとして施工費を按分。重なる日数のみを合計します。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>タイムラインは週=日別、月=週別、年=月別にバケット化し、稼働と稼ぎを同じロジックで描画。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>担当者別バーは対象期間で工数が発生した人のみ表示し、協力者のテキスト登録も即反映されます。</span></li>
+              </ul>
+            </div>
+          </div>
+        </Section>
+
+        <Section id="danger" title="危険タスクの自動アラート" icon={AlertTriangle}>
+          <div className="space-y-4 text-slate-700">
+            <p className="text-sm">
+              期限が今日を含む2日以内、または超過している未完了タスクをまとめたモーダルが朝(5〜11時)と夕方(17〜23時)にそれぞれ一度だけ自動表示されます。リマインド内では「今日が期限」と「期限が迫っている/超過」の2セクションに分かれ、担当者名も同時に表示されます。
+            </p>
+            <ul className="space-y-2 text-sm">
+              <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>Escまたは✕で閉じられ、同じ時間帯では再表示されません。</span></li>
+              <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>プロジェクト名に加えて担当者、期限（曜日付き）、本日締切/要確認/要対応のバッジを表示します。</span></li>
+              <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>今日締切のタスクだけをまとめて把握でき、期限を過ぎたものは赤バッジで強調されます。</span></li>
+            </ul>
+          </div>
+        </Section>
+
+        <Section id="member-guest" title="メンバーと協力者" icon={Users}>
           <div className="space-y-4">
             <div className="bg-teal-50 border border-teal-200 rounded-lg p-4">
               <div className="flex items-start gap-2 mb-2">
                 <Info className="h-5 w-5 text-teal-600 mt-0.5 flex-shrink-0" />
                 <div>
-                  <h3 className="font-semibold text-teal-900 mb-1">重要：人数制限</h3>
-                  <p className="text-sm text-teal-800">
-                    組織ごとに<strong>メンバー5人</strong>、<strong>ゲスト10人</strong>まで追加できます。
-                  </p>
+                  <h3 className="font-semibold text-teal-900 mb-1">人数制限</h3>
+                  <p className="text-sm text-teal-800">メンバー（社内）5名・ゲスト（協力者）10名まで追加できます。</p>
                 </div>
               </div>
             </div>
-
             <div className="grid md:grid-cols-2 gap-4">
               <div className="border-2 border-teal-200 rounded-lg p-4 bg-teal-50">
-                <h3 className="font-semibold text-teal-900 mb-3">メンバー（5人まで）</h3>
+                <h3 className="font-semibold text-teal-900 mb-3">メンバー</h3>
                 <ul className="space-y-2 text-sm text-slate-700">
-                  <li className="flex items-start gap-2">
-                    <span className="text-teal-600 mt-1">✓</span>
-                    <span>正社員・正規雇用者</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-teal-600 mt-1">✓</span>
-                    <span>長期的にプロジェクトに関わる</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-teal-600 mt-1">✓</span>
-                    <span>組織の中核メンバー</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-teal-600 mt-1">✓</span>
-                    <span>様々な役職を持てる</span>
-                  </li>
+                  <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">✓</span><span>正社員や長期参画者向け</span></li>
+                  <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">✓</span><span>全プロジェクトの編集や人員招待が可能</span></li>
+                  <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">✓</span><span>役職に応じて工程編集・人員管理にアクセス</span></li>
                 </ul>
               </div>
-
               <div className="border-2 border-slate-200 rounded-lg p-4">
-                <h3 className="font-semibold text-slate-900 mb-3">ゲスト（10人まで）</h3>
+                <h3 className="font-semibold text-slate-900 mb-3">ゲスト / 協力者</h3>
                 <ul className="space-y-2 text-sm text-slate-700">
-                  <li className="flex items-start gap-2">
-                    <span className="text-slate-400 mt-1">✓</span>
-                    <span>外部協力者・パートナー</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-slate-400 mt-1">✓</span>
-                    <span>一時的・プロジェクト単位の参加</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-slate-400 mt-1">✓</span>
-                    <span>協力会社のメンバー</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="text-slate-400 mt-1">✓</span>
-                    <span>推奨：職人、設計、施工管理など</span>
-                  </li>
+                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>協力会社・職人・外部PMなどスポット参画向け</span></li>
+                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>割り当てられたプロジェクトでのみ編集可</span></li>
+                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>メールなしでも「協力者（テキストのみ）」で登録でき、保存後すぐフィルターに反映</span></li>
                 </ul>
               </div>
             </div>
           </div>
         </Section>
 
-        {/* 役職と権限 */}
         <Section id="roles" title="役職と権限" icon={Shield}>
           <div className="space-y-4">
-            <p className="text-sm text-slate-700 mb-4">
-              各役職には異なる権限が設定されています。適切な役職を選択してメンバーを招待してください。
-            </p>
-
+            <p className="text-sm text-slate-700 mb-4">ローカル閲覧時は読み取り専用ですが、オンラインでは役職ごとに以下の権限が適用されます。</p>
             <div className="space-y-3">
-              {/* 組織管理者 */}
               <div className="border border-slate-200 rounded-lg p-4 hover:border-teal-300 transition">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-semibold text-slate-900">組織管理者</h3>
-                  <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs font-medium rounded">
-                    最高権限
-                  </span>
+                  <span className="px-2 py-1 bg-purple-100 text-purple-800 text-xs font-medium rounded">最高権限</span>
                 </div>
-                <p className="text-sm text-slate-600 mb-2">
-                  組織全体を管理し、メンバーやゲストを招待・管理できます
-                </p>
-                <div className="text-xs text-slate-500">
-                  ✓ すべてのプロジェクト管理 ✓ メンバー招待 ✓ 組織設定変更
-                </div>
+                <p className="text-sm text-slate-600">組織設定、ユーザー招待、全プロジェクトの編集が可能。</p>
               </div>
-
-              {/* プロジェクトマネージャー */}
               <div className="border border-slate-200 rounded-lg p-4 hover:border-teal-300 transition">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-semibold text-slate-900">プロジェクトマネージャー</h3>
-                  <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">
-                    推奨（メンバー）
-                  </span>
+                  <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded">推奨（メンバー）</span>
                 </div>
-                <p className="text-sm text-slate-600 mb-2">
-                  プロジェクト全体を管理し、メンバーを追加できます
-                </p>
-                <div className="text-xs text-slate-500">
-                  ✓ プロジェクト作成・編集 ✓ タスク作成・削除 ✓ メンバー招待
-                </div>
+                <p className="text-sm text-slate-600">担当プロジェクト内でのメンバー招待・タスク編集・工程調整を行います。</p>
               </div>
-
-              {/* 営業 */}
               <div className="border border-slate-200 rounded-lg p-4 hover:border-teal-300 transition">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-slate-900">営業</h3>
-                  <span className="px-2 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded">
-                    メンバー
-                  </span>
+                  <h3 className="font-semibold text-slate-900">営業 / 設計 / 施工管理</h3>
+                  <span className="px-2 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded">メンバー or ゲスト</span>
                 </div>
-                <p className="text-sm text-slate-600 mb-2">
-                  プロジェクトとタスクを管理できます
-                </p>
-                <div className="text-xs text-slate-500">
-                  ✓ プロジェクト作成 ✓ タスク作成・編集
-                </div>
+                <p className="text-sm text-slate-600">割り当てタスクの追加・更新、進捗共有が可能。</p>
               </div>
-
-              {/* 設計・施工管理 */}
-              <div className="border border-slate-200 rounded-lg p-4 hover:border-teal-300 transition">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-slate-900">設計・施工管理</h3>
-                  <span className="px-2 py-1 bg-teal-100 text-teal-800 text-xs font-medium rounded">
-                    推奨（ゲスト）
-                  </span>
-                </div>
-                <p className="text-sm text-slate-600 mb-2">
-                  タスクを作成・編集できます
-                </p>
-                <div className="text-xs text-slate-500">
-                  ✓ タスク作成・編集 ✓ 自分のタスク管理
-                </div>
-              </div>
-
-              {/* 職人 */}
-              <div className="border border-slate-200 rounded-lg p-4 hover:border-teal-300 transition">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-slate-900">職人</h3>
-                  <span className="px-2 py-1 bg-teal-100 text-teal-800 text-xs font-medium rounded">
-                    推奨（ゲスト）
-                  </span>
-                </div>
-                <p className="text-sm text-slate-600 mb-2">
-                  自分に割り当てられたタスクのみ閲覧・更新できます
-                </p>
-                <div className="text-xs text-slate-500">
-                  ✓ 自分のタスク編集のみ
-                </div>
-              </div>
-
-              {/* 閲覧者 */}
               <div className="border border-slate-200 rounded-lg p-4 hover:border-teal-300 transition">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="font-semibold text-slate-900">閲覧者</h3>
-                  <span className="px-2 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded">
-                    制限
-                  </span>
+                  <span className="px-2 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded">閲覧のみ</span>
                 </div>
-                <p className="text-sm text-slate-600 mb-2">
-                  プロジェクトとタスクを閲覧できます（編集不可）
-                </p>
-                <div className="text-xs text-slate-500">
-                  ✓ 閲覧のみ
-                </div>
+                <p className="text-sm text-slate-600">すべてのページを閲覧できますが編集はできません。</p>
               </div>
             </div>
           </div>
         </Section>
 
-        {/* キーボードショートカット */}
         <Section id="shortcuts" title="キーボードショートカット" icon={HelpCircle}>
           <div className="space-y-4">
-            <p className="text-sm text-slate-700 mb-4">
-              効率的に操作するためのキーボードショートカットです。
-            </p>
-
+            <p className="text-sm text-slate-700 mb-4">PCでの操作を効率化するショートカットです（ガント領域限定のものを含む）。</p>
             <div className="space-y-3">
               <div className="border border-slate-200 rounded-lg p-4">
-                <h3 className="font-semibold text-slate-900 mb-3">工程表（ガントチャート）</h3>
+                <h3 className="font-semibold text-slate-900 mb-3">工程表</h3>
                 <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-700">タスクを移動</span>
-                    <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">ドラッグ</kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-700">タスクをコピー</span>
-                    <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">Alt + ドラッグ</kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-700">タスク期間を変更</span>
-                    <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">両端をドラッグ</kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-700">横スクロール</span>
-                    <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">Shift + スクロール</kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-700">ズームイン/アウト</span>
-                    <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">Alt + スクロール</kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-700">表示モード切替（日/週/月）</span>
-                    <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">Alt + クリック</kbd>
-                  </div>
+                  <Shortcut label="タスク移動" value="ドラッグ" />
+                  <Shortcut label="タスクコピー" value="Alt + ドラッグ" />
+                  <Shortcut label="期間調整" value="バー両端をドラッグ" />
+                  <Shortcut label="横スクロール" value="Shift + ホイール" />
+                  <Shortcut label="ズーム（ガント領域）" value="Ctrl + ホイール" />
+                  <Shortcut label="今日に戻る / アラートを閉じる" value="ツールバー「今日」 / Esc" />
                 </div>
               </div>
-
               <div className="border border-slate-200 rounded-lg p-4">
                 <h3 className="font-semibold text-slate-900 mb-3">全般</h3>
                 <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-700">ページ再読み込み</span>
-                    <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">Ctrl + Shift + R</kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-700">スーパーリロード（キャッシュクリア）</span>
-                    <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">Ctrl + F5</kbd>
-                  </div>
+                  <Shortcut label="ページ再読み込み" value="Ctrl + Shift + R" />
+                  <Shortcut label="スーパーリロード" value="Ctrl + F5" />
                 </div>
               </div>
             </div>
-
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <div className="flex items-start gap-2">
                 <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm">
-                  <h4 className="font-semibold text-blue-900 mb-1">ヒント</h4>
-                  <p className="text-blue-800">
-                    工程表でタスクをドラッグする際、Altキーを押しながらドラッグするとタスクのコピーができます。
-                  </p>
-                </div>
+                <p className="text-sm text-blue-800">危険タスクモーダルは朝・夕それぞれ1回まで。Escキーや✕で閉じた後は次の時間帯まで再表示されません。</p>
               </div>
             </div>
           </div>
         </Section>
 
-        {/* 招待の方法 */}
         <Section id="invitation" title="メンバー/ゲストの招待方法" icon={UserCheck}>
           <div className="space-y-4 text-slate-700">
-            <div>
-              <h3 className="font-semibold text-slate-900 mb-2">招待の手順</h3>
-              <ol className="space-y-3 text-sm list-decimal list-inside">
-                <li>
-                  <strong>人員管理ページを開く</strong>
-                  <p className="ml-5 mt-1 text-slate-600">左サイドバーから「人員管理」を選択</p>
-                </li>
-                <li>
-                  <strong>「メンバー/ゲストを招待」ボタンをクリック</strong>
-                  <p className="ml-5 mt-1 text-slate-600">画面右上のボタンから招待モーダルを開く</p>
-                </li>
-                <li>
-                  <strong>区分を選択</strong>
-                  <p className="ml-5 mt-1 text-slate-600">メンバー（5人まで）またはゲスト（10人まで）を選択</p>
-                </li>
-                <li>
-                  <strong>情報を入力</strong>
-                  <p className="ml-5 mt-1 text-slate-600">メールアドレス、表示名、役職を入力</p>
-                </li>
-                <li>
-                  <strong>招待を送信</strong>
-                  <p className="ml-5 mt-1 text-slate-600">招待リンクがメールで送信されます</p>
-                </li>
-              </ol>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <div className="flex items-start gap-2">
-                <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm">
-                  <h4 className="font-semibold text-amber-900 mb-1">注意事項</h4>
-                  <ul className="space-y-1 text-amber-800">
-                    <li>• メンバー/ゲストの上限に達している場合は招待できません</li>
-                    <li>• 招待できるのは組織管理者とプロジェクトマネージャーのみです</li>
-                    <li>• 招待リンクには有効期限があります（デフォルト：7日間）</li>
-                  </ul>
-                </div>
-              </div>
+            <ol className="space-y-3 text-sm list-decimal list-inside">
+              <li>左サイドバー「人員管理」を開く</li>
+              <li>右上「メンバー/ゲストを招待」をクリック</li>
+              <li>メンバー or ゲストを選び、役職を指定</li>
+              <li>メールアドレス or 協力者名（テキストのみ）を入力</li>
+              <li>送信すると即時追加または招待メールが送られます</li>
+            </ol>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+              上限に達するとボタンが無効になります。不要なユーザーを整理してから招待してください。
             </div>
           </div>
         </Section>
 
-        {/* データの安全性 */}
         <Section id="data-safety" title="データの安全性とバックアップ" icon={Database}>
           <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="flex items-start gap-2">
-                <Database className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <h3 className="font-semibold text-green-900 mb-1">自動バックアップ</h3>
-                  <p className="text-sm text-green-800">
-                    Compassでは、すべてのデータが毎日自動的にバックアップされています。
-                  </p>
-                </div>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex gap-3">
+              <Database className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="font-semibold text-green-900 mb-1">自動バックアップ</h3>
+                <p className="text-sm text-green-800">毎日02:00にFirestore全体をスナップショットし、30日分保持します。</p>
               </div>
             </div>
-
             <div>
-              <h3 className="font-semibold text-slate-900 mb-2">バックアップの詳細</h3>
-              <div className="space-y-3 text-sm text-slate-700">
-                <div className="border-l-4 border-teal-500 pl-4">
-                  <p className="font-medium text-slate-900 mb-1">⏰ 毎日自動実行</p>
-                  <p>毎朝2:00（日本時間）にFirestoreデータベース全体のバックアップが自動作成されます。</p>
-                </div>
-
-                <div className="border-l-4 border-blue-500 pl-4">
-                  <p className="font-medium text-slate-900 mb-1">📦 30日間保持</p>
-                  <p>過去30日分のバックアップが保持されます。それ以前のバックアップは自動的に削除されます。</p>
-                </div>
-
-                <div className="border-l-4 border-purple-500 pl-4">
-                  <p className="font-medium text-slate-900 mb-1">🔒 安全な保存</p>
-                  <p>バックアップはFirebase Cloud Storageに暗号化されて保存されます。</p>
-                </div>
-              </div>
+              <h3 className="font-semibold text-slate-900 mb-2">削除データの扱い</h3>
+              <ul className="space-y-2 text-sm text-slate-700">
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>削除後30日は保留状態で復元可能。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>31日目に自動完全削除。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>バックアップは暗号化されたCloud Storageに保管。</span></li>
+              </ul>
             </div>
-
             <div>
-              <h3 className="font-semibold text-slate-900 mb-2 flex items-center gap-2">
-                <RefreshCw className="h-4 w-4 text-teal-600" />
-                削除の猶予期間
-              </h3>
-              <div className="space-y-3 text-sm text-slate-700">
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="font-medium text-blue-900 mb-2">プロジェクトやタスクを削除しても、すぐには完全削除されません</p>
-                  <ul className="space-y-2 text-blue-800">
-                    <li className="flex items-start gap-2">
-                      <span className="text-blue-600 mt-1">•</span>
-                      <span><strong>30日間の猶予期間:</strong> 削除後30日間はシステム内に保持されます</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-blue-600 mt-1">•</span>
-                      <span><strong>復元可能:</strong> 誤って削除した場合、管理者に連絡すれば復元できます</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-blue-600 mt-1">•</span>
-                      <span><strong>自動クリーンアップ:</strong> 30日経過後、自動的に完全削除されます</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                  <div className="flex items-start gap-2">
-                    <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <h4 className="font-semibold text-amber-900 mb-1">復元が必要な場合</h4>
-                      <p className="text-amber-800">
-                        誤ってプロジェクトやタスクを削除してしまった場合は、30日以内であれば復元可能です。
-                        管理者にお問い合わせください。
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-slate-900 mb-2">自動スケジュール</h3>
+              <h3 className="font-semibold text-slate-900 mb-2">自動ジョブ</h3>
               <div className="overflow-hidden rounded-lg border border-slate-200">
                 <table className="min-w-full divide-y divide-slate-200 text-sm">
                   <thead className="bg-slate-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">時刻</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">処理内容</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700">処理</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 bg-white">
-                    <tr>
-                      <td className="px-4 py-3 whitespace-nowrap font-mono text-slate-900">02:00</td>
-                      <td className="px-4 py-3 text-slate-700">Firestoreデータのバックアップ</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 whitespace-nowrap font-mono text-slate-900">03:00</td>
-                      <td className="px-4 py-3 text-slate-700">30日以上前の削除済みアイテムを完全削除</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-3 whitespace-nowrap font-mono text-slate-900">09:00</td>
-                      <td className="px-4 py-3 text-slate-700">タスクリマインダーの送信</td>
-                    </tr>
+                    <tr><td className="px-4 py-3 font-mono">02:00</td><td className="px-4 py-3">Firestoreバックアップ</td></tr>
+                    <tr><td className="px-4 py-3 font-mono">03:00</td><td className="px-4 py-3">30日超の削除データを完全削除</td></tr>
+                    <tr><td className="px-4 py-3 font-mono">09:00</td><td className="px-4 py-3">期限/開始通知を送信</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -511,47 +333,44 @@ export function HelpPage() {
           </div>
         </Section>
 
-        {/* よくある質問 */}
         <Section id="faq" title="よくある質問" icon={HelpCircle}>
-          <div className="space-y-4">
-            <div>
-              <h3 className="font-semibold text-slate-900 mb-2">Q: メンバーとゲストを途中で変更できますか？</h3>
-              <p className="text-sm text-slate-600">
-                A: はい、組織管理者が人員管理ページからユーザーの設定を変更できます。
-              </p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-slate-900 mb-2">Q: 人数制限を超えたい場合は？</h3>
-              <p className="text-sm text-slate-600">
-                A: プラン変更が必要です。管理者にお問い合わせください。
-              </p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-slate-900 mb-2">Q: プロジェクトやタスクを削除したらどうなりますか？</h3>
-              <p className="text-sm text-slate-600">
-                A: 削除後30日間はシステム内に保持され、復元可能です。30日経過後は自動的に完全削除されます。
-                詳しくは「データの安全性とバックアップ」セクションをご覧ください。
-              </p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-slate-900 mb-2">Q: 誤って削除したデータを復元できますか？</h3>
-              <p className="text-sm text-slate-600">
-                A: はい、削除後30日以内であれば復元可能です。管理者にお問い合わせください。
-              </p>
-            </div>
-
-            <div>
-              <h3 className="font-semibold text-slate-900 mb-2">Q: タスクの担当者を変更するには？</h3>
-              <p className="text-sm text-slate-600">
-                A: タスク詳細画面で担当者フィールドをクリックし、新しい担当者を選択します。
-              </p>
-            </div>
+          <div className="space-y-4 text-sm text-slate-700">
+            <FAQItem
+              question="Q: 失注や引渡し済のプロジェクトはどこで確認できますか？"
+              answer="A: ダッシュボードの案内帯にあるボタンで表示/非表示を切り替えられます。" />
+            <FAQItem
+              question="Q: 稼働時間や稼ぎの数値が以前と違うのはなぜ？"
+              answer="A: タスク/プロジェクト期間との重なり日数で按分する方式に刷新したためです。週・月・年いずれも同じロジックです。" />
+            <FAQItem
+              question="Q: 協力者をテキストで追加したのにフィルターに出ません。"
+              answer="A: プロジェクト編集で保存後に自動反映されます。反映されない場合はページを再読込してください。" />
+            <FAQItem
+              question="Q: 危険タスクモーダルが頻繁に表示されます。"
+              answer="A: 朝(5〜11時)と夕方(17〜23時)でそれぞれ1回のみ表示されます。Escまたは✕で閉じるとその時間帯は抑止されます。" />
+            <FAQItem
+              question="Q: 祝日や振替休日はどうやって反映されていますか？"
+              answer="A: 日本の祝日データセットを起動時に読み込み、日曜と同じ赤文字で表示します。特別な設定は不要です。" />
           </div>
         </Section>
       </div>
+    </div>
+  );
+}
+
+function Shortcut({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-slate-700">{label}</span>
+      <kbd className="px-2 py-1 bg-slate-100 border border-slate-300 rounded text-xs font-mono">{value}</kbd>
+    </div>
+  );
+}
+
+function FAQItem({ question, answer }: { question: string; answer: string }) {
+  return (
+    <div>
+      <h3 className="font-semibold text-slate-900 mb-1">{question}</h3>
+      <p className="text-slate-600">{answer}</p>
     </div>
   );
 }

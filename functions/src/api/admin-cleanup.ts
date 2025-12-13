@@ -4,6 +4,9 @@ import { getUser } from '../lib/users';
 import { resolveAuthHeader, verifyToken } from '../lib/auth';
 import { canManageUsers } from '../lib/access-control';
 import type { TaskInput } from '../lib/firestore';
+import { ensureFirebaseAdmin } from '../lib/firebaseAdmin';
+
+ensureFirebaseAdmin();
 
 const router = Router();
 const db = getFirestore();

@@ -1,6 +1,9 @@
 // ID採番ユーティリティ
 
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { ensureFirebaseAdmin } from './firebaseAdmin';
+
+ensureFirebaseAdmin();
 
 const ORG_ID = process.env.ORG_ID || 'archi-prisma';
 

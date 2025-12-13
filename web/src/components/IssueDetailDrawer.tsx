@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { X, Save, Trash2, Calendar, User, Tag, Flag, Clock, Send, Loader2 } from 'lucide-react';
 import type { Task, Project, Person } from '../lib/types';
 import { apiFetch } from '../lib/api';
+import { clampToSingleDecimal, parseHoursInput } from '../lib/number';
 
 interface Comment {
   id: string;
@@ -59,12 +60,18 @@ export function IssueDetailDrawer({
   }, []);
 
   useEffect(() => {
-    if (task) {
-      setFormData({ ...task });
-      fetchComments(task.id);
-    } else {
+    if (!task) {
+      setFormData({});
       setComments([]);
+      return;
     }
+
+    setFormData({
+      ...task,
+      '工数見積(h)': clampToSingleDecimal(task['工数見積(h)'] ?? 0),
+      '工数実績(h)': clampToSingleDecimal(task['工数実績(h)'] ?? 0),
+    });
+    fetchComments(task.id);
   }, [task, fetchComments]);
 
   // コメントを投稿
@@ -340,8 +347,11 @@ export function IssueDetailDrawer({
               </label>
               <input
                 type="number"
-                value={formData['工数見積(h)'] || ''}
-                onChange={(e) => setFormData({ ...formData, '工数見積(h)': parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                inputMode="decimal"
+                value={formData['工数見積(h)'] ?? ''}
+                onChange={(e) => setFormData({ ...formData, '工数見積(h)': parseHoursInput(e.target.value) })}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition"
               />
             </div>
@@ -354,8 +364,11 @@ export function IssueDetailDrawer({
               </label>
               <input
                 type="number"
-                value={formData['工数実績(h)'] || ''}
-                onChange={(e) => setFormData({ ...formData, '工数実績(h)': parseFloat(e.target.value) || 0 })}
+                min="0"
+                step="0.1"
+                inputMode="decimal"
+                value={formData['工数実績(h)'] ?? ''}
+                onChange={(e) => setFormData({ ...formData, '工数実績(h)': parseHoursInput(e.target.value) })}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none transition"
               />
             </div>

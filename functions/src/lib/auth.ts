@@ -1,5 +1,7 @@
 import admin from 'firebase-admin';
 import type { Request, Response, NextFunction } from 'express';
+import { getUser as fetchUserDoc } from './users';
+import { evaluateBillingAccess, getOrgBilling } from './billing';
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -271,7 +273,11 @@ export async function ensureUserDocument(uid: string, email: string): Promise<an
   }
 }
 
-export function authMiddleware(): (req: AuthedRequest, res: Response, next: NextFunction) => Promise<void> {
+interface AuthMiddlewareOptions {
+  skipBillingCheck?: boolean;
+}
+
+export function authMiddleware(options?: AuthMiddlewareOptions): (req: AuthedRequest, res: Response, next: NextFunction) => Promise<void> {
   return async (req, res, next) => {
     const { header, sources } = resolveAuthHeader(req);
 
@@ -297,6 +303,26 @@ export function authMiddleware(): (req: AuthedRequest, res: Response, next: Next
 
     // ユーザードキュメントを確保（存在しない場合は招待から作成）
     await ensureUserDocument(decoded.uid, decoded.email || '');
+
+    const userRecord = await fetchUserDoc(decoded.uid);
+    if (!userRecord) {
+      console.error('[Auth] User record not found for:', decoded.uid);
+      res.status(401).json({ error: 'User not found' });
+      return;
+    }
+
+    if (!options?.skipBillingCheck) {
+      const billingDoc = await getOrgBilling(userRecord.orgId);
+      const billingAccess = evaluateBillingAccess(userRecord, billingDoc);
+      if (!billingAccess.allowed) {
+        res.status(402).json({
+          error: 'Billing required',
+          reason: billingAccess.reason,
+          planType: billingAccess.planType,
+        });
+        return;
+      }
+    }
 
     console.log('[Auth] Authentication successful for:', decoded.email);
     req.user = decoded;

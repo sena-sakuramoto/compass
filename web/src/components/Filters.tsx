@@ -271,10 +271,6 @@ export function Filters(props: FiltersProps) {
         </div>
       )}
 
-      {/* 結果件数 */}
-      {typeof resultCount === 'number' ? (
-        <div className="text-xs text-slate-500 md:text-right">表示件数: {resultCount}</div>
-      ) : null}
     </div>
   );
 }

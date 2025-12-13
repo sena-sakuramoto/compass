@@ -32,7 +32,10 @@ export function NotificationBell() {
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; right: number } | null>(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -55,13 +58,27 @@ export function NotificationBell() {
   }, [user]);
 
   // 外部クリックで閉じる
+  const updateDropdownPosition = () => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const top = rect.bottom + window.scrollY + 8;
+    const right = window.innerWidth - rect.right - window.scrollX;
+    setDropdownPosition({ top, right });
+  };
+
   useEffect(() => {
     if (!showDropdown) return;
+    updateDropdownPosition();
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowDropdown(false);
+      const target = event.target as Node;
+      if (
+        containerRef.current?.contains(target) ||
+        dropdownRef.current?.contains(target)
+      ) {
+        return;
       }
+      setShowDropdown(false);
     };
 
     const handleEscape = (event: KeyboardEvent) => {
@@ -70,12 +87,18 @@ export function NotificationBell() {
       }
     };
 
+    const handleResize = () => updateDropdownPosition();
+
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('keydown', handleEscape);
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('scroll', handleResize, true);
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleResize, true);
     };
   }, [showDropdown]);
 
@@ -322,9 +345,14 @@ export function NotificationBell() {
   const totalUnread = unreadCount + invitations.length;
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative" ref={containerRef}>
       <button
-        onClick={() => setShowDropdown(!showDropdown)}
+        ref={triggerRef}
+        onClick={() => {
+          const next = !showDropdown;
+          setShowDropdown(next);
+          if (next) updateDropdownPosition();
+        }}
         className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
         title="通知"
       >
@@ -336,8 +364,12 @@ export function NotificationBell() {
         )}
       </button>
 
-      {showDropdown && (
-        <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-[9999]">
+      {showDropdown && dropdownPosition && (
+        <div
+          ref={dropdownRef}
+          className="fixed w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-[9999]"
+          style={{ top: dropdownPosition.top, right: dropdownPosition.right }}
+        >
           <div className="p-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">通知</h3>
           </div>

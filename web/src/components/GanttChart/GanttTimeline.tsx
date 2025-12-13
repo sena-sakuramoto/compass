@@ -77,6 +77,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
   const dragStartX = useRef<number>(0);
+  const touchStateRef = useRef<{
+    initialDistance: number;
+    lastDistance: number;
+    pinch: boolean;
+  } | null>(null);
 
   // 個別タスクのドラッグ時に選択中の全タスクも一緒に移動
   const handleTaskUpdateWithBatch = (task: GanttTask, newStartDate: Date, newEndDate: Date) => {
@@ -105,9 +110,9 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   };
 
 
-  // Alt+スクロールでズーム
+  // Ctrl+スクロールでズーム
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.altKey && onZoom) {
+    if (e.ctrlKey && onZoom) {
       e.preventDefault();
       e.stopPropagation();
 
@@ -191,6 +196,47 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     setSelectionEnd(null);
   };
 
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 2 && onZoom) {
+      const [touch1, touch2] = Array.from(e.touches);
+      const dx = touch2.clientX - touch1.clientX;
+      const dy = touch2.clientY - touch1.clientY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      touchStateRef.current = {
+        initialDistance: distance,
+        lastDistance: distance,
+        pinch: true,
+      };
+      return;
+    }
+    touchStateRef.current = null;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (touchStateRef.current?.pinch && e.touches.length === 2 && onZoom) {
+      const [touch1, touch2] = Array.from(e.touches);
+      const dx = touch2.clientX - touch1.clientX;
+      const dy = touch2.clientY - touch1.clientY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const state = touchStateRef.current;
+      const delta = distance - state.lastDistance;
+
+      if (Math.abs(delta) > 6) {
+        const direction = delta > 0 ? 'in' : 'out';
+        onZoom(direction);
+        touchStateRef.current = {
+          ...state,
+          lastDistance: distance,
+        };
+      }
+      return;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    touchStateRef.current = null;
+  };
+
   // 選択タスクのドラッグ移動開始
   const handleSelectionDragStart = (e: React.MouseEvent) => {
     if (selectedTaskIds.size === 0) return;
@@ -254,6 +300,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
   // 今日の位置を計算
   const todayPosition = calculateTodayPosition(dateRange, containerWidth);
+  const columnWidth = ticks.length > 0 ? containerWidth / ticks.length : containerWidth;
 
   // プロジェクトごとにグループ化（タスクがないプロジェクトも含める）
   const projectGroups = useMemo(() => {
@@ -390,26 +437,23 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       </div>
 
       {/* タスクバー描画エリア */}
-      <div className="relative bg-white" style={{ height: `${totalHeight}px` }} onMouseDown={handleMouseDown} onWheel={handleWheel}>
+      <div
+        className="relative bg-white"
+        style={{ height: `${totalHeight}px` }}
+        onMouseDown={handleMouseDown}
+        onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+      >
           {/* グリッド背景 */}
           <div className="absolute inset-0">
             {/* 縦線（日付の区切り） */}
             {ticks.map((tick, index) => {
-              const x = (index / ticks.length) * containerWidth;
-              const isWeekend = tick.isWeekend;
-
+              const x = index * columnWidth;
               return (
                 <React.Fragment key={index}>
-                  {/* 週末の背景 */}
-                  {isWeekend && (
-                    <div
-                      className="absolute top-0 bottom-0 bg-slate-50/70 pointer-events-none"
-                      style={{
-                        left: `${x}px`,
-                        width: `${containerWidth / ticks.length}px`
-                      }}
-                    />
-                  )}
                   {/* 縦線 */}
                   {index > 0 && (
                     <div
@@ -517,7 +561,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                   className="absolute top-0 bottom-0 bg-blue-100/40 pointer-events-none"
                   style={{
                     left: `${todayPosition}px`,
-                    width: `${containerWidth / ticks.length}px`,
+                    width: `${columnWidth}px`,
                   }}
                 />
                 {/* 今日の線 - 細い青い点線 */}

@@ -96,7 +96,7 @@ export function MultiSelect({
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+        <div className="absolute z-[120] mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
           {/* 「すべて」オプション */}
           <label
             className={`flex cursor-pointer items-center gap-2 px-3 py-2 transition hover:bg-slate-50 ${

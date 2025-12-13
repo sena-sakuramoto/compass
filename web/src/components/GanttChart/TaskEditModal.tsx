@@ -6,6 +6,7 @@ import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import type { GanttTask } from './types';
 import type { ProjectMember } from '../../lib/auth-types';
+import { parseHoursInput } from '../../lib/number';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -433,9 +434,11 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
               <input
                 type="number"
                 min="0"
+                step="0.1"
+                inputMode="decimal"
                 className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={editedTask.estimatedHours || ''}
-                onChange={(e) => setEditedTask({ ...editedTask, estimatedHours: Number(e.target.value || 0) })}
+                value={editedTask.estimatedHours ?? ''}
+                onChange={(e) => setEditedTask({ ...editedTask, estimatedHours: parseHoursInput(e.target.value) })}
               />
             </div>
           </div>

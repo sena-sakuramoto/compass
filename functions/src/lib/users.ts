@@ -2,6 +2,9 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { User, UserInput, Organization, MemberType } from './auth-types';
 import { Role, getRolePermissions } from './roles';
+import { ensureFirebaseAdmin } from './firebaseAdmin';
+
+ensureFirebaseAdmin();
 
 const db = getFirestore();
 const auth = getAuth();

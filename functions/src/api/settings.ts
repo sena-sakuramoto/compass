@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { ensureFirebaseAdmin } from '../lib/firebaseAdmin';
+
+ensureFirebaseAdmin();
 
 const db = getFirestore();
 

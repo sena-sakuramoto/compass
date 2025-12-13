@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
@@ -13,6 +13,7 @@ import { GoogleDriveFolderPicker } from './GoogleDriveFolderPicker';
 import { ClientSelector } from './ClientSelector';
 import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
 import { formatDate, formatJapaneseEra } from '../lib/date';
+import { parseHoursInput } from '../lib/number';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -32,7 +33,19 @@ interface ProjectEditDialogProps {
   onStagesChanged?: () => void | Promise<void>;
 }
 
-const STATUS_OPTIONS = ['未着手', '進行中', '確認待ち', '保留', '完了', '計画中', '見積', '実施中', '設計中'];
+const STATUS_OPTIONS = [
+  '未着手',
+  '進行中',
+  '確認待ち',
+  '保留',
+  '完了',
+  '完了（引渡し済）',
+  '計画中',
+  '見積',
+  '実施中',
+  '設計中',
+  '失注',
+];
 const PRIORITY_OPTIONS = ['高', '中', '低'];
 
 // 職種の選択肢
@@ -110,6 +123,8 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
   const [newTaskNotifyDue, setNewTaskNotifyDue] = useState(true);
   const [newTaskNotifyOverdue, setNewTaskNotifyOverdue] = useState(true);
   const [newTaskIsMilestone, setNewTaskIsMilestone] = useState(false);
+  const [newTaskKeepOpen, setNewTaskKeepOpen] = useState(false);
+  const newTaskNameInputRef = useRef<HTMLInputElement | null>(null);
   const [taskCreating, setTaskCreating] = useState(false);
 
   // 工程管理用の状態
@@ -122,9 +137,41 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
 const [stageEndDate, setStageEndDate] = useState('');
 const [stageSaving, setStageSaving] = useState(false);
 const [newTaskStageId, setNewTaskStageId] = useState('');
-const [logsExpanded, setLogsExpanded] = useState(false);
+  const [logsExpanded, setLogsExpanded] = useState(false);
 const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(null);
-const holidaySet = useJapaneseHolidaySet();
+  const holidaySet = useJapaneseHolidaySet();
+  const broadcastMemberUpdate = useCallback((projectId: string, members: ProjectMember[]) => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('project-members:updated', { detail: { projectId, members } }));
+  }, []);
+
+  const resetInlineTaskForm = useCallback((keepContext: boolean) => {
+    setNewTaskName('');
+    setNewTaskStartDate(null);
+    setNewTaskEndDate(null);
+    setNewTaskIsMilestone(false);
+    if (keepContext) {
+      return;
+    }
+    setNewTaskAssignee('');
+    setNewTaskAssigneeEmail('');
+    setNewTaskPriority('中');
+    setNewTaskStatus('未着手');
+    setNewTaskEstimate(4);
+    setNewTaskNotifyStart(true);
+    setNewTaskNotifyDayBefore(true);
+    setNewTaskNotifyDue(true);
+    setNewTaskNotifyOverdue(true);
+    setNewTaskStageId('');
+  }, []);
+
+  useEffect(() => {
+    if (!showTaskForm) return;
+    const timer = window.setTimeout(() => {
+      newTaskNameInputRef.current?.focus();
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [showTaskForm]);
 
   useEffect(() => {
     if (project) {
@@ -292,9 +339,9 @@ const holidaySet = useJapaneseHolidaySet();
     }
   };
 
-  const loadCollaborators = async (force = false): Promise<void> => {
-    if (collaboratorsLoading) return;
-    if (!force && collaboratorsLoaded) return;
+const loadCollaborators = async (force = false): Promise<void> => {
+  if (collaboratorsLoading) return;
+  if (!force && collaboratorsLoaded) return;
 
     try {
       setCollaboratorsLoading(true);
@@ -313,6 +360,130 @@ const holidaySet = useJapaneseHolidaySet();
       setCollaboratorsLoaded(true);
     } finally {
       setCollaboratorsLoading(false);
+    }
+  };
+
+  const resetInviteForm = () => {
+    setInviteEmail('');
+    setInviteName('');
+    setInviteRole('member');
+    setInviteJob('');
+    setInviteMessage('');
+    setSelectedCandidateId('');
+    setSelectedCollaboratorId('');
+    setInputMode('email');
+    setShowInviteForm(false);
+  };
+
+  const buildMemberInputFromState = (mode: 'any' | 'textOnly' = 'any'): ProjectMemberInput | null => {
+    const trimmedName = inviteName.trim();
+    const trimmedEmail = inviteEmail.trim().toLowerCase();
+    const trimmedMessage = inviteMessage.trim();
+    const includeEmailInputs = mode === 'any';
+
+    const commonFields = {
+      role: inviteRole,
+      jobTitle: inviteJob || undefined,
+      message: trimmedMessage ? trimmedMessage : undefined,
+    };
+
+    if (mode === 'textOnly' && inputMode !== 'text') {
+      return null;
+    }
+
+    if (selectedCandidateId && includeEmailInputs) {
+      const candidate = manageableUsers.find((user) => user.id === selectedCandidateId);
+      const candidateEmail = candidate?.email?.trim().toLowerCase();
+      if (candidateEmail) {
+        return {
+          ...commonFields,
+          email: candidateEmail,
+        };
+      }
+    }
+
+    if (selectedCollaboratorId) {
+      const collaborator = collaborators.find((collab) => collab.id === selectedCollaboratorId);
+      if (collaborator) {
+        const collaboratorEmail = collaborator.email?.trim().toLowerCase();
+        const collaboratorName = collaborator.name?.trim();
+        if (collaboratorEmail && includeEmailInputs) {
+          return {
+            ...commonFields,
+            email: collaboratorEmail,
+          };
+        }
+        if (collaboratorName) {
+          return {
+            ...commonFields,
+            displayName: collaboratorName,
+          };
+        }
+      }
+    }
+
+    if (includeEmailInputs && inputMode === 'email' && trimmedEmail) {
+      return {
+        ...commonFields,
+        email: trimmedEmail,
+      };
+    }
+
+    if (inputMode === 'text' && trimmedName) {
+      return {
+        ...commonFields,
+        displayName: trimmedName,
+      };
+    }
+
+    return null;
+  };
+
+  const submitMemberInvite = async (projectId: string, input: ProjectMemberInput) => {
+    const token = await getAuthToken();
+    const response = await fetch(`${BASE_URL}/projects/${projectId}/members`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildAuthHeaders(token),
+      },
+      body: JSON.stringify(input),
+    });
+
+    if (!response.ok) {
+      let message = 'メンバーの追加に失敗しました';
+      try {
+        const data = await response.json();
+        if (data?.error) message = data.error;
+      } catch {
+        try {
+          const text = await response.text();
+          if (text) message = text;
+        } catch {
+          // ignore
+        }
+      }
+      throw new Error(message);
+    }
+
+    const members = await listProjectMembers(projectId);
+    setProjectMembers(members);
+    broadcastMemberUpdate(projectId, members);
+    await Promise.all([loadManageableUsers(true), loadCollaborators(true)]);
+  };
+
+  const tryAddPendingTextCollaborator = async (projectId: string) => {
+    if (!showInviteForm) return;
+    const memberInput = buildMemberInputFromState('textOnly');
+    if (!memberInput) return;
+
+    try {
+      await submitMemberInvite(projectId, memberInput);
+      toast.success('協力者をメンバーとして追加しました');
+      resetInviteForm();
+    } catch (error) {
+      console.error('[ProjectEditDialog] Failed to auto-add collaborator:', error);
+      toast.error(error instanceof Error ? error.message : '協力者の追加に失敗しました');
     }
   };
 
@@ -352,101 +523,29 @@ const holidaySet = useJapaneseHolidaySet();
     e.preventDefault();
 
     if (!project?.id) {
-      setError('\u30d7\u30ed\u30b8\u30a7\u30af\u30c8ID\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093');
+      setError('プロジェクトを保存してからメンバーを追加してください');
       return;
     }
 
     setError(null);
-
-    const input: ProjectMemberInput = {
-      role: inviteRole,
-      jobTitle: inviteJob || undefined,
-      message: inviteMessage || undefined,
-    };
-
-    if (selectedCandidateId) {
-      const selectedUser = manageableUsers.find(user => user.id === selectedCandidateId);
-      const trimmedEmail = selectedUser?.email?.trim();
-      if (trimmedEmail) {
-        input.email = trimmedEmail;
-      } else {
-        setError('選択したメンバーのメールアドレスを取得できませんでした');
-        return;
-      }
-    } else if (selectedCollaboratorId) {
-      const collaborator = collaborators.find(collab => collab.id === selectedCollaboratorId);
-      if (collaborator) {
-        const trimmedEmail = collaborator.email?.trim();
-        if (trimmedEmail) {
-          input.email = trimmedEmail;
-        } else {
-          const trimmedName = collaborator.name?.trim();
-          if (trimmedName) {
-            input.displayName = trimmedName;
-          }
-        }
-      }
-
-      if (!input.email && !input.displayName) {
-        setError('協力者の情報に名前がありません。名前を入力してください');
-        return;
-      }
-    } else if (inputMode === 'email') {
-      if (!inviteEmail || !inviteEmail.trim()) {
-        setError('\u30e1\u30fc\u30eb\u30a2\u30c9\u30ec\u30b9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
-        return;
-      }
-      input.email = inviteEmail.trim();
-    } else {
-      if (!inviteName || !inviteName.trim()) {
-        setError('\u540d\u524d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
-        return;
-      }
-      input.displayName = inviteName.trim();
-    }
-
-    if (!input.email && !input.displayName) {
-      setError('\u30e1\u30fc\u30eb\u30a2\u30c9\u30ec\u30b9\u307e\u305f\u306f\u540d\u524d\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
+    const memberInput = buildMemberInputFromState('any');
+    if (!memberInput) {
+      setError('追加するメンバー情報を入力してください');
       return;
     }
 
     try {
       setSubmitting(true);
-
-      const token = await getAuthToken();
-      const response = await fetch(`${BASE_URL}/projects/${project.id}/members`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...buildAuthHeaders(token),
-        },
-        body: JSON.stringify(input),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to invite member');
-      }
-
-      // \u30e1\u30f3\u30d0\u30fc\u4e00\u89a7\u3092\u518d\u8aad\u307f\u8fbc\u307f
-      const members = await listProjectMembers(project.id);
-      setProjectMembers(members);
-      await loadManageableUsers(true);
-      await loadCollaborators(true);
-
-      setSuccess('\u30e1\u30f3\u30d0\u30fc\u3092\u8ffd\u52a0\u3057\u307e\u3057\u305f');
-      setInviteEmail('');
-      setInviteName('');
-      setInviteRole('member');
-      setInviteJob('');
-      setInviteMessage('');
-      setSelectedCandidateId('');
-      setSelectedCollaboratorId('');
-      setInputMode('email');
-      setShowInviteForm(false);
+      await submitMemberInvite(project.id, memberInput);
+      const successMessage = memberInput.displayName && !memberInput.email
+        ? '協力者をメンバーとして追加しました'
+        : 'メンバーを追加しました';
+      toast.success(successMessage);
+      setSuccess('メンバーを追加しました');
+      resetInviteForm();
     } catch (err: any) {
       console.error('Error inviting member:', err);
-      setError(err.message || '\u30e1\u30f3\u30d0\u30fc\u306e\u8ffd\u52a0\u306b\u5931\u6557\u3057\u307e\u3057\u305f');
+      setError(err instanceof Error ? err.message : 'メンバーの追加に失敗しました');
     } finally {
       setSubmitting(false);
     }
@@ -469,6 +568,7 @@ const holidaySet = useJapaneseHolidaySet();
       try {
         const members = await listProjectMembers(project.id);
         setProjectMembers(members);
+        broadcastMemberUpdate(project.id, members);
       } catch (memberLoadErr) {
         console.error('Failed to reload members:', memberLoadErr);
         // エラーがあっても空配列で続行
@@ -509,6 +609,7 @@ const holidaySet = useJapaneseHolidaySet();
       setSuccess('メンバーのロールを更新しました');
       const members = await listProjectMembers(project.id);
       setProjectMembers(members);
+      broadcastMemberUpdate(project.id, members);
     } catch (err) {
       console.error('Error updating member:', err);
       setError('メンバーの更新に失敗しました');
@@ -534,6 +635,7 @@ const holidaySet = useJapaneseHolidaySet();
       setSuccess('メンバーの職種を更新しました');
       const members = await listProjectMembers(project.id);
       setProjectMembers(members);
+      broadcastMemberUpdate(project.id, members);
     } catch (err) {
       console.error('Error updating member job type:', err);
       setError('職種の更新に失敗しました');
@@ -551,6 +653,11 @@ const holidaySet = useJapaneseHolidaySet();
       // 楽観的更新: 先にローカルstateを更新
       if (onSaveLocal && project?.id) {
         onSaveLocal(updatedProject);
+      }
+
+      const effectiveProjectId = project?.id || formData.id;
+      if (effectiveProjectId) {
+        await tryAddPendingTextCollaborator(effectiveProjectId);
       }
 
       // ダイアログを閉じる
@@ -577,36 +684,6 @@ const holidaySet = useJapaneseHolidaySet();
         toast.success('プロジェクトを作成しました');
       }
 
-      // 協力者が選択されている場合、メンバーとして追加
-      if (selectedCollaboratorId && inviteName && formData.id) {
-        try {
-          const token = await getAuthToken();
-          const body = {
-            displayName: inviteName,
-            role: 'member' as const,
-            jobTitle: inviteJob || undefined,
-          };
-
-          const response = await fetch(`${BASE_URL}/projects/${formData.id}/members`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...buildAuthHeaders(token),
-            },
-            body: JSON.stringify(body),
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`メンバー追加失敗: ${errorText}`);
-          }
-
-          toast.success('協力者をメンバーとして追加しました');
-        } catch (memberError) {
-          console.error('[ProjectEditDialog] メンバー追加エラー:', memberError);
-          toast.error(`メンバーの追加に失敗しました: ${memberError instanceof Error ? memberError.message : String(memberError)}`);
-        }
-      }
     } catch (error) {
       console.error('プロジェクトの保存に失敗しました:', error);
       toast.error('保存に失敗しました');
@@ -669,8 +746,12 @@ const holidaySet = useJapaneseHolidaySet();
     }
   };
 
-  // マイルストーンチェックボックスが有効かどうかを判定
-  const isMilestoneCheckboxEnabled = newTaskStartDate && newTaskEndDate && newTaskStartDate.getTime() === newTaskEndDate.getTime();
+  // 単日選択済みかどうか（旧ロジック互換）
+  const hasSingleDaySelection = Boolean(
+    newTaskStartDate &&
+    newTaskEndDate &&
+    newTaskStartDate.getTime() === newTaskEndDate.getTime()
+  );
 
   const handleCreateTask = async () => {
     if (!newTaskName.trim() || !project?.id || !onTaskCreate) return;
@@ -698,22 +779,13 @@ const holidaySet = useJapaneseHolidaySet();
         projectId: project.id,
       });
 
-      // フォームをリセット
-      setNewTaskName('');
-      setNewTaskAssignee('');
-      setNewTaskAssigneeEmail('');
-      setNewTaskStartDate(null);
-      setNewTaskEndDate(null);
-      setNewTaskPriority('中');
-      setNewTaskStatus('未着手');
-      setNewTaskEstimate(4);
-      setNewTaskNotifyStart(true);
-      setNewTaskNotifyDayBefore(true);
-      setNewTaskNotifyDue(true);
-      setNewTaskNotifyOverdue(true);
-      setNewTaskIsMilestone(false);
-      setNewTaskStageId('');
-      setShowTaskForm(false);
+      resetInlineTaskForm(newTaskKeepOpen);
+      if (newTaskKeepOpen) {
+        setShowTaskForm(true);
+        newTaskNameInputRef.current?.focus();
+      } else {
+        setShowTaskForm(false);
+      }
     } catch (error) {
       console.error('タスクの作成に失敗しました:', error);
       alert('タスクの作成に失敗しました');
@@ -1194,6 +1266,7 @@ const holidaySet = useJapaneseHolidaySet();
                       </label>
                       <input
                         type="text"
+                        ref={newTaskNameInputRef}
                         value={newTaskName}
                         onChange={(e) => setNewTaskName(e.target.value)}
                         className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -1202,36 +1275,36 @@ const holidaySet = useJapaneseHolidaySet();
                     </div>
 
                     {/* マイルストーンチェックボックス */}
-                    <div className={`flex items-center gap-2 p-2 rounded-lg border ${isMilestoneCheckboxEnabled
-                      ? 'bg-red-50 border-red-200'
-                      : 'bg-gray-50 border-gray-200'
-                      }`}>
+                    <div
+                      className={`flex items-center gap-2 p-2 rounded-lg border ${
+                        newTaskIsMilestone ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
+                      }`}
+                    >
                       <input
                         type="checkbox"
                         id="new-task-milestone"
                         checked={newTaskIsMilestone}
-                        disabled={!isMilestoneCheckboxEnabled}
                         onChange={(e) => {
                           setNewTaskIsMilestone(e.target.checked);
-                          if (e.target.checked && newTaskStartDate) {
-                            setNewTaskEndDate(newTaskStartDate);
+                          if (e.target.checked) {
+                            if (newTaskStartDate) {
+                              setNewTaskEndDate(newTaskStartDate);
+                            } else {
+                              setNewTaskEndDate(null);
+                            }
                           }
                         }}
-                        className={`w-4 h-4 rounded focus:ring-red-500 flex-shrink-0 ${isMilestoneCheckboxEnabled
-                          ? 'text-red-600 cursor-pointer'
-                          : 'text-gray-400 cursor-not-allowed'
-                          }`}
+                        className="w-4 h-4 rounded text-red-600 focus:ring-red-500 flex-shrink-0"
                       />
                       <label
                         htmlFor="new-task-milestone"
-                        className={`text-xs ${isMilestoneCheckboxEnabled
-                          ? 'text-red-900 cursor-pointer'
-                          : 'text-gray-400 cursor-not-allowed'
-                          }`}
+                        className="text-xs text-red-900 cursor-pointer"
                       >
                         ◆ マイルストーン（重要な1日の予定）
-                        {!isMilestoneCheckboxEnabled && (
-                          <span className="block text-[10px] mt-0.5 text-gray-500">※ 1日だけの予定を選択すると設定可</span>
+                        {!hasSingleDaySelection && !newTaskIsMilestone && (
+                          <span className="block text-[10px] mt-0.5 text-gray-500">
+                            ※ オンにして実施日を選択すると単日タスクとして登録できます
+                          </span>
                         )}
                       </label>
                     </div>
@@ -1319,9 +1392,11 @@ const holidaySet = useJapaneseHolidaySet();
                         <input
                           type="number"
                           min="0"
+                          step="0.1"
+                          inputMode="decimal"
                           className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
                           value={newTaskEstimate}
-                          onChange={(e) => setNewTaskEstimate(Number(e.target.value || 0))}
+                          onChange={(e) => setNewTaskEstimate(parseHoursInput(e.target.value))}
                         />
                       </div>
                     </div>
@@ -1350,38 +1425,38 @@ const holidaySet = useJapaneseHolidaySet();
                     </div>
 
                     {/* ボタン */}
-                    <div className="flex gap-2 justify-end pt-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowTaskForm(false);
-                          setNewTaskName('');
-                          setNewTaskAssignee('');
-                          setNewTaskAssigneeEmail('');
-                          setNewTaskStartDate(null);
-                          setNewTaskEndDate(null);
-                          setNewTaskPriority('中');
-                          setNewTaskStatus('未着手');
-                          setNewTaskEstimate(4);
-                          setNewTaskNotifyStart(true);
-                          setNewTaskNotifyDayBefore(true);
-                          setNewTaskNotifyDue(true);
-                          setNewTaskNotifyOverdue(true);
-                          setNewTaskIsMilestone(false);
-                        }}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-2xl hover:bg-slate-50 transition-colors"
-                        disabled={taskCreating}
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleCreateTask}
-                        disabled={!newTaskName.trim() || taskCreating}
-                        className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-2xl hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {taskCreating ? '作成中...' : '保存'}
-                      </button>
+                    <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        <input
+                          type="checkbox"
+                          className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          checked={newTaskKeepOpen}
+                          onChange={(e) => setNewTaskKeepOpen(e.target.checked)}
+                        />
+                        保存後も続けて追加
+                      </label>
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowTaskForm(false);
+                            setNewTaskKeepOpen(false);
+                            resetInlineTaskForm(false);
+                          }}
+                          className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-2xl hover:bg-slate-50 transition-colors"
+                          disabled={taskCreating}
+                        >
+                          キャンセル
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCreateTask}
+                          disabled={!newTaskName.trim() || taskCreating}
+                          className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-2xl hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {taskCreating ? '作成中...' : newTaskKeepOpen ? '保存して続ける' : '保存'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1694,7 +1769,7 @@ const holidaySet = useJapaneseHolidaySet();
                       </div>
                     )}
 
-                    {(selectedCandidateId || (inputMode === 'text' && inviteName)) && (
+                    {(selectedCandidateId || selectedCollaboratorId || (inputMode === 'text' && inviteName)) && (
                       <>
                         {/* ロールと職種 */}
                         <div className="grid grid-cols-2 gap-2">

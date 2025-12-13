@@ -3,8 +3,12 @@
  */
 
 import { db } from './firestore';
-import type { Organization } from './auth-types';
+import type { Organization, SubscriptionPlan } from './auth-types';
 import { PLAN_LIMITS } from './auth-types';
+
+const PLAN_OVERRIDES: Record<string, SubscriptionPlan> = {
+  'archi-prisma': 'business',
+};
 
 /**
  * 組織のメンバー数を取得
@@ -55,7 +59,8 @@ export async function getOrganizationLimits(orgId: string): Promise<{
   }
 
   // プランに基づいた上限を取得（未設定の場合はstarter扱い）
-  const plan = org.plan || 'starter';
+  const planOverride = PLAN_OVERRIDES[orgDoc.id];
+  const plan = planOverride || org.plan || 'starter';
   const planLimits = PLAN_LIMITS[plan];
 
   return {
