@@ -158,6 +158,30 @@
 ### ドキュメント
 
 1. **README.md** - プロジェクト概要とクイックスタート
+
+### 課金 / サブスクリプション運用ポリシー（2024年12月更新）
+
+- **データ構造**
+  - Stripe 側の既存連携サービスが Firestore コレクション `stripe_customers/{customerId}` に最新スナップショットを書き込む（status, current period, entitlement, Discord 連携情報など）。
+  - Cloud Functions の `syncStripeCustomers` トリガーが `org_billing/{orgId}` にサマリー情報（`planType`, `stripeCustomerId`, `subscriptionStatus`, `entitled` など）を反映する。法人直契約や特例を設定したい場合も `org_billing` を真実のソースとする。
+
+- **プラン種別と判定ロジック**
+  - `planType` は `stripe` / `enterprise_manual` / `special_admin` / `inactive` を保持。`stripe` の場合のみ `stripeCustomerId` が必須。
+  - `evaluateBillingAccess` が `org_billing` を元にアクセス可否を決定。`enterprise_manual` と `special_admin` は常に許可、`inactive` はブロック。`stripe` で Customer ID が未設定または status が trialing/active 以外ならブロック。
+  - `super_admin` は常に override され、どの組織でもアクセスできる。
+
+- **API / 管理 UI**
+  - `GET /billing/access` で現在ログインしているユーザーの組織に対するアクセス可否・理由・Stripe ステータスを返却（クライアントのゲート表示に使用）。
+  - `GET /billing` および `PATCH /billing/orgs/:orgId` は `super_admin` 限定で、`planType`, `stripeCustomerId`, `notes` を一覧・更新できる。管理画面（Admin > 課金プランタブ）から利用。
+
+- **フロント側ガード**
+  - `App.tsx` でサインイン完了時に `getBillingAccess` を呼び、未契約の場合は `BillingGateOverlay` を全画面表示。ユーザーへ「再契約」や「Stripe カスタマー ID 入力」を案内して自然にビジネスへ誘導。
+  - Billing 状態はリトライボタンで再取得でき、契約復活後に即座に UI が解除される。
+
+- **Webhook / Discord 連携との切り離し**
+  - Stripe→Discord 連携は `/mnt/d/senaa_dev/AIARCHI_stripe_connect` サービスが継続して管理し、Compass 側は `stripe_customers` スナップショットのみ参照。これによりサブスク更新、Discord ロール、法人特例が互いに干渉しない。
+
+この構成により、サブスク停止中ユーザーには丁寧な再契約ガイダンスを表示しつつ、法人単位の柔軟な運用や super_admin の臨機対応も両立できます。
 2. **DEVELOPMENT.md** - 開発ガイド
 3. **DEPLOYMENT.md** - デプロイ手順書
 4. **.env.example** - 環境変数サンプル
