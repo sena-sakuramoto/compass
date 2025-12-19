@@ -1,7 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Users, Building2, Link as LinkIcon, Copy, Check, Trash2, CreditCard } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import { listOrgBilling, updateOrgBilling, type OrgBillingRecord } from '../lib/api';
+import {
+  listOrgBilling,
+  updateOrgBilling,
+  searchStripeCustomer,
+  ApiError,
+  sendStripeWelcomeEmails,
+  type OrgBillingRecord,
+  type StripeCustomerAdminRecord,
+  type StripeCustomerSearchResult,
+  type StripeLiveSubscription,
+  type StripeWelcomeBulkResult,
+  listStripeLiveSubscriptions,
+} from '../lib/api';
 
 interface AdminPageProps {
   user: User | null;
@@ -41,9 +53,24 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const [stageTypeFixResult, setStageTypeFixResult] = useState<any>(null);
   const [fixingStageTypes, setFixingStageTypes] = useState(false);
   const [billingRecords, setBillingRecords] = useState<OrgBillingRecord[]>([]);
+  const [stripeCustomers, setStripeCustomers] = useState<StripeCustomerAdminRecord[]>([]);
   const [billingForms, setBillingForms] = useState<Record<string, { planType: string; stripeCustomerId: string; notes: string }>>({});
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingSaving, setBillingSaving] = useState<Record<string, boolean>>({});
+  const [billingSearch, setBillingSearch] = useState('');
+  const [stripeCustomerSearch, setStripeCustomerSearch] = useState('');
+  const [stripeLiveSubs, setStripeLiveSubs] = useState<StripeLiveSubscription[]>([]);
+  const [stripeLiveLoading, setStripeLiveLoading] = useState(false);
+  const [stripeLiveError, setStripeLiveError] = useState<string | null>(null);
+  const [stripeLookup, setStripeLookup] = useState({ customerId: '', discordId: '', email: '' });
+  const [stripeLookupResult, setStripeLookupResult] = useState<StripeCustomerSearchResult | null>(null);
+  const [stripeLookupLoading, setStripeLookupLoading] = useState(false);
+  const [stripeLookupError, setStripeLookupError] = useState<string | null>(null);
+  const [welcomeLimit, setWelcomeLimit] = useState(50);
+  const [welcomeResend, setWelcomeResend] = useState(false);
+  const [welcomeSending, setWelcomeSending] = useState(false);
+  const [welcomeResult, setWelcomeResult] = useState<StripeWelcomeBulkResult | null>(null);
+  const [welcomeError, setWelcomeError] = useState<string | null>(null);
 
   // 招待フォームの状態
   const [inviteForm, setInviteForm] = useState({
@@ -122,6 +149,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
       setBillingLoading(true);
       const data = await listOrgBilling();
       setBillingRecords(data.records);
+      setStripeCustomers(data.stripeCustomers ?? []);
       const initialForms: Record<string, { planType: string; stripeCustomerId: string; notes: string }> = {};
       data.records.forEach((record) => {
         initialForms[record.orgId] = {
@@ -174,6 +202,101 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     } finally {
       setBillingSaving((prev) => ({ ...prev, [orgId]: false }));
     }
+  };
+
+  const handleStripeLookupSubmit = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    if (!stripeLookup.customerId && !stripeLookup.discordId && !stripeLookup.email) {
+      setStripeLookupError('Customer ID / Discord ID / Email のいずれかを入力してください');
+      setStripeLookupResult(null);
+      return;
+    }
+    setStripeLookupLoading(true);
+    setStripeLookupError(null);
+    try {
+      const result = await searchStripeCustomer({
+        customerId: stripeLookup.customerId || undefined,
+        discordId: stripeLookup.discordId || undefined,
+        email: stripeLookup.email || undefined,
+      });
+      setStripeLookupResult(result);
+    } catch (error) {
+      console.error('[AdminPage] Stripe検索に失敗しました:', error);
+      if (error instanceof ApiError) {
+        setStripeLookupError(error.message);
+      } else if (error instanceof Error) {
+        setStripeLookupError(error.message);
+      } else {
+        setStripeLookupError('検索に失敗しました');
+      }
+      setStripeLookupResult(null);
+    } finally {
+      setStripeLookupLoading(false);
+    }
+  };
+
+  const handleLoadStripeLiveSubs = async () => {
+    setStripeLiveLoading(true);
+    setStripeLiveError(null);
+    try {
+      const { subscriptions } = await listStripeLiveSubscriptions();
+      setStripeLiveSubs(subscriptions);
+    } catch (error) {
+      console.error('[AdminPage] Stripe live subscriptions fetch failed:', error);
+      if (error instanceof ApiError) {
+        setStripeLiveError(error.message);
+      } else if (error instanceof Error) {
+        setStripeLiveError(error.message);
+      } else {
+        setStripeLiveError('取得に失敗しました');
+      }
+    } finally {
+      setStripeLiveLoading(false);
+    }
+  };
+
+  const handleSendWelcomeEmails = async (event?: React.FormEvent) => {
+    event?.preventDefault();
+    setWelcomeSending(true);
+    setWelcomeError(null);
+    try {
+      const result = await sendStripeWelcomeEmails({
+        limit: welcomeLimit || 50,
+        resend: welcomeResend,
+      });
+      setWelcomeResult(result);
+    } catch (error) {
+      console.error('[AdminPage] Bulk welcome email failed', error);
+      if (error instanceof ApiError) {
+        setWelcomeError(error.message);
+      } else if (error instanceof Error) {
+        setWelcomeError(error.message);
+      } else {
+        setWelcomeError('送信に失敗しました');
+      }
+    } finally {
+      setWelcomeSending(false);
+    }
+  };
+
+  const handleUseStripeEmailForInvite = (emailParam?: string) => {
+    const resolvedEmail =
+      emailParam ||
+      stripeLookupResult?.stripeCustomer.emails?.[0] ||
+      stripeLookupResult?.stripeCustomer.email;
+
+    if (!resolvedEmail) {
+      alert('Stripeに利用可能なメールアドレスが見つかりません');
+      return;
+    }
+
+    setInviteForm((prev) => ({
+      ...prev,
+      email: resolvedEmail,
+      orgId: stripeLookupResult?.billingRecord?.orgId || prev.orgId,
+    }));
+    setActiveTab('invitations');
+    alert('招待フォームにメールアドレスをセットしました');
   };
 
   const loadOrganizations = async () => {
@@ -432,6 +555,55 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleString('ja-JP');
   };
+
+  const formatStripePeriod = (value?: number | null) => {
+    if (!value) return '未設定';
+    try {
+      return new Date(value).toLocaleString('ja-JP');
+    } catch (_error) {
+      return String(value);
+    }
+  };
+
+  const filteredBillingRecords = useMemo(() => {
+    const keyword = billingSearch.trim().toLowerCase();
+    if (!keyword) {
+      return billingRecords;
+    }
+    return billingRecords.filter((record) => {
+      const values = [
+        record.orgId,
+        record.orgName ?? '',
+        record.stripeCustomerId ?? '',
+        record.notes ?? '',
+        record.planType ?? '',
+        record.subscriptionStatus ?? '',
+      ];
+      return values.some((value) => value.toLowerCase().includes(keyword));
+    });
+  }, [billingRecords, billingSearch]);
+
+  const filteredStripeCustomers = useMemo(() => {
+    const keyword = stripeCustomerSearch.trim().toLowerCase();
+    if (!keyword) {
+      return stripeCustomers;
+    }
+    return stripeCustomers.filter((customer) => {
+      const values = [
+        customer.id,
+        customer.email ?? '',
+        ...(customer.emails ?? []),
+        customer.discordId ?? '',
+        customer.discordUserId ?? '',
+        customer.discordAccounts?.join(' ') ?? '',
+        customer.status ?? '',
+        customer.linkedOrgId ?? '',
+        customer.linkedOrgName ?? '',
+        customer.productNames?.join(' ') ?? '',
+      ];
+      return values.some((value) => value.toLowerCase().includes(keyword));
+    });
+  }, [stripeCustomers, stripeCustomerSearch]);
 
   const getRoleLabel = (role: string) => {
     const labels: Record<string, string> = {
@@ -766,11 +938,432 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
 
         {activeTab === 'billing' && isSuperAdmin && (
           <div className="space-y-4">
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-2">課金プラン管理</h2>
-              <p className="text-sm text-slate-600">
-                Stripeサブスクと法人プランの設定を管理します。planTypeが「stripe」の場合は Customer ID が必須です。
-              </p>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900 mb-2">課金プラン管理</h2>
+                <p className="text-sm text-slate-600">
+                  Stripeサブスクと法人プランの設定を管理します。planTypeが「stripe」の場合は Customer ID が必須です。
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  org_billing が未設定の組織は初期値として planType=Stripe で一覧表示されます。実際の運用プランに合わせて保存してください。
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <p className="text-xs text-slate-500">
+                  組織名 / ID / Customer ID / メモで絞り込めます。未登録の組織もここから直接設定できます。
+                </p>
+                <div className="w-full sm:w-64">
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">組織フィルタ</label>
+                  <input
+                    type="text"
+                    value={billingSearch}
+                    onChange={(event) => setBillingSearch(event.target.value)}
+                    placeholder="例: archi / cus_1234"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">既存Stripeサブスク利用者</h3>
+                  <p className="text-sm text-slate-600">
+                    stripe_customers に保存されている既存の課金ユーザーです。org_billing への紐付け有無を確認できます。
+                  </p>
+                </div>
+                <div className="w-full sm:w-64">
+                  <label className="block text-[11px] font-semibold text-slate-500 mb-1">サブスクユーザーフィルタ</label>
+                  <input
+                    type="text"
+                    value={stripeCustomerSearch}
+                    onChange={(event) => setStripeCustomerSearch(event.target.value)}
+                    placeholder="email / cus_ / discord"
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">組織作成案内メールの一斉送信</p>
+                    <p className="text-xs text-slate-600">
+                      active / trialing / entitled の Stripe 顧客に送信。既送信（welcomeEmailSentAtあり）は既定でスキップします。
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                    <label className="flex items-center gap-1">
+                      <span>最大件数</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={welcomeLimit}
+                        onChange={(e) => setWelcomeLimit(Number(e.target.value) || 50)}
+                        className="w-20 rounded border border-slate-300 px-2 py-1 text-xs"
+                      />
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={welcomeResend}
+                        onChange={(e) => setWelcomeResend(e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <span>既送信にも再送</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleSendWelcomeEmails}
+                      disabled={welcomeSending}
+                      className="inline-flex items-center rounded-full bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {welcomeSending ? '送信中…' : '一斉送信'}
+                    </button>
+                  </div>
+                </div>
+                {welcomeError && <p className="text-xs text-rose-600">{welcomeError}</p>}
+                {welcomeResult && (
+                  <div className="text-xs text-slate-700 space-y-1">
+                    <p>候補: {welcomeResult.totalCandidates} / 送信試行: {welcomeResult.attempted} / 成功: {welcomeResult.sent}</p>
+                    <p>メールなしスキップ: {welcomeResult.skippedNoEmail} / 既送信スキップ: {welcomeResult.skippedAlreadySent}</p>
+                    {welcomeResult.failures.length > 0 && (
+                      <div className="text-rose-600">
+                        失敗: {welcomeResult.failures.map((f) => `${f.customerId}: ${f.reason}`).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                <button
+                  type="button"
+                  onClick={handleLoadStripeLiveSubs}
+                  disabled={stripeLiveLoading}
+                  className="inline-flex items-center rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white shadow hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {stripeLiveLoading ? 'Stripeから取得中…' : 'Stripe本番から再取得'}
+                </button>
+                <span>※ 上のリストは Firestore のキャッシュ。Stripe本番を直接見る場合はボタンを押してください。</span>
+                {stripeLiveError && <span className="text-rose-600">{stripeLiveError}</span>}
+                {stripeLiveSubs.length > 0 && (
+                  <span className="text-emerald-700 font-semibold">
+                    Stripe本番: {stripeLiveSubs.length}件
+                  </span>
+                )}
+              </div>
+              {billingLoading ? (
+                <p className="text-sm text-slate-500">Stripe利用者を読み込み中です…</p>
+              ) : stripeCustomers.length === 0 ? (
+                <p className="text-sm text-slate-500">既存サブスク利用者のデータが見つかりません。</p>
+              ) : filteredStripeCustomers.length === 0 ? (
+                <p className="text-sm text-amber-600">該当するサブスク利用者が見つかりません。</p>
+              ) : (
+                <div className="space-y-3 max-h-[420px] overflow-y-auto">
+                  {filteredStripeCustomers.map((customer) => (
+                    <div key={customer.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {customer.email || customer.emails?.[0] || 'メール未登録'}
+                          </p>
+                          <p className="text-xs font-mono text-slate-600">{customer.id}</p>
+                          <p className="text-[11px] text-slate-500">
+                            紐付け: {customer.linkedOrgName ? `${customer.linkedOrgName} (${customer.linkedOrgId})` : '未連携'}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center rounded-full bg-slate-900/5 px-3 py-1 text-[11px] font-semibold text-slate-800">
+                            {customer.status || 'unknown'}
+                          </span>
+                          {customer.entitled ? (
+                            <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                              entitled
+                            </span>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => navigator.clipboard.writeText(customer.id)}
+                            className="inline-flex items-center rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-700 hover:bg-white"
+                          >
+                            <Copy className="h-3 w-3 mr-1" />
+                            IDコピー
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 text-xs text-slate-600">
+                        <div>
+                          <p className="font-semibold text-slate-700">メール候補</p>
+                          <p className="text-slate-700">
+                            {customer.emails && customer.emails.length > 0 ? customer.emails.join(', ') : '未登録'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-700">Discord</p>
+                          <p className="text-slate-700">
+                            {customer.discordId ||
+                              customer.discordUserId ||
+                              (customer.discordAccounts?.length ? customer.discordAccounts.join(', ') : '未登録')}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-700">次回更新予定</p>
+                          <p className="text-slate-700">{formatStripePeriod(customer.currentPeriodEnd)}</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-700">商品</p>
+                          <p className="text-slate-700">
+                            {customer.productNames && customer.productNames.length > 0 ? customer.productNames.join(', ') : '未取得'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {stripeLiveSubs.length > 0 && (
+                <div className="space-y-3 max-h-[420px] overflow-y-auto">
+                  {stripeLiveSubs.map((sub) => (
+                    <div key={sub.id} className="rounded-lg border border-indigo-200 bg-white p-4 space-y-2">
+                      <div className="flex flex-col gap-1">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {sub.customer.email || sub.customer.name || sub.customer.id}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Status: {sub.status} / Customer: {sub.customer.id}
+                        </p>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 text-xs text-slate-600">
+                        <div>
+                          <p className="font-semibold text-slate-700">名前</p>
+                          <p className="text-slate-700">{sub.customer.name || '未登録'}</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-700">商品</p>
+                          <p className="text-slate-700">
+                            {sub.productNames.length ? sub.productNames.join(', ') : '未取得'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-700">次回更新</p>
+                          <p className="text-slate-700">{formatStripePeriod(sub.currentPeriodEnd || undefined)}</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-700">解約予定</p>
+                          <p className="text-slate-700">
+                            {sub.cancelAtPeriodEnd ? 'はい' : 'いいえ'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">Stripe / Discord ユーザー検索</h3>
+                <p className="text-sm text-slate-600">
+                  Discord ID または Stripe Customer ID / Email から課金情報を検索し、メールアドレスの再登録や組織との紐付けに活用できます。
+                </p>
+              </div>
+              <form onSubmit={handleStripeLookupSubmit} className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Stripe Customer ID</label>
+                  <input
+                    type="text"
+                    value={stripeLookup.customerId}
+                    onChange={(e) => setStripeLookup((prev) => ({ ...prev, customerId: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="cus_XXXX"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Discord ID</label>
+                  <input
+                    type="text"
+                    value={stripeLookup.discordId}
+                    onChange={(e) => setStripeLookup((prev) => ({ ...prev, discordId: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="123456789012345678"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={stripeLookup.email}
+                    onChange={(e) => setStripeLookup((prev) => ({ ...prev, email: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="user@example.com"
+                  />
+                </div>
+                <div className="md:col-span-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="submit"
+                    disabled={stripeLookupLoading}
+                    className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {stripeLookupLoading ? '検索中...' : '検索する'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStripeLookup({ customerId: '', discordId: '', email: '' });
+                      setStripeLookupResult(null);
+                      setStripeLookupError(null);
+                    }}
+                    className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    条件をクリア
+                  </button>
+                  {stripeLookupError && <p className="text-sm text-rose-600">{stripeLookupError}</p>}
+                </div>
+              </form>
+              {stripeLookupResult && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-sm text-slate-700">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customer ID</span>
+                    <code className="rounded-md bg-white px-2 py-1 text-xs font-mono">{stripeLookupResult.stripeCustomer.id}</code>
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(stripeLookupResult.stripeCustomer.id)}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-white"
+                    >
+                      <Copy className="h-3 w-3" />
+                      コピー
+                    </button>
+                  </div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">メールアドレス</p>
+                      <p className="font-medium">{stripeLookupResult.stripeCustomer.email || '未登録'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">Discord ID</p>
+                      <p className="font-medium">
+                        {stripeLookupResult.stripeCustomer.discordId || stripeLookupResult.stripeCustomer.discordUserId || '未登録'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">ステータス</p>
+                      <p className="font-medium">{stripeLookupResult.stripeCustomer.status || 'unknown'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">次回更新予定</p>
+                      <p className="font-medium">{formatStripePeriod(stripeLookupResult.stripeCustomer.currentPeriodEnd)}</p>
+                    </div>
+                  </div>
+                  {(() => {
+                    const emails =
+                      stripeLookupResult.stripeCustomer.emails.length > 0
+                        ? stripeLookupResult.stripeCustomer.emails
+                        : stripeLookupResult.stripeCustomer.email
+                          ? [stripeLookupResult.stripeCustomer.email]
+                          : [];
+                    return emails.length ? (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 mb-2">登録メール候補</p>
+                        <div className="flex flex-wrap gap-2">
+                          {emails.map((email) => (
+                            <div
+                              key={email}
+                              className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs shadow-sm border border-slate-200"
+                            >
+                              <span className="font-medium text-slate-800">{email}</span>
+                              <button
+                                type="button"
+                                onClick={() => navigator.clipboard.writeText(email)}
+                                className="text-slate-500 hover:text-slate-900"
+                                title="コピー"
+                              >
+                                <Copy className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleUseStripeEmailForInvite(email)}
+                                className="text-emerald-600 hover:text-emerald-700 font-semibold"
+                              >
+                                招待に使用
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+                  {stripeLookupResult.stripeCustomer.discordAccounts.length > 1 && (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">Discord候補</p>
+                      <p className="text-xs text-slate-600">
+                        {stripeLookupResult.stripeCustomer.discordAccounts.join(', ')}
+                      </p>
+                    </div>
+                  )}
+                  {stripeLookupResult.billingRecord ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                      <p className="text-xs font-semibold text-slate-500 mb-1">紐付いている組織</p>
+                      <p className="font-medium">{stripeLookupResult.billingRecord.orgId}</p>
+                      <p className="text-xs text-slate-500">
+                        プラン: {stripeLookupResult.billingRecord.planType} / ステータス: {stripeLookupResult.billingRecord.subscriptionStatus || '未連携'}
+                      </p>
+                      {stripeLookupResult.organization && (
+                        <p className="text-xs text-slate-500">組織名: {stripeLookupResult.organization.name || stripeLookupResult.billingRecord.orgId}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-amber-600">
+                      このCustomer IDはまだ org_billing に紐付いていません。該当組織のプランで Customer ID を設定してください。
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleUseStripeEmailForInvite()}
+                      className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-800"
+                    >
+                      招待フォームにメールをセット
+                    </button>
+                    {stripeLookupResult.stripeCustomer.email && (
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(stripeLookupResult.stripeCustomer.email || '')}
+                        className="inline-flex items-center justify-center rounded-full border border-slate-300 px-4 py-1.5 text-xs font-medium text-slate-700 hover:bg-white"
+                      >
+                        メールをコピー
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {stripeLookupResult && (
+                <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">Compass内のユーザー候補</p>
+                    {stripeLookupResult.matchingUsers.length === 0 ? (
+                      <p className="text-sm text-slate-500 mt-2">
+                        同じメールアドレスで登録されたユーザーはまだ存在しません。
+                      </p>
+                    ) : (
+                      <div className="mt-2 space-y-2">
+                        {stripeLookupResult.matchingUsers.map((match) => (
+                          <div key={match.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                            <div className="flex justify-between">
+                              <span className="font-semibold text-slate-900">{match.displayName || '（名前未設定）'}</span>
+                              <span className="text-slate-500">{match.role || 'role不明'}</span>
+                            </div>
+                            <p className="font-mono text-slate-700">{match.email}</p>
+                            <p className="text-slate-500">組織: {match.orgId}</p>
+                            <p className="text-slate-500">
+                              状態: {match.isActive ? '有効' : '無効'} / 種別: {match.memberType || '未設定'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             {billingLoading ? (
               <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 text-center text-sm text-slate-500">
@@ -780,9 +1373,13 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
               <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 text-center text-sm text-slate-500">
                 課金情報がまだ登録されていません
               </div>
+            ) : filteredBillingRecords.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-sm border border-amber-200 p-6 text-center text-sm text-amber-700">
+                該当する組織が見つかりません。キーワードを変更するかクリアしてください。
+              </div>
             ) : (
               <div className="space-y-4">
-                {billingRecords.map((record) => {
+                {filteredBillingRecords.map((record) => {
                   const form = billingForms[record.orgId] || {
                     planType: record.planType || 'stripe',
                     stripeCustomerId: record.stripeCustomerId ?? '',
@@ -790,19 +1387,33 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                   };
                   return (
                     <div key={record.orgId} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">{record.orgId}</p>
-                          <p className="text-xs text-slate-500">ステータス: {record.subscriptionStatus || '未連携'}</p>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="space-y-0.5">
+                          <p className="text-base font-semibold text-slate-900">{record.orgName || '名称未設定の組織'}</p>
+                          <p className="text-xs font-mono text-slate-500">{record.orgId}</p>
+                          <p className="text-xs text-slate-500">
+                            ステータス: {record.subscriptionStatus || '未連携'}
+                            {record.planType ? ` / プラン: ${record.planType}` : null}
+                          </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleBillingSave(record.orgId)}
-                          disabled={billingSaving[record.orgId]}
-                          className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800 disabled:opacity-50"
-                        >
-                          {billingSaving[record.orgId] ? '更新中...' : '保存'}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${record.hasBillingRecord
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-amber-50 text-amber-700'
+                              }`}
+                          >
+                            {record.hasBillingRecord ? '登録済み' : '未設定'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleBillingSave(record.orgId)}
+                            disabled={billingSaving[record.orgId]}
+                            className="inline-flex items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            {billingSaving[record.orgId] ? '更新中...' : '保存'}
+                          </button>
+                        </div>
                       </div>
                       <div className="grid gap-4 md:grid-cols-2">
                         <div>
@@ -841,10 +1452,37 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                           placeholder="社内メモ、請求条件など"
                         />
                       </div>
+                      <div className="grid gap-3 sm:grid-cols-2 text-xs text-slate-500">
+                        <div>
+                          <p className="font-semibold text-slate-600">最終同期</p>
+                          <p>{record.lastStripeSyncAt ? new Date(record.lastStripeSyncAt).toLocaleString('ja-JP') : '未同期'}</p>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-600">プラン詳細</p>
+                          {record.stripeSnapshot?.productNames?.length ? (
+                            <p>{record.stripeSnapshot.productNames.join(', ')}</p>
+                          ) : (
+                            <p>取得できていません</p>
+                          )}
+                        </div>
+                      </div>
                       {record.stripeCustomerId && (
                         <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-                          <p>現在のCustomer ID: <span className="font-mono">{record.stripeCustomerId}</span></p>
-                          <p>最終同期: {record.lastStripeSyncAt ? new Date(record.lastStripeSyncAt).toLocaleString() : '未同期'}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>現在のCustomer ID:</span>
+                            <span className="font-mono text-slate-900">{record.stripeCustomerId}</span>
+                            <button
+                              type="button"
+                              onClick={() => navigator.clipboard.writeText(record.stripeCustomerId || '')}
+                              className="inline-flex items-center rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-600 hover:bg-white"
+                            >
+                              コピー
+                            </button>
+                          </div>
+                          <p className="mt-1 text-slate-500">
+                            同期結果: {record.subscriptionStatus || '未取得'} / entitled:{' '}
+                            {typeof record.entitled === 'boolean' ? (record.entitled ? 'true' : 'false') : 'unknown'}
+                          </p>
                         </div>
                       )}
                     </div>

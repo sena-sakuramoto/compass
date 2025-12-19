@@ -38,7 +38,7 @@ interface PendingOverlayState {
 export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
   pending: {},
 
-  addPending: (taskId: string, fields: Partial<Task>, lockDuration = 30000) => {
+  addPending: (taskId: string, fields: Partial<Task>, lockDuration = 120000) => {
     const opId = crypto.randomUUID();
     const now = Date.now();
 

@@ -17,6 +17,9 @@ import {
   LogOut,
   X,
   Menu,
+  Building2,
+  Rocket,
+  Wand2,
 } from 'lucide-react';
 import {
   listProjects,
@@ -44,6 +47,8 @@ import {
   ApiError,
   getCurrentUser,
   getBillingAccess,
+  createOrgForStripeSubscriber,
+  checkOrgSetupEligibility,
 } from './lib/api';
 import type { BillingAccessInfo } from './lib/api';
 import { Filters } from './components/Filters';
@@ -68,7 +73,7 @@ import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from '.
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage } from './lib/types';
 import type { ProjectMember } from './lib/auth-types';
-import { isArchivedProjectStatus, isClosedProjectStatus } from './lib/constants';
+import { isArchivedProjectStatus, isClosedProjectStatus, STATUS_PROGRESS } from './lib/constants';
 import { clampToSingleDecimal, parseHoursInput } from './lib/number';
 import {
   format,
@@ -2460,6 +2465,7 @@ function SchedulePage({
   canSync,
   allProjectMembers,
   onStageAddTask,
+  stageProgressMap,
 }: {
   filtersProps: FiltersProps;
   filteredTasks: Task[];
@@ -2480,6 +2486,7 @@ function SchedulePage({
   canSync: boolean;
   allProjectMembers?: Map<string, ProjectMember[]>;
   onStageAddTask?: (stage: GanttTask) => void;
+  stageProgressMap: Record<string, number>;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
@@ -2553,18 +2560,17 @@ function SchedulePage({
 
   // 新しいGanttChartのためのデータ変換
   const newGanttTasks = useMemo((): GanttTask[] => {
-    // プロジェクトごとの進捗率を計算
-    const projectProgressMap: Record<string, number> = {};
-    filteredTasks.forEach((task) => {
-      const projectId = task.projectId;
-      if (!projectProgressMap[projectId]) {
-        // このプロジェクトの全タスクを取得
-        const projectTasks = filteredTasks.filter((t) => t.projectId === projectId);
-        const completedTasks = projectTasks.filter((t) => t.ステータス === '完了').length;
-        const totalTasks = projectTasks.length;
-        projectProgressMap[projectId] = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+    const clampPct = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
+    const progressOf = (task: Task): number => {
+      if (task.type === 'stage') {
+        return stageProgressMap[task.id] ?? 0;
       }
-    });
+      const ratio =
+        typeof task.progress === 'number' && Number.isFinite(task.progress)
+          ? task.progress
+          : STATUS_PROGRESS[task.ステータス] ?? 0;
+      return clampPct(ratio * 100);
+    };
 
     // デバッグ: filteredTasks の工程を確認
     const stagesInFilteredTasks = filteredTasks.filter(t => t.type === 'stage');
@@ -2618,11 +2624,17 @@ function SchedulePage({
           status = 'overdue';
         }
 
-        // プロジェクト全体の進捗率を使用
-        const progress = projectProgressMap[task.projectId] || 0;
-
         // マイルストーンフラグが明示的にtrueの場合のみマイルストーンとして扱う
         const isMilestone = task['マイルストーン'] === true || task['milestone'] === true;
+        const progress = progressOf(task);
+
+        if (task.type === 'stage') {
+          if (progress >= 100) {
+            status = 'completed';
+          } else if (progress > 0 && status !== 'completed') {
+            status = 'in_progress';
+          }
+        }
 
         return {
           id: task.id,
@@ -2752,7 +2764,7 @@ function SchedulePage({
     });
 
     return sortedTasks;
-  }, [filteredTasks, projectMap]);
+  }, [filteredTasks, projectMap, stageProgressMap]);
 
   // 工程ベースのガントチャート用データ（削除：不要になったコード）
   /*
@@ -4030,6 +4042,11 @@ const EMPTY_PROJECT_STAGES: Task[] = [];
 
 function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
+  const [subscriptionRequired, setSubscriptionRequired] = useState(false);
+  const [orgSetupRequired, setOrgSetupRequired] = useState<{ stripeCustomerId?: string | null } | null>(null);
+  const [orgSetupForm, setOrgSetupForm] = useState({ orgId: '', orgName: '' });
+  const [orgSetupLoading, setOrgSetupLoading] = useState(false);
+  const [orgSetupError, setOrgSetupError] = useState<string | null>(null);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskModalDefaults, setTaskModalDefaults] = useState<{ projectId?: string; stageId?: string } | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -4049,10 +4066,52 @@ function App() {
   const loadedActivityLogsRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
   const [currentUserRole, setCurrentUserRole] = useState<string | undefined>(undefined);
+  const [roleChecking, setRoleChecking] = useState(false);
   const toastTimers = useRef<Map<string, number>>(new Map());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [billingAccess, setBillingAccess] = useState<BillingAccessInfo | null>(null);
   const [billingChecking, setBillingChecking] = useState(false);
+  const stageProgressMap = useMemo(() => {
+    const counters = new Map<string, { done: number; total: number }>();
+    const stageDateMap = new Map<string, { start?: Date; end?: Date }>();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    state.tasks.forEach((task) => {
+      if (task.type === 'stage') {
+        if (!counters.has(task.id)) {
+          counters.set(task.id, { done: 0, total: 0 });
+        }
+        const startDate = parseDate(task.start ?? task.予定開始日 ?? task.実績開始日 ?? null);
+        const endDate = parseDate(task.end ?? task.期限 ?? task.実績完了日 ?? null);
+        stageDateMap.set(task.id, {
+          start: startDate ?? undefined,
+          end: endDate ?? undefined,
+        });
+        return;
+      }
+      if (!task.parentId) return;
+      const entry = counters.get(task.parentId) ?? { done: 0, total: 0 };
+      entry.total += 1;
+      if (task.ステータス === '完了') {
+        entry.done += 1;
+      }
+      counters.set(task.parentId, entry);
+    });
+    const result: Record<string, number> = {};
+    counters.forEach(({ done, total }, stageId) => {
+      if (total > 0) {
+        result[stageId] = Math.round((done / total) * 100);
+        return;
+      }
+      const dates = stageDateMap.get(stageId);
+      if (dates?.end && dates.end.getTime() < today.getTime()) {
+        result[stageId] = 100;
+      } else {
+        result[stageId] = 0;
+      }
+    });
+    return result;
+  }, [state.tasks]);
 
   // 楽観的更新のためのPending Overlayストア
   const { addPending, ackPending, rollbackPending, pending } = usePendingOverlay();
@@ -4159,10 +4218,62 @@ function App() {
     }
   }, [state.projects, state.people, setState]);
 
-  const loading = useRemoteData(setState, authSupported && Boolean(user));
+const loading = useRemoteData(
+  setState,
+  authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
+);
 
   const canSync = authSupported && Boolean(user);
   const canEdit = true;
+
+  const normalizeOrgId = useCallback((value: string) => {
+    return value
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/--+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }, []);
+
+  const handleOrgSetupSubmit = useCallback(
+    async (event?: React.FormEvent) => {
+      event?.preventDefault();
+      setOrgSetupLoading(true);
+      setOrgSetupError(null);
+      try {
+        const payload = {
+          orgId: normalizeOrgId(orgSetupForm.orgId.trim()),
+          orgName: orgSetupForm.orgName.trim(),
+        };
+        if (!payload.orgId || !payload.orgName) {
+          setOrgSetupError('組織IDと組織名を入力してください');
+          setOrgSetupLoading(false);
+          return;
+        }
+        await createOrgForStripeSubscriber(payload);
+        pushToast({ tone: 'success', title: '組織を作成しました。人員管理に移動します。' });
+        setTimeout(() => window.location.assign('/users'), 400);
+      } catch (error) {
+        if (error instanceof ApiError) {
+          const msg =
+            error.code === 'ORG_ID_EXISTS'
+              ? 'この組織IDは既に使用されています'
+              : error.code === 'USER_ALREADY_HAS_ORG'
+                ? 'すでに別の組織に所属しています。サインアウトしてアカウントを切り替えるか、管理者に確認してください。'
+                : error.code === 'STRIPE_CUSTOMER_ALREADY_LINKED'
+                  ? 'このStripe顧客は別の組織に紐付いています。サポートにお問い合わせください。'
+                  : error.code === 'STRIPE_CUSTOMER_ID_NOT_FOUND'
+                    ? 'Stripeの顧客IDを取得できませんでした。サポートにお問い合わせください。'
+                    : error.message || '組織作成に失敗しました';
+          setOrgSetupError(msg);
+        } else {
+          setOrgSetupError('組織作成に失敗しました');
+        }
+      } finally {
+        setOrgSetupLoading(false);
+      }
+    },
+    [normalizeOrgId, orgSetupForm, pushToast]
+  );
 
   // プロジェクトメンバーを一括取得（最適化版：未読み込みのプロジェクトのみ）
   useEffect(() => {
@@ -4218,17 +4329,54 @@ function App() {
   // 現在のユーザーのロールを取得
   useEffect(() => {
     if (!user) {
+      setSubscriptionRequired(false);
+      setOrgSetupRequired(null);
+      setOrgSetupForm({ orgId: '', orgName: '' });
+      setRoleChecking(false);
+    }
+
+    if (!user) {
       setCurrentUserRole(undefined);
       return;
     }
 
     const fetchUserRole = async () => {
       try {
+        setRoleChecking(true);
         const userData = await getCurrentUser();
         setCurrentUserRole(userData.role);
       } catch (error) {
-        console.error('Failed to fetch user role:', error);
+        if (error instanceof ApiError) {
+          if (error.code === 'ORG_SETUP_REQUIRED') {
+            setOrgSetupRequired({ stripeCustomerId: error.data?.stripeCustomerId ?? null });
+          } else if (error.status === 401) {
+            // 401の場合でもStripe契約があるか確認し、あれば組織作成フローへ
+            try {
+              const eligibility = await checkOrgSetupEligibility();
+              if (eligibility.eligible) {
+                setOrgSetupRequired({ stripeCustomerId: eligibility.stripeCustomerId ?? null });
+                setSubscriptionRequired(false);
+              } else {
+                setSubscriptionRequired(true);
+              }
+            } catch (eligibilityError) {
+              console.error('Failed to check org setup eligibility:', eligibilityError);
+              setSubscriptionRequired(true);
+            }
+          } else if (error.status === 402) {
+            // 課金未契約・停止時は購読リクエスト画面を表示
+            setSubscriptionRequired(true);
+            setOrgSetupRequired(null);
+            setOrgSetupForm({ orgId: '', orgName: '' });
+          } else {
+            console.error('Failed to fetch user role:', error);
+          }
+        } else {
+          console.error('Failed to fetch user role:', error);
+        }
         setCurrentUserRole(undefined);
+      } finally {
+        setRoleChecking(false);
       }
     };
 
@@ -4413,7 +4561,7 @@ function App() {
 
   const projectsWithDerived: ProjectWithDerived[] = useMemo(() => {
     return state.projects.map((project) => {
-      const relatedTasks = state.tasks.filter((task) => task.projectId === project.id);
+      const relatedTasks = state.tasks.filter((task) => task.projectId === project.id && task.type !== 'stage');
       const openTaskCount = relatedTasks.filter((task) => task.ステータス !== '完了').length;
       const nearestDue = relatedTasks
         .map((task) => parseDate(task.end ?? task.期限 ?? task.実績完了日))
@@ -5247,6 +5395,219 @@ function App() {
     );
   }
 
+  // ロール判定が完了するまで他画面を描画しない（無権限API呼び出しを防ぐ）
+  if (user && roleChecking) {
+    return (
+      <>
+        <FullScreenLoader message="権限を確認しています..." />
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+      </>
+    );
+  }
+
+  if (subscriptionRequired) {
+    return (
+      <>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-center px-6">
+          <div className="max-w-2xl w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 space-y-6 shadow-2xl">
+            <div className="space-y-2">
+              <p className="text-sm uppercase tracking-[0.2em] text-indigo-200">Welcome to Compass</p>
+              <h1 className="text-2xl font-bold text-white">サブスクリプションの登録が必要です</h1>
+              <p className="text-slate-200 text-sm leading-relaxed">
+                まだ招待またはご契約が確認できません。登録後に、組織作成・工程管理・通知連携などすべての機能をご利用いただけます。
+              </p>
+            </div>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-slate-100">
+              <li className="flex items-start gap-2 bg-white/5 rounded-lg px-3 py-2 border border-white/10">
+                <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-0.5" />
+                <span>工程/タスク管理とガントチャート</span>
+              </li>
+              <li className="flex items-start gap-2 bg-white/5 rounded-lg px-3 py-2 border border-white/10">
+                <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-0.5" />
+                <span>チーム招待と権限管理</span>
+              </li>
+              <li className="flex items-start gap-2 bg-white/5 rounded-lg px-3 py-2 border border-white/10">
+                <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-0.5" />
+                <span>通知・カレンダー連携</span>
+              </li>
+              <li className="flex items-start gap-2 bg-white/5 rounded-lg px-3 py-2 border border-white/10">
+                <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-0.5" />
+                <span>サポート: compass@archi-prisma.co.jp</span>
+              </li>
+            </ul>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <a
+                href="https://buy.stripe.com/dRm00l0J75OR3eV8Cbf7i00"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-sm font-semibold shadow-lg shadow-indigo-900/30 transition"
+              >
+                サブスクリプションを申し込む
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.reload();
+                  setOrgSetupRequired({ stripeCustomerId: null });
+                  setSubscriptionRequired(false);
+                }}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-sm font-semibold shadow-lg shadow-emerald-900/30 transition"
+              >
+                サブスク登録済みならこちら
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-white/20 text-sm font-semibold text-white hover:bg-white/5 transition"
+              >
+                再読み込み
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (orgSetupRequired) {
+    const stripeId = orgSetupRequired.stripeCustomerId ?? '';
+    return (
+      <>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-slate-900 to-slate-950 text-white flex items-center justify-center px-6">
+          <div className="max-w-5xl w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-10 space-y-8 shadow-2xl">
+            <div className="flex flex-col gap-3">
+              <p className="text-sm uppercase tracking-[0.25em] text-indigo-200">Organization Setup</p>
+              <h1 className="text-3xl font-bold text-white">ご契約ありがとうございます。まず組織を作成しましょう。</h1>
+              <p className="text-slate-200 text-sm leading-relaxed">
+                Stripeでご契約が確認できました。下のフォームから組織IDと名称を登録すると、自動的に管理者として設定され、人員管理（/users）からメンバー招待を開始できます。課金IDの登録が必要な場合はサポートまでご連絡ください。
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mt-1 rounded-full bg-indigo-600/30 p-2 border border-indigo-400/40">
+                  <Wand2 className="h-5 w-5 text-indigo-200" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-white">ステップ1: 組織作成</p>
+                  <p className="text-xs text-slate-200">IDと名称を入力して組織を登録。あなたが管理者になります。</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mt-1 rounded-full bg-emerald-600/30 p-2 border border-emerald-400/40">
+                  <Building2 className="h-5 w-5 text-emerald-200" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-white">ステップ2: Customer ID を控える</p>
+                  <p className="text-xs text-slate-200">下記の Customer ID をサポート/担当者に共有しておくと、課金紐付けが円滑です。</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="mt-1 rounded-full bg-orange-600/30 p-2 border border-orange-400/40">
+                  <Rocket className="h-5 w-5 text-orange-200" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-white">ステップ3: メンバー招待</p>
+                  <p className="text-xs text-slate-200">人員管理（/users）から招待リンクを発行し、チームに共有。</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                  <p className="text-xs text-indigo-200">Stripe Customer ID（控えがあれば記録）</p>
+                  <p className="text-lg font-mono font-semibold text-white break-all">{stripeId || '取得できませんでした'}</p>
+                </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!stripeId) return;
+                  navigator.clipboard.writeText(stripeId).then(() => pushToast({ tone: 'success', title: 'コピーしました' }));
+                }}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-semibold border border-white/20 transition"
+              >
+                コピー
+              </button>
+            </div>
+
+            <form onSubmit={handleOrgSetupSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-white mb-2">組織名</label>
+                  <input
+                    type="text"
+                    value={orgSetupForm.orgName}
+                    onChange={(e) => setOrgSetupForm((prev) => ({ ...prev, orgName: e.target.value }))}
+                    placeholder="例: 株式会社コンパス"
+                    className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-white mb-2">組織ID（URL等で使用）</label>
+                  <input
+                    type="text"
+                    value={orgSetupForm.orgId}
+                    onChange={(e) => setOrgSetupForm((prev) => ({ ...prev, orgId: e.target.value }))}
+                    onBlur={(e) => setOrgSetupForm((prev) => ({ ...prev, orgId: e.target.value ? e.target.value.toLowerCase() : '' }))}
+                    placeholder="例: compass-team"
+                    className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  />
+                  <p className="text-xs text-slate-300 mt-1">小文字英数字とハイフンのみ使用できます</p>
+                </div>
+                {orgSetupError && <p className="text-xs text-rose-300">{orgSetupError}</p>}
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={orgSetupLoading}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-sm font-semibold shadow-lg shadow-indigo-900/30 transition disabled:opacity-50"
+                  >
+                    {orgSetupLoading ? '作成中...' : '組織を作成する'}
+                  </button>
+                </div>
+              </div>
+                <div className="space-y-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-sm font-semibold text-white mb-2">使えるようになること</p>
+                  <div className="space-y-3 text-sm text-slate-100">
+                    <div className="flex gap-3 items-start">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-1" />
+                      <div>
+                        <p className="font-semibold">工程・タスク管理</p>
+                        <p className="text-xs text-slate-300">ガント、進捗、担当アサイン、通知などフル機能</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-1" />
+                      <div>
+                        <p className="font-semibold">メンバー招待と権限</p>
+                        <p className="text-xs text-slate-300">人員管理（/users）から招待・権限付与</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 items-start">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-1" />
+                      <div>
+                        <p className="font-semibold">サポート</p>
+                        <p className="text-xs text-slate-300">compass@archi-prisma.co.jp が直接サポート</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-slate-300 space-y-1">
+                    <a
+                      href="mailto:compass@archi-prisma.co.jp?subject=Compass%20%E7%B5%84%E7%B9%94%E4%BD%9C%E6%88%90%E3%82%B5%E3%83%9D%E3%83%BC%E3%83%88&body=Stripe%20Customer%20ID%3A%20"
+                      className="inline-flex items-center gap-2 text-indigo-200 hover:text-white transition"
+                    >
+                      <span>サポートに連絡する</span>
+                    </a>
+                  </div>
+                </div>
+            </form>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <Toaster position="top-right" />
@@ -5305,6 +5666,7 @@ function App() {
                 canSync={canSync}
                 allProjectMembers={allProjectMembers}
                 onStageAddTask={handleStageTaskAdd}
+                stageProgressMap={stageProgressMap}
               />
             }
           />
@@ -5397,6 +5759,7 @@ function App() {
                 canSync={canSync}
                 allProjectMembers={allProjectMembers}
                 onStageAddTask={handleStageTaskAdd}
+                stageProgressMap={stageProgressMap}
               />
             }
           />

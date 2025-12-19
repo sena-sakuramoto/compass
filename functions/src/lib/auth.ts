@@ -1,7 +1,7 @@
 import admin from 'firebase-admin';
 import type { Request, Response, NextFunction } from 'express';
 import { getUser as fetchUserDoc } from './users';
-import { evaluateBillingAccess, getOrgBilling } from './billing';
+import { evaluateBillingAccess, findStripeCustomer, getOrgBilling } from './billing';
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -14,6 +14,13 @@ console.log('[Auth] Allow list:', allowList);
 export interface AuthedRequest extends Request {
   user?: admin.auth.DecodedIdToken;
   uid?: string; // req.uidとしてアクセスできるようにする
+}
+
+export class OrgSetupRequired extends Error {
+  constructor(public stripeCustomerId?: string | null) {
+    super('Org setup required');
+    this.name = 'OrgSetupRequired';
+  }
 }
 
 function getHeaderValue(value?: string | string[]): string | undefined {
@@ -56,10 +63,17 @@ export async function verifyToken(token?: string) {
     }
 
     // ALLOW_EMAILSに含まれていない場合、招待されているかチェック
-    console.log('[Auth] Email not in allow list, checking for invitations:', decoded.email);
+    console.log('[Auth] Email not in allow list, checking for invitations/stripe:', decoded.email);
     const hasInvitation = await checkUserHasInvitation(decoded.email);
     if (hasInvitation) {
       console.log('[Auth] User has valid invitation:', decoded.email);
+      return decoded;
+    }
+
+    // Stripeサブスク利用者であれば認証は通し、後続で組織作成を促す
+    const stripeEligibility = await getStripeEligibilityByEmail(decoded.email);
+    if (stripeEligibility.eligible) {
+      console.log('[Auth] User is Stripe subscriber, allow to proceed to org-setup:', decoded.email);
       return decoded;
     }
 
@@ -139,6 +153,101 @@ async function checkUserHasInvitation(email?: string | null): Promise<boolean> {
   } catch (error) {
     console.error('[Auth] Error checking invitations:', error);
     return false;
+  }
+}
+
+async function findStripeCustomerViaApi(email: string): Promise<{ customerId: string | null; status: string; entitled: boolean }> {
+  const secret = process.env.STRIPE_SECRET_KEY;
+  if (!secret) return { customerId: null, status: '', entitled: false };
+
+  const emailLower = email.toLowerCase();
+  const fetchStripeSubscriptions = async (status: 'active' | 'trialing') => {
+    const params = new URLSearchParams();
+    params.set('status', status);
+    params.set('limit', '100');
+    params.append('expand[]', 'data.customer');
+
+    const response = await fetch(`https://api.stripe.com/v1/subscriptions?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+      },
+    });
+
+    const payload = (await response.json()) as { data?: any[]; error?: { message?: string } };
+    if (!response.ok) {
+      throw new Error(payload?.error?.message || 'Stripe API request failed');
+    }
+    return payload.data ?? [];
+  };
+
+  const matchByEmail = (subs: any[]) => {
+    for (const sub of subs) {
+      const customer = (sub.customer || {}) as Record<string, unknown>;
+      const candidateEmails = [
+        (customer.email as string | undefined)?.toLowerCase(),
+        (customer.customerEmail as string | undefined)?.toLowerCase(),
+        (customer.billingEmail as string | undefined)?.toLowerCase(),
+        (sub.customer_email as string | undefined)?.toLowerCase(),
+        (sub.billing_email as string | undefined)?.toLowerCase(),
+      ].filter(Boolean) as string[];
+
+      if (candidateEmails.includes(emailLower)) {
+        const status = String(sub.status ?? '').toLowerCase();
+        const entitled = sub.entitled === true || (sub.metadata as Record<string, unknown> | undefined)?.entitled === true;
+        return {
+          customerId: (customer.id as string | undefined) ?? null,
+          status,
+          entitled,
+        };
+      }
+    }
+    return null;
+  };
+
+  try {
+    const [activeSubs, trialSubs] = await Promise.all([fetchStripeSubscriptions('active'), fetchStripeSubscriptions('trialing')]);
+    const hit = matchByEmail([...activeSubs, ...trialSubs]);
+    if (hit) {
+      return {
+        customerId: hit.customerId,
+        status: hit.status,
+        entitled: hit.entitled,
+      };
+    }
+  } catch (error) {
+    console.error('[Auth] Stripe API lookup failed:', error);
+  }
+
+  return { customerId: null, status: '', entitled: false };
+}
+
+export async function getStripeEligibilityByEmail(email?: string | null): Promise<{ eligible: boolean; customerId?: string | null; status?: string }> {
+  if (!email) return { eligible: false };
+  try {
+    const customer = await findStripeCustomer({ email });
+    if (customer) {
+      const subscription = (customer.raw?.subscription as Record<string, unknown> | undefined) ?? {};
+      const status = String(
+        subscription.status ??
+          subscription.subscriptionStatus ??
+          customer.status ??
+          ''
+      ).toLowerCase();
+      const entitled = subscription.entitled === true || customer.entitled === true;
+      const eligible = entitled || status === 'active' || status === 'trialing';
+      if (eligible) {
+        return { eligible, customerId: customer.id, status };
+      }
+    }
+
+    // Firestoreにない場合はStripe APIを直接参照
+    const live = await findStripeCustomerViaApi(email);
+    const eligibleLive = live.entitled || live.status === 'active' || live.status === 'trialing';
+    return { eligible: eligibleLive, customerId: live.customerId, status: live.status };
+  } catch (error) {
+    console.error('[Auth] Error checking Stripe eligibility:', error);
+    return { eligible: false };
   }
 }
 
@@ -266,8 +375,17 @@ export async function ensureUserDocument(uid: string, email: string): Promise<an
       return { ...user, id: uid };
     }
 
+    // Stripeサブスク利用者なら、組織作成を促すために特別なエラーを投げる
+    const stripeEligibility = await getStripeEligibilityByEmail(email);
+    if (stripeEligibility.eligible) {
+      throw new OrgSetupRequired(stripeEligibility.customerId);
+    }
+
     return null;
   } catch (error) {
+    if (error instanceof OrgSetupRequired) {
+      throw error;
+    }
     console.error('[Auth] Error ensuring user document:', error);
     return null;
   }
@@ -302,7 +420,19 @@ export function authMiddleware(options?: AuthMiddlewareOptions): (req: AuthedReq
     }
 
     // ユーザードキュメントを確保（存在しない場合は招待から作成）
-    await ensureUserDocument(decoded.uid, decoded.email || '');
+    try {
+      await ensureUserDocument(decoded.uid, decoded.email || '');
+    } catch (error) {
+      if (error instanceof OrgSetupRequired) {
+        res.status(403).json({
+          error: 'Org setup required',
+          code: 'ORG_SETUP_REQUIRED',
+          stripeCustomerId: error.stripeCustomerId ?? null,
+        });
+        return;
+      }
+      throw error;
+    }
 
     const userRecord = await fetchUserDoc(decoded.uid);
     if (!userRecord) {

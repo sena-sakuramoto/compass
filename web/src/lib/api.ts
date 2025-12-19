@@ -6,7 +6,7 @@ const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
 
 // カスタムエラークラス（ステータスコードを保持）
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public statusText: string) {
+  constructor(message: string, public status: number, public statusText: string, public code?: string, public data?: any) {
     super(message);
     this.name = 'ApiError';
   }
@@ -96,6 +96,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const text = await res.text();
+    let parsed: any = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch (_error) {
+      parsed = null;
+    }
+    const message = parsed?.error || parsed?.message || text || res.statusText;
+    const code = parsed?.code;
 
     // 404エラーはdebugレベルで記録（プロジェクトがFirestoreに存在しない可能性）
     if (res.status === 404) {
@@ -104,16 +112,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       console.error(`[api] ${options.method || 'GET'} ${path} failed:`, {
         status: res.status,
         statusText: res.statusText,
-        response: text,
+        response: parsed ?? text,
         hasAuthHeader: !!token,
       });
     }
 
     if (res.status === 401) {
-      throw new ApiError(`認証エラー (401): ログインしていないか、トークンが無効です。\n${text || res.statusText}`, res.status, res.statusText);
+      throw new ApiError(`認証エラー (401): ログインしていないか、トークンが無効です。\n${message}`, res.status, res.statusText, code, parsed);
     }
 
-    throw new ApiError(text || res.statusText, res.status, res.statusText);
+    throw new ApiError(message, res.status, res.statusText, code, parsed);
   }
 
   console.debug(`[api] ${options.method || 'GET'} ${path} succeeded (${res.status})`);
@@ -534,8 +542,91 @@ export interface BillingAccessInfo {
   details?: Record<string, unknown> | null;
 }
 
-export interface OrgBillingRecord extends BillingAccessInfo {
+export interface OrgBillingRecord {
   orgId: string;
+  orgName?: string | null;
+  planType: string;
+  stripeCustomerId?: string | null;
+  subscriptionStatus?: string | null;
+  subscriptionCurrentPeriodEnd?: number | null;
+  subscriptionCancelAtPeriodEnd?: boolean | null;
+  entitled?: boolean | null;
+  notes?: string | null;
+  updatedAt?: number | null;
+  updatedBy?: string | null;
+  lastStripeSyncAt?: number | null;
+  stripeSnapshot?: {
+    productNames?: string[];
+    priceIds?: string[];
+  } | null;
+  hasBillingRecord?: boolean;
+}
+
+export interface StripeCustomerRecord {
+  id: string;
+  email?: string | null;
+  emails: string[];
+  discordId?: string | null;
+  discordUserId?: string | null;
+  discordAccounts: string[];
+  status?: string | null;
+  currentPeriodEnd?: number | null;
+  cancelAtPeriodEnd?: boolean | null;
+  entitled?: boolean | null;
+  productNames?: string[];
+  priceIds?: string[];
+  raw: Record<string, unknown>;
+}
+
+export interface StripeCustomerAdminRecord extends StripeCustomerRecord {
+  linkedOrgId?: string | null;
+  linkedOrgName?: string | null;
+  billingRecord?: OrgBillingRecord | null;
+}
+
+export interface StripeLiveSubscription {
+  id: string;
+  status: string;
+  currentPeriodEnd: number | null;
+  cancelAtPeriodEnd: boolean | null;
+  customer: {
+    id: string;
+    email?: string | null;
+    name?: string | null;
+    description?: string | null;
+  };
+  productNames: string[];
+  priceIds: string[];
+}
+
+export interface StripeWelcomeBulkResult {
+  totalCandidates: number;
+  attempted: number;
+  sent: number;
+  skippedNoEmail: number;
+  skippedAlreadySent: number;
+  failures: { customerId: string; reason: string }[];
+}
+
+export interface MatchingUserSummary {
+  id: string;
+  email: string;
+  orgId: string;
+  role?: string;
+  displayName?: string;
+  isActive?: boolean;
+  memberType?: string;
+  lastLoginAt?: {
+    seconds: number;
+    nanoseconds: number;
+  } | null;
+}
+
+export interface StripeCustomerSearchResult {
+  stripeCustomer: StripeCustomerRecord;
+  billingRecord?: OrgBillingRecord | null;
+  organization?: ({ id: string; name?: string } & Record<string, unknown>) | null;
+  matchingUsers: MatchingUserSummary[];
 }
 
 export async function getBillingAccess() {
@@ -543,13 +634,62 @@ export async function getBillingAccess() {
 }
 
 export async function listOrgBilling() {
-  return request<{ records: OrgBillingRecord[] }>('/billing');
+  return request<{ records: OrgBillingRecord[]; stripeCustomers?: StripeCustomerAdminRecord[] }>('/billing');
 }
 
 export async function updateOrgBilling(orgId: string, payload: { planType?: string; stripeCustomerId?: string | null; notes?: string | null }) {
   return request(`/billing/orgs/${orgId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function searchStripeCustomer(params: { customerId?: string; discordId?: string; email?: string }) {
+  const query = new URLSearchParams();
+  if (params.customerId) query.set('customerId', params.customerId);
+  if (params.discordId) query.set('discordId', params.discordId);
+  if (params.email) query.set('email', params.email);
+  if ([...query.keys()].length === 0) {
+    throw new Error('customerId, discordId, または email のいずれかを指定してください');
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request<StripeCustomerSearchResult>(`/billing/stripe-customers/search${suffix}`);
+}
+
+export interface BillingSelfLookupResult {
+  stripeCustomer: StripeCustomerRecord;
+  billingRecord?: {
+    orgId: string;
+    planType: string;
+    subscriptionStatus: string | null;
+  } | null;
+}
+
+export async function lookupBillingSelf(params: { customerId?: string; discordId?: string; email?: string }) {
+  if (!params.customerId) {
+    throw new Error('Customer ID を入力してください');
+  }
+  return request<BillingSelfLookupResult>('/billing/self-lookup', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+export async function createBillingPortalSession(returnUrl?: string) {
+  return request<{ url: string }>('/billing/portal-session', {
+    method: 'POST',
+    body: JSON.stringify(returnUrl ? { returnUrl } : {}),
+  });
+}
+
+export async function listStripeLiveSubscriptions() {
+  return request<{ subscriptions: StripeLiveSubscription[] }>('/billing/stripe-live/subscriptions');
+}
+
+export async function sendStripeWelcomeEmails(params: { limit?: number; resend?: boolean } = {}) {
+  return request<StripeWelcomeBulkResult>('/billing/stripe-customers/send-welcome', {
+    method: 'POST',
+    body: JSON.stringify(params),
   });
 }
 
@@ -626,6 +766,19 @@ export async function listNotifications(params?: { limit?: number; unreadOnly?: 
   const qs = query.toString();
   const suffix = qs ? `?${qs}` : '';
   return request<InAppNotification[]>(`/notifications${suffix}`);
+}
+
+// ==================== 組織セットアップ API ====================
+
+export async function createOrgForStripeSubscriber(payload: { orgId: string; orgName: string }) {
+  return request<{ orgId: string; orgName: string; stripeCustomerId?: string | null }>('/org-setup', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function checkOrgSetupEligibility() {
+  return request<{ eligible: boolean; stripeCustomerId?: string | null; status?: string | null }>('/org-setup/eligibility');
 }
 
 export async function getUnreadNotificationCount() {

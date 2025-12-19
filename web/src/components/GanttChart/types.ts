@@ -110,7 +110,7 @@ export function calculateStageStatus(stage: GanttStage, tasks: GanttTask[]): Sta
     today.setHours(0, 0, 0, 0);
 
     if (stage.endDate < today) {
-      return 'delayed'; // 終了日を過ぎている
+      return 'done'; // タスクがなく期間を過ぎていれば完了扱い
     }
 
     if (stage.startDate <= today && today <= stage.endDate) {

@@ -72,7 +72,15 @@
       "Bash(python3:*)",
       "Bash(git rm:*)",
       "Bash(firebase firestore:get:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(stripe --version:*)",
+      "Bash(firebase functions:secrets:list:*)",
+      "Bash(firebase auth:export:*)",
+      "Bash(firebase firestore:delete:*)",
+      "Bash(gcloud auth application-default print-access-token:*)",
+      "Bash(gcloud:*)",
+      "Bash(firebase functions:list:*)",
+      "Bash(firebase auth:delete:*)"
     ],
     "deny": [],
     "ask": []

@@ -26,6 +26,8 @@ import migrateClientsRouter from './api/migrate-clients-api';
 import japaneseHolidaysRouter from './api/japanese-holidays';
 import billingRouter from './api/billing';
 import commentsRouter from './api/comments-api';
+import orgSetupRouter from './api/org-setup';
+import adminImpersonationRouter from './api/admin-impersonation';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 import { cleanupDeletedItems } from './cleanupDeletedItems';
@@ -83,7 +85,9 @@ app.use('/api', excelRouter);
 app.use('/api', commentsRouter);
 app.use('/api/admin', adminCleanupRouter);
 app.use('/api/admin', migrateClientsRouter);
+app.use('/api/admin', adminImpersonationRouter);
 app.use('/api', billingRouter);
+app.use('/api', orgSetupRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
@@ -118,6 +122,7 @@ const REMINDER_ENABLED = process.env.TASK_REMINDER_ENABLED ?? 'true';
 export const api = onRequest({
   region: REGION,
   maxInstances: 10,
+  secrets: ['STRIPE_SECRET_KEY'],
 }, app);
 
 export const jobRunner = onRequest({
@@ -153,3 +158,9 @@ export { cleanupDeletedItems };
 export { firestoreBackup };
 
 export { syncStripeCustomers } from './stripeTriggers';
+
+// 管理者用: ユーザーデータ完全削除
+export { adminDeleteUser } from './admin-delete-user';
+
+// 管理者用: メールアドレス検索
+export { adminSearchEmail } from './admin-search-email';

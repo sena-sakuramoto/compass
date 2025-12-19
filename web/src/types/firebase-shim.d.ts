@@ -30,3 +30,21 @@ declare module 'firebase/auth' {
   export function signOut(auth: Auth): Promise<void>;
   export function setPersistence(auth: Auth, persistence: unknown): Promise<void>;
 }
+
+declare module 'firebase/firestore' {
+  import type { FirebaseApp } from 'firebase/app';
+  export interface Firestore {}
+  export interface DocumentReference<T = unknown> {}
+  export interface DocumentSnapshot<T = unknown> {
+    exists(): boolean;
+    data(): T;
+  }
+  export interface Timestamp {
+    toMillis(): number;
+  }
+  export function getFirestore(app?: FirebaseApp): Firestore;
+  export function doc(db: Firestore, collectionPath: string, docPath: string): DocumentReference;
+  export function getDoc<T = unknown>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T>>;
+  export function setDoc<T = unknown>(ref: DocumentReference<T>, data: T): Promise<void>;
+  export function serverTimestamp(): Timestamp;
+}

@@ -14,6 +14,7 @@ import { getUser, listUsers } from '../lib/users';
 import { getProject } from '../lib/firestore';
 import { resolveAuthHeader, verifyToken } from '../lib/auth';
 import { validateEmail, validateProjectRole } from '../lib/validation';
+import { getProjectForUser, getEffectiveOrgId } from '../lib/access-helpers';
 
 const router = Router();
 
@@ -67,27 +68,32 @@ router.get('/projects/:projectId/members', authenticate, async (req: any, res) =
     const { projectId } = req.params;
     const { role, status, orgId } = req.query;
 
-    // プロジェクトを取得
-    const project = await getProject(req.user.orgId, projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
+    const { project, orgId: projectOrgId } = projectData;
+
     // プロジェクトの所有組織IDでメンバーを取得
-    // req.user.orgIdはプロジェクトアクセス権の確認に使われるが、
-    // メンバー取得にはプロジェクトの所有組織IDを使う
-    const members = await listProjectMembers(req.user.orgId, projectId, {
+    const members = await listProjectMembers(projectOrgId, projectId, {
       role,
       status,
       orgId,
     });
 
     // super_admin（システム管理者）はプロジェクトの担当者リスト等に表示しない
+    // ただし、プロジェクトの組織のsuper_adminは表示する
     const superAdmins = await listUsers({ role: 'super_admin', isActive: true });
-    const superAdminIds = new Set(superAdmins.map((user) => user.id));
+    const superAdminIdsFromOtherOrgs = new Set(
+      superAdmins
+        .filter(admin => admin.orgId !== projectOrgId) // プロジェクトの組織以外のsuper_adminのみ
+        .map(admin => admin.id)
+    );
     const filteredMembers = members.filter((member) => {
       if (!member.userId) return true;
-      return !superAdminIds.has(member.userId);
+      return !superAdminIdsFromOtherOrgs.has(member.userId);
     });
 
     res.json(filteredMembers);
@@ -105,15 +111,19 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
   try {
     const { projectId } = req.params;
 
-    const project = await getProject(req.user.orgId, projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
-    console.log('[manageable-users] User:', { id: req.user.id, email: req.user.email, role: req.user.role, orgId: req.user.orgId });
-    console.log('[manageable-users] Project:', { id: project.id, orgId: req.user.orgId });
+    const { project, orgId: projectOrgId } = projectData;
+    const effectiveOrgId = getEffectiveOrgId(req.user);
 
-    const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
+    console.log('[manageable-users] User:', { id: req.user.id, email: req.user.email, role: req.user.role, orgId: effectiveOrgId });
+    console.log('[manageable-users] Project:', { id: project.id, orgId: projectOrgId });
+
+    const canManage = await canManageProjectMembers(req.user, project as any, projectOrgId);
     console.log('[manageable-users] canManage:', canManage);
 
     if (!canManage) {
@@ -121,9 +131,9 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
     }
 
     const [members, users] = await Promise.all([
-      listProjectMembers(req.user.orgId, projectId),
+      listProjectMembers(projectOrgId, projectId),
       listUsers({
-        orgId: req.user.orgId,  // 自分の組織のユーザーのみ取得
+        orgId: effectiveOrgId,  // 有効な組織のユーザーのみ取得
         isActive: true
       }),
     ]);
@@ -204,14 +214,16 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
 
     const normalizedEmail = normalizedInput.email ?? null;
 
-    // プロジェクトを取得
-    const project = await getProject(req.user.orgId, projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
+    const { project, orgId: projectOrgId } = projectData;
+
     // 権限チェック
-    const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
+    const canManage = await canManageProjectMembers(req.user, project as any, projectOrgId);
     if (!canManage) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
     }
@@ -224,7 +236,7 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
       }
 
       // 既存メンバーのチェック（メールアドレスで比較）
-      const existingMembers = await listProjectMembers(req.user.orgId, projectId);
+      const existingMembers = await listProjectMembers(projectOrgId, projectId);
       const isDuplicate = existingMembers.some((member) => {
         return member.email && member.email.toLowerCase() === normalizedEmail;
       });
@@ -238,7 +250,7 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
 
     // メンバーを追加（emailがある場合は正規化されたものを使用）
     const member = await addProjectMember(
-      req.user.orgId,
+      projectOrgId,
       projectId,
       (project as any).物件名 || projectId,
       normalizedInput,
@@ -250,7 +262,7 @@ router.post('/projects/:projectId/members', authenticate, async (req: any, res) 
     try {
       const { logActivity } = await import('../lib/activity-log');
       await logActivity({
-        orgId: req.user.orgId,
+        orgId: projectOrgId,
         projectId,
         type: 'member.added',
         userId: req.uid,
@@ -356,25 +368,27 @@ router.patch('/projects/:projectId/members/:userId', authenticate, async (req: a
       }
     }
 
-    // プロジェクトを取得
-    const project = await getProject(req.user.orgId, projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
+    const { project, orgId: projectOrgId } = projectData;
+
     // メンバーが存在するか確認
-    const existingMember = await getProjectMember(req.user.orgId, projectId, userId);
+    const existingMember = await getProjectMember(projectOrgId, projectId, userId);
     if (!existingMember) {
       return res.status(404).json({ error: 'Member not found in this project' });
     }
 
     // 権限チェック
-    const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
+    const canManage = await canManageProjectMembers(req.user, project as any, projectOrgId);
     if (!canManage) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
     }
 
-    await updateProjectMember(req.user.orgId, projectId, userId, updates);
+    await updateProjectMember(projectOrgId, projectId, userId, updates);
 
     // アクティビティログを記録
     try {
@@ -387,7 +401,7 @@ router.patch('/projects/:projectId/members/:userId', authenticate, async (req: a
 
       if (Object.keys(changes).length > 0) {
         await logActivity({
-          orgId: req.user.orgId,
+          orgId: projectOrgId,
           projectId,
           type: 'member.updated',
           userId: req.uid,
@@ -405,7 +419,7 @@ router.patch('/projects/:projectId/members/:userId', authenticate, async (req: a
       // ログ失敗でも更新は成功とする
     }
 
-    const updatedMember = await getProjectMember(req.user.orgId, projectId, userId);
+    const updatedMember = await getProjectMember(projectOrgId, projectId, userId);
     res.json(updatedMember);
   } catch (error) {
     console.error('Error updating project member:', error);
@@ -421,20 +435,22 @@ router.delete('/projects/:projectId/members/:userId', authenticate, async (req: 
   try {
     const { projectId, userId } = req.params;
 
-    // プロジェクトを取得
-    const project = await getProject(req.user.orgId, projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
+    const { project, orgId: projectOrgId } = projectData;
+
     // メンバーが存在するか確認
-    const existingMember = await getProjectMember(req.user.orgId, projectId, userId);
+    const existingMember = await getProjectMember(projectOrgId, projectId, userId);
     if (!existingMember) {
       return res.status(404).json({ error: 'Member not found in this project' });
     }
 
     // 権限チェック: 管理者または本人が自分の招待を辞退する場合
-    const canManage = await canManageProjectMembers(req.user, project as any, req.user.orgId);
+    const canManage = await canManageProjectMembers(req.user, project as any, projectOrgId);
     const isSelfDecline = req.uid === userId && existingMember.status === 'invited';
 
     console.log('[DELETE Member] Permission check:', {
@@ -460,13 +476,13 @@ router.delete('/projects/:projectId/members/:userId', authenticate, async (req: 
       });
     }
 
-    await removeProjectMember(req.user.orgId, projectId, userId);
+    await removeProjectMember(projectOrgId, projectId, userId);
 
     // アクティビティログを記録
     try {
       const { logActivity } = await import('../lib/activity-log');
       await logActivity({
-        orgId: req.user.orgId,
+        orgId: projectOrgId,
         projectId,
         type: 'member.removed',
         userId: req.uid,
@@ -507,14 +523,16 @@ router.post('/projects/:projectId/members/:userId/accept', authenticate, async (
       return res.status(403).json({ error: 'Forbidden: You can only accept your own invitations' });
     }
 
-    // プロジェクトが存在するか確認
-    const project = await getProject(req.user.orgId, projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクトが存在するか確認（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
+    const { project, orgId: projectOrgId } = projectData;
+
     // 招待が存在するか確認
-    const member = await getProjectMember(req.user.orgId, projectId, userId);
+    const member = await getProjectMember(projectOrgId, projectId, userId);
     if (!member) {
       return res.status(404).json({ error: 'Invitation not found' });
     }
@@ -526,9 +544,9 @@ router.post('/projects/:projectId/members/:userId/accept', authenticate, async (
       });
     }
 
-    await acceptProjectInvitation(req.user.orgId, projectId, userId);
+    await acceptProjectInvitation(projectOrgId, projectId, userId);
 
-    const updatedMember = await getProjectMember(req.user.orgId, projectId, userId);
+    const updatedMember = await getProjectMember(projectOrgId, projectId, userId);
     res.json(updatedMember);
   } catch (error) {
     console.error('Error accepting project invitation:', error);
@@ -545,11 +563,12 @@ router.get('/users/:userId/projects', authenticate, async (req: any, res) => {
     const { userId } = req.params;
 
     // 自分自身または管理者のみ取得可能
-    if (req.uid !== userId && req.user.role !== 'admin') {
+    if (req.uid !== userId && req.user.role !== 'admin' && req.user.role !== 'super_admin') {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const projects = await listUserProjects(req.user.orgId, userId);
+    // クロスオーガナイゼーション対応：全組織のプロジェクトを取得
+    const projects = await listUserProjects(null, userId);
 
     res.json(projects);
   } catch (error) {

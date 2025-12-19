@@ -109,6 +109,7 @@ export interface User {
   phoneNumber?: string;          // 電話番号
   photoURL?: string;             // プロフィール画像URL
   isActive: boolean;             // アクティブ状態（課金seat対象の判定に使用）
+  impersonatingOrgId?: string;   // なりすまし中の組織ID（super_admin専用）
   createdAt: Timestamp;
   updatedAt: Timestamp;
   lastLoginAt?: Timestamp;

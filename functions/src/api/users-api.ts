@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import {
   createUser,
   getUser,
@@ -12,7 +13,7 @@ import {
 } from '../lib/users';
 import { UserInput } from '../lib/auth-types';
 import { canManageUsers } from '../lib/access-control';
-import { resolveAuthHeader, verifyToken, ensureUserDocument } from '../lib/auth';
+import { resolveAuthHeader, verifyToken, ensureUserDocument, OrgSetupRequired } from '../lib/auth';
 import { canAddMember, getMemberCounts, getOrganizationLimits } from '../lib/member-limits';
 
 const router = Router();
@@ -45,9 +46,20 @@ async function authenticate(req: any, res: any, next: any) {
     }
 
     // ユーザードキュメントを確保（存在しない場合は招待から作成）
-    await ensureUserDocument(decodedToken.uid, decodedToken.email || '');
+    try {
+      await ensureUserDocument(decodedToken.uid, decodedToken.email || '');
+    } catch (error) {
+      if (error instanceof OrgSetupRequired) {
+        return res.status(403).json({
+          error: 'Org setup required',
+          code: 'ORG_SETUP_REQUIRED',
+          stripeCustomerId: error.stripeCustomerId ?? null,
+        });
+      }
+      throw error;
+    }
 
-    let user = await getUser(decodedToken.uid);
+    const user = await getUser(decodedToken.uid);
     if (!user) {
       console.warn('[Users][Auth] User not found and no invitation available');
       return res.status(401).json({ error: 'User not found' });
@@ -334,7 +346,7 @@ router.delete('/:userId', authenticate, async (req: any, res) => {
     await getAuth().deleteUser(userId);
 
     // Firestoreからユーザー情報を削除
-    const db = require('firebase-admin').firestore();
+    const db = getFirestore();
     await db.collection('users').doc(userId).delete();
 
     res.json({ success: true });

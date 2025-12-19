@@ -5,6 +5,7 @@ import { createProject, listProjects, updateProject, deleteProject as deleteProj
 import { getUser } from '../lib/users';
 import { logActivity, calculateChanges } from '../lib/activity-log';
 import { canDeleteProject } from '../lib/access-control';
+import { getProjectForUser, getEffectiveOrgId } from '../lib/access-helpers';
 
 const router = Router();
 
@@ -96,11 +97,14 @@ router.post('/', async (req: any, res, next) => {
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
-    const id = await createProject(payload, user.orgId, req.uid);
+
+    // なりすまし中の場合は、なりすまし先の組織にプロジェクトを作成
+    const effectiveOrgId = getEffectiveOrgId(user);
+    const id = await createProject(payload, effectiveOrgId, req.uid);
 
     // アクティビティログを記録
     await logActivity({
-      orgId: user.orgId,
+      orgId: effectiveOrgId,
       projectId: id,
       type: 'project.created',
       userId: user.id,
@@ -130,13 +134,15 @@ router.patch('/:id', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // 変更前のプロジェクト情報を取得
-    const beforeProject = await getProject(user.orgId, req.params.id);
-    if (!beforeProject) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, req.params.id);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
-    await updateProject(req.params.id, payload, user.orgId);
+    const { project: beforeProject, orgId: projectOrgId } = projectData;
+
+    await updateProject(req.params.id, payload, projectOrgId);
 
     // 変更内容を計算
     const changes = calculateChanges(beforeProject, { ...beforeProject, ...payload });
@@ -144,7 +150,7 @@ router.patch('/:id', async (req: any, res, next) => {
     // アクティビティログを記録
     if (Object.keys(changes).length > 0) {
       await logActivity({
-        orgId: user.orgId,
+        orgId: projectOrgId,
         projectId: req.params.id,
         type: 'project.updated',
         userId: user.id,
@@ -171,22 +177,13 @@ router.delete('/:id', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // ユーザーがメンバーとなっているプロジェクトを検索して、プロジェクトの実際のorgIdを見つける
-    const { listUserProjects } = await import('../lib/project-members');
-    const userProjectMemberships = await listUserProjects(null, req.uid);
-    const membership = userProjectMemberships.find(m => m.projectId === req.params.id);
-
-    if (!membership) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, req.params.id);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
-    const projectOrgId = membership.member.orgId;
-
-    // プロジェクトの存在と権限をチェック
-    const project = await getProject(projectOrgId, req.params.id);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
+    const { project, orgId: projectOrgId } = projectData;
 
     // 削除権限をチェック（型アサーション: serialize によって適切な形式に変換済み）
     const hasPermission = await canDeleteProject(user, project as any, projectOrgId);

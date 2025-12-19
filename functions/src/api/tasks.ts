@@ -18,6 +18,7 @@ import { enqueueNotificationSeed } from '../lib/jobs';
 import { listUserProjects } from '../lib/project-members';
 import { canDeleteTask } from '../lib/access-control';
 import { logActivity } from '../lib/activity-log';
+import { getProjectForUser, getEffectiveOrgId } from '../lib/access-helpers';
 
 const router = Router();
 
@@ -300,31 +301,49 @@ router.delete('/:id', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // タスクを取得してプロジェクトIDを確認
-    const tasks = await listTasks({ orgId: user.orgId });
-    const task = tasks.find(t => t.id === req.params.id);
-    if (!task) {
+    // ユーザーがアクセス可能なすべてのプロジェクトからタスクを検索（クロスオーガナイゼーション対応）
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const accessibleOrgIds = new Set(
+      userProjectMemberships.map(m => m.project?.ownerOrgId || m.member.orgId)
+    );
+
+    let task: any = null;
+    let taskOrgId: string | null = null;
+
+    for (const orgId of accessibleOrgIds) {
+      const orgTasks = await listTasks({ orgId });
+      const found = orgTasks.find(t => t.id === req.params.id);
+      if (found) {
+        task = found;
+        taskOrgId = orgId;
+        break;
+      }
+    }
+
+    if (!task || !taskOrgId) {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    // プロジェクト情報を取得
-    const project = await getProject(user.orgId, task.projectId);
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
+    // プロジェクト情報を取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, task.projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
     }
 
+    const { project, orgId: projectOrgId } = projectData;
+
     // 削除権限をチェック（admin、タスク作成者、canDeleteTasks権限を持つメンバー）
-    const hasPermission = await canDeleteTask(user, task as any, project as any, user.orgId);
+    const hasPermission = await canDeleteTask(user, task as any, project as any, projectOrgId);
     if (!hasPermission) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to delete this task' });
     }
 
     // タスクを削除
-    await deleteTaskRepo(req.params.id, user.orgId);
+    await deleteTaskRepo(req.params.id, projectOrgId);
 
     // アクティビティログを記録
     await logActivity({
-      orgId: user.orgId,
+      orgId: projectOrgId,
       projectId: task.projectId,
       type: 'task.deleted',
       userId: user.id,

@@ -38,21 +38,13 @@ async function ensureUserDocument(user: User, token: string): Promise<void> {
     const userRef = doc(db, 'users', user.uid);
     const userDoc = await getDoc(userRef);
 
+    // ここで新規ドキュメントを自動生成しない。
+    // 招待リンクや管理ツール経由でユーザーが作成される想定のため、
+    // 未招待のユーザーはサーバー側で 401/403 を返し、UI側で案内する。
     if (!userDoc.exists()) {
-      // 招待経由でない直接ログインの場合のフォールバック
-      // 通常は org-invitations API 経由でユーザーが作成されるため、ここには到達しない
-      const defaultOrgId = 'archi-prisma';
-      await setDoc(userRef, {
-        email: user.email || '',
-        displayName: user.displayName || user.email?.split('@')[0] || '名無し',
-        orgId: defaultOrgId,
-        role: 'project_manager', // デフォルトはプロジェクトマネージャー
-        photoURL: (user as any).photoURL || '',
-        isActive: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+      console.warn('User document not found; skip auto-create to avoid default org assignment', {
+        email: user.email,
       });
-      console.log('User document created for', user.email);
     }
   } catch (error) {
     console.error('Failed to ensure user document:', error);

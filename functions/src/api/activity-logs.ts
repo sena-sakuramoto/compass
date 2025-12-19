@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { listActivityLogs } from '../lib/activity-log';
-import { resolveAuthHeader, verifyToken, ensureUserDocument } from '../lib/auth';
+import { resolveAuthHeader, verifyToken, ensureUserDocument, OrgSetupRequired } from '../lib/auth';
 import { getUser } from '../lib/users';
 
 const router = Router();
@@ -23,7 +23,18 @@ async function authenticate(req: any, res: any, next: any) {
     }
 
     // ユーザードキュメントを確保（存在しない場合は招待から作成）
-    await ensureUserDocument(decodedToken.uid, decodedToken.email || '');
+    try {
+      await ensureUserDocument(decodedToken.uid, decodedToken.email || '');
+    } catch (error) {
+      if (error instanceof OrgSetupRequired) {
+        return res.status(403).json({
+          error: 'Org setup required',
+          code: 'ORG_SETUP_REQUIRED',
+          stripeCustomerId: error.stripeCustomerId ?? null,
+        });
+      }
+      throw error;
+    }
 
     const user = await getUser(decodedToken.uid);
     if (!user) {

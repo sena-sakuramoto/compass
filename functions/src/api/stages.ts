@@ -11,6 +11,7 @@ import {
 } from '../lib/firestore';
 import { getUser } from '../lib/users';
 import { listUserProjects, getProjectMemberPermissions } from '../lib/project-members';
+import { getProjectForUser } from '../lib/access-helpers';
 
 const router = Router();
 
@@ -44,15 +45,15 @@ router.get('/projects/:projectId/stages', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // プロジェクトメンバーシップをチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const membership = userProjectMemberships.find(m => m.projectId === projectId);
-
-    if (!membership) {
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
       return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
     }
 
-    const stages = await listStages(projectId, user.orgId);
+    const { orgId: projectOrgId } = projectData;
+
+    const stages = await listStages(projectId, projectOrgId);
 
     res.json({ stages });
   } catch (error) {
@@ -74,22 +75,22 @@ router.post('/projects/:projectId/stages', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // プロジェクトメンバーシップと権限をチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const membership = userProjectMemberships.find(m => m.projectId === projectId);
-
-    if (!membership) {
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
       return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
     }
 
-    const permissions = await getProjectMemberPermissions(user.orgId, projectId, req.uid);
+    const { orgId: projectOrgId } = projectData;
+
+    const permissions = await getProjectMemberPermissions(projectOrgId, projectId, req.uid);
     if (!permissions || !permissions.canCreateTasks) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to create stages' });
     }
 
     const stageId = await createStage({
       ...payload,
-      orgId: user.orgId,
+      orgId: projectOrgId,
     });
 
     res.status(201).json({ id: stageId });
@@ -112,26 +113,42 @@ router.patch('/stages/:stageId', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // ステージを取得してプロジェクトIDを確認
-    const stage = await getStage(stageId, user.orgId);
-    if (!stage) {
+    // ユーザーがアクセス可能な全組織からステージを検索（クロスオーガナイゼーション対応）
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const accessibleOrgIds = new Set(
+      userProjectMemberships.map(m => m.project?.ownerOrgId || m.member.orgId)
+    );
+
+    let stage: any = null;
+    let stageOrgId: string | null = null;
+
+    for (const orgId of accessibleOrgIds) {
+      const found = await getStage(stageId, orgId);
+      if (found) {
+        stage = found;
+        stageOrgId = orgId;
+        break;
+      }
+    }
+
+    if (!stage || !stageOrgId) {
       return res.status(404).json({ error: 'Stage not found' });
     }
 
-    // プロジェクトメンバーシップと権限をチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const membership = userProjectMemberships.find(m => m.projectId === stage.projectId);
-
-    if (!membership) {
+    // プロジェクトを取得して権限をチェック
+    const projectData = await getProjectForUser(req.uid, stage.projectId);
+    if (!projectData) {
       return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
     }
 
-    const permissions = await getProjectMemberPermissions(user.orgId, stage.projectId, req.uid);
+    const { orgId: projectOrgId } = projectData;
+
+    const permissions = await getProjectMemberPermissions(projectOrgId, stage.projectId, req.uid);
     if (!permissions || !permissions.canEditTasks) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to edit stages' });
     }
 
-    await updateStage(stageId, updates, user.orgId);
+    await updateStage(stageId, updates, projectOrgId);
 
     res.json({ success: true });
   } catch (error) {
@@ -152,26 +169,42 @@ router.delete('/stages/:stageId', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // ステージを取得してプロジェクトIDを確認
-    const stage = await getStage(stageId, user.orgId);
-    if (!stage) {
+    // ユーザーがアクセス可能な全組織からステージを検索（クロスオーガナイゼーション対応）
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const accessibleOrgIds = new Set(
+      userProjectMemberships.map(m => m.project?.ownerOrgId || m.member.orgId)
+    );
+
+    let stage: any = null;
+    let stageOrgId: string | null = null;
+
+    for (const orgId of accessibleOrgIds) {
+      const found = await getStage(stageId, orgId);
+      if (found) {
+        stage = found;
+        stageOrgId = orgId;
+        break;
+      }
+    }
+
+    if (!stage || !stageOrgId) {
       return res.status(404).json({ error: 'Stage not found' });
     }
 
-    // プロジェクトメンバーシップと権限をチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const membership = userProjectMemberships.find(m => m.projectId === stage.projectId);
-
-    if (!membership) {
+    // プロジェクトを取得して権限をチェック
+    const projectData = await getProjectForUser(req.uid, stage.projectId);
+    if (!projectData) {
       return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
     }
 
-    const permissions = await getProjectMemberPermissions(user.orgId, stage.projectId, req.uid);
+    const { orgId: projectOrgId } = projectData;
+
+    const permissions = await getProjectMemberPermissions(projectOrgId, stage.projectId, req.uid);
     if (!permissions || !permissions.canDeleteTasks) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to delete stages' });
     }
 
-    await deleteStage(stageId, user.orgId);
+    await deleteStage(stageId, projectOrgId);
 
     res.json({ success: true });
   } catch (error) {
