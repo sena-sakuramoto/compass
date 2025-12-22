@@ -63,6 +63,9 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// org-setup must be mounted FIRST to avoid being caught by authMiddleware from other routers
+app.use('/api', orgSetupRouter);
+
 app.use('/api/projects', projectsRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api', stagesRouter);
@@ -87,7 +90,6 @@ app.use('/api/admin', adminCleanupRouter);
 app.use('/api/admin', migrateClientsRouter);
 app.use('/api/admin', adminImpersonationRouter);
 app.use('/api', billingRouter);
-app.use('/api', orgSetupRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });

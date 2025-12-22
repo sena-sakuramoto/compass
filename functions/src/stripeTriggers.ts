@@ -42,11 +42,19 @@ export const syncStripeCustomers = onDocumentWritten(
     if (query.empty) {
       console.log('[billing] No org billing doc for customer', customerId);
     } else {
+      const subscription = (after.subscription as Record<string, unknown> | undefined) ?? {};
       const updates = {
-        subscriptionStatus: after.status || null,
-        subscriptionCurrentPeriodEnd: after.currentPeriodEnd ?? null,
-        subscriptionCancelAtPeriodEnd: Boolean(after.cancelAtPeriodEnd),
-        entitled: after.entitled ?? null,
+        subscriptionStatus: (after.status ?? after.subscriptionStatus ?? subscription.status ?? null) as string | null,
+        subscriptionCurrentPeriodEnd:
+          (after.currentPeriodEnd ?? after.subscriptionCurrentPeriodEnd ?? subscription.currentPeriodEnd ?? null) as number | null,
+        subscriptionCancelAtPeriodEnd: Boolean(
+          after.cancelAtPeriodEnd ??
+            after.subscriptionCancelAtPeriodEnd ??
+            subscription.cancelAtPeriodEnd ??
+            subscription.cancel_at_period_end ??
+            false
+        ),
+        entitled: (after.entitled ?? subscription.entitled ?? null) as boolean | null,
         lastStripeSyncAt: Date.now(),
         stripeSnapshot: {
           productNames: after.productNames || [],

@@ -87,7 +87,7 @@ export function HelpPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>人員管理:</strong> メンバー・ゲスト・協力者の整理と上限管理。</span>
+                  <span><strong>人員管理:</strong> メンバーと協力者の整理、招待と上限管理。</span>
                 </li>
               </ul>
             </div>
@@ -119,14 +119,14 @@ export function HelpPage() {
         <Section id="filters" title="ビュー構成とフィルター" icon={ListFilter}>
           <div className="space-y-4 text-slate-700">
             <p className="text-sm">
-              全ページで見出しの余白を詰め、フィルターをすぐ下に配置。表示件数はヘッダー左側に一本化し、重複表示をなくしました。
+              フィルターは見出しの直下に1段で配置し、表示件数もフィルター付近にまとめて表示します。
             </p>
             <div>
               <h3 className="font-semibold text-slate-900 mb-2">フィルターのポイント</h3>
               <ul className="space-y-2 text-sm">
                 <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>プロジェクト/担当者/ステータスはマルチセレクト。プルダウンの重なり順を最上位に固定し、カレンダーヘッダーより前面に表示します。</span></li>
-                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>担当者候補は人員管理のメンバー＋ゲストに加えて、プロジェクト編集で追加した協力者（テキストのみ含む）も自動登録されます。</span></li>
-                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>クイックフィルター（優先度/スプリント/期限）は折りたたみ式。適用数はバッジで可視化され、1クリックでリセット可能です。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>担当者候補は人員管理で登録した担当者と、参加中プロジェクトのメンバーから作られます。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>検索はタスク名・担当者・ステータス・プロジェクト名などのテキストを横断して絞り込みます。</span></li>
                 <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>失注・引渡し済はダッシュボードでデフォルト非表示。案内帯のボタンで即切り替えできます。</span></li>
               </ul>
             </div>
@@ -170,10 +170,10 @@ export function HelpPage() {
         <Section id="danger" title="危険タスクの自動アラート" icon={AlertTriangle}>
           <div className="space-y-4 text-slate-700">
             <p className="text-sm">
-              期限が今日を含む2日以内、または超過している未完了タスクをまとめたモーダルが朝(5〜11時)と夕方(17〜23時)にそれぞれ一度だけ自動表示されます。リマインド内では「今日が期限」と「期限が迫っている/超過」の2セクションに分かれ、担当者名も同時に表示されます。
+              期限が今日を含む2日以内、または超過している未完了タスクをまとめたモーダルが、画面を開いたタイミングで1回だけ自動表示されます。リマインド内では「今日が期限」と「期限が迫っている/超過」の2セクションに分かれ、担当者名も同時に表示されます。
             </p>
             <ul className="space-y-2 text-sm">
-              <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>Escまたは✕で閉じられ、同じ時間帯では再表示されません。</span></li>
+              <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>Escまたは✕で閉じられ、同じセッションでは再表示されません。</span></li>
               <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>プロジェクト名に加えて担当者、期限（曜日付き）、本日締切/要確認/要対応のバッジを表示します。</span></li>
               <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>今日締切のタスクだけをまとめて把握でき、期限を過ぎたものは赤バッジで強調されます。</span></li>
             </ul>
@@ -187,7 +187,7 @@ export function HelpPage() {
                 <Info className="h-5 w-5 text-teal-600 mt-0.5 flex-shrink-0" />
                 <div>
                   <h3 className="font-semibold text-teal-900 mb-1">人数制限</h3>
-                  <p className="text-sm text-teal-800">メンバー（社内）5名・ゲスト（協力者）10名まで追加できます。</p>
+                  <p className="text-sm text-teal-800">プランに応じて組織メンバー数の上限が変わります（例: starter 5名 / business 30名 / enterprise 実質無制限）。</p>
                 </div>
               </div>
             </div>
@@ -201,11 +201,11 @@ export function HelpPage() {
                 </ul>
               </div>
               <div className="border-2 border-slate-200 rounded-lg p-4">
-                <h3 className="font-semibold text-slate-900 mb-3">ゲスト / 協力者</h3>
+                <h3 className="font-semibold text-slate-900 mb-3">協力者</h3>
                 <ul className="space-y-2 text-sm text-slate-700">
-                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>協力会社・職人・外部PMなどスポット参画向け</span></li>
-                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>割り当てられたプロジェクトでのみ編集可</span></li>
-                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>メールなしでも「協力者（テキストのみ）」で登録でき、保存後すぐフィルターに反映</span></li>
+                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>協力会社・職人・外部PMなどの連絡先管理向け</span></li>
+                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>ログイン不要で登録可能</span></li>
+                  <li className="flex items-start gap-2"><span className="text-slate-400 mt-1">✓</span><span>タスクの担当者はプロジェクトメンバー/担当者から選択（協力者は名簿用）</span></li>
                 </ul>
               </div>
             </div>

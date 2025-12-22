@@ -9,10 +9,12 @@ const ORG_ID = process.env.ORG_ID || 'archi-prisma';
 
 /**
  * プロジェクトIDを採番（P-%04d形式）
+ * @param orgId 組織ID（指定しない場合はデフォルトのORG_IDを使用）
  */
-export async function getNextProjectId(): Promise<string> {
+export async function getNextProjectId(orgId?: string): Promise<string> {
   const db = getFirestore();
-  const counterRef = db.doc(`orgs/${ORG_ID}/counters/projects`);
+  const targetOrgId = orgId || ORG_ID;
+  const counterRef = db.doc(`orgs/${targetOrgId}/counters/projects`);
 
   const result = await db.runTransaction(async (transaction) => {
     const counterDoc = await transaction.get(counterRef);

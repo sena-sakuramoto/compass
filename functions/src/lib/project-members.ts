@@ -59,6 +59,7 @@ export async function addProjectMember(
     const member: ProjectMember = {
       id: memberId,
       projectId,
+      projectOrgId: orgId,
       userId: textOnlyUserId,
       displayName: trimmedDisplayName || '名前未設定',
       orgId: orgId,
@@ -115,6 +116,7 @@ export async function addProjectMember(
     member = {
       id: memberId,
       projectId,
+      projectOrgId: orgId,
       userId: externalUserId,
       email: normalizedEmail!,
       displayName: normalizedEmail!,
@@ -153,6 +155,7 @@ export async function addProjectMember(
     member = {
       id: memberId,
       projectId,
+      projectOrgId: orgId,
       userId: user.id,
       email: user.email,
       displayName: user.displayName,
@@ -178,6 +181,7 @@ export async function addProjectMember(
 
   // プロジェクトのメンバー数を更新（インクリメント）
   await updateProjectMemberCount(orgId, projectId, memberOrgId, true);
+  await syncProjectMemberSummary(orgId, projectId);
 
   // メール通知は実装していません
   console.log(`Project member added: ${normalizedEmail || trimmedDisplayName} to project ${projectName} (status: ${member.status})`);
@@ -227,21 +231,74 @@ export async function listProjectMembers(
   }
 
   const snapshot = await query.get();
-  const allMembers = snapshot.docs.map(doc => {
+  const memberDocs = snapshot.docs.map(doc => {
     const data = doc.data();
-    return {
+    const member = {
       ...data,
       invitedAt: data.invitedAt,
       joinedAt: data.joinedAt,
       createdAt: data.createdAt,
       updatedAt: data.updatedAt,
     } as ProjectMember;
+    return { member, docId: doc.id };
   });
 
-  // プロジェクトに属する全メンバーを返す
-  // orgIdパラメータはアクセス制御用で、結果のフィルタには使わない
-  // 理由：異なる組織のユーザーもプロジェクトメンバーになれるため
-  return allMembers;
+  const legacyMembers = memberDocs.filter(({ member }) => !member.projectOrgId);
+  const inviterIds = Array.from(
+    new Set(
+      legacyMembers
+        .map(({ member }) => member.invitedBy)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  const inviterOrgMap = new Map<string, string>();
+  if (inviterIds.length > 0) {
+    const inviterDocs = await db.getAll(
+      ...inviterIds.map(id => db.collection('users').doc(id))
+    );
+    inviterDocs.forEach((doc) => {
+      if (!doc.exists) return;
+      const data = doc.data() as User;
+      if (data?.orgId) {
+        inviterOrgMap.set(doc.id, data.orgId);
+      }
+    });
+  }
+
+  const updates: Array<Promise<unknown>> = [];
+  const scopedMembers: ProjectMember[] = [];
+
+  memberDocs.forEach(({ member, docId }) => {
+    const resolvedOrgId =
+      member.projectOrgId ||
+      inviterOrgMap.get(member.invitedBy) ||
+      member.orgId;
+
+    if (resolvedOrgId !== orgId) return;
+
+    if (!member.projectOrgId && resolvedOrgId) {
+      updates.push(
+        db.collection('project_members').doc(docId).update({
+          projectOrgId: resolvedOrgId,
+          updatedAt: Timestamp.now(),
+        })
+      );
+      member.projectOrgId = resolvedOrgId;
+    }
+
+    scopedMembers.push(member);
+  });
+
+  if (updates.length > 0) {
+    const results = await Promise.allSettled(updates);
+    const failed = results.filter(result => result.status === 'rejected');
+    if (failed.length > 0) {
+      console.warn('[listProjectMembers] Failed to backfill projectOrgId:', failed.length);
+    }
+  }
+
+  return scopedMembers;
 }
 
 /**
@@ -281,6 +338,10 @@ export async function updateProjectMember(
     ...updates,
     updatedAt: Timestamp.now(),
   });
+
+  if (updates.status || updates.role || updates.jobTitle) {
+    await syncProjectMemberSummary(orgId, projectId);
+  }
 }
 
 /**
@@ -313,6 +374,8 @@ export async function removeProjectMember(
   if (memberData.status === 'active') {
     await updateProjectMemberCount(orgId, projectId, memberData.orgId, false);
   }
+
+  await syncProjectMemberSummary(orgId, projectId);
 }
 
 /**
@@ -351,6 +414,71 @@ export async function acceptProjectInvitation(
   // プロジェクトのメンバー数を更新（インクリメント）
   // invited から active になったのでカウントを増やす
   await updateProjectMemberCount(orgId, projectId, member.orgId, true);
+
+  await syncProjectMemberSummary(orgId, projectId);
+}
+
+/**
+ * プロジェクトの担当者サマリーを更新
+ * memberNames（全メンバー）と役職別フィールド（営業、PM、設計、施工管理）を更新
+ */
+export async function syncProjectMemberSummary(
+  orgId: string,
+  projectId: string
+): Promise<void> {
+  if (!orgId || !projectId) return;
+  try {
+    const members = await listProjectMembers(orgId, projectId, { status: 'active' });
+    const seen = new Set<string>();
+    const names: string[] = [];
+
+    // 役職別にメンバーを集約
+    const roleMap: Record<string, Set<string>> = {
+      営業: new Set(),
+      PM: new Set(),
+      設計: new Set(),
+      施工管理: new Set(),
+    };
+
+    members.forEach((member) => {
+      const nameCandidate =
+        member.displayName?.trim() ||
+        member.email?.split('@')[0]?.trim() ||
+        '';
+      if (!nameCandidate) return;
+
+      const key = member.userId || member.email || nameCandidate;
+      if (seen.has(key)) return;
+      seen.add(key);
+      names.push(nameCandidate);
+
+      // 役職があれば該当するセットに追加
+      if (member.jobTitle && roleMap[member.jobTitle]) {
+        roleMap[member.jobTitle].add(nameCandidate);
+      }
+    });
+
+    names.sort((a, b) => a.localeCompare(b, 'ja'));
+
+    // 役職別フィールドを作成
+    const updateData: Record<string, any> = {
+      memberNames: names,
+      memberNamesUpdatedAt: Timestamp.now(),
+      営業: roleMap.営業.size > 0 ? Array.from(roleMap.営業).sort((a, b) => a.localeCompare(b, 'ja')).join('、') : null,
+      PM: roleMap.PM.size > 0 ? Array.from(roleMap.PM).sort((a, b) => a.localeCompare(b, 'ja')).join('、') : null,
+      設計: roleMap.設計.size > 0 ? Array.from(roleMap.設計).sort((a, b) => a.localeCompare(b, 'ja')).join('、') : null,
+      施工管理: roleMap.施工管理.size > 0 ? Array.from(roleMap.施工管理).sort((a, b) => a.localeCompare(b, 'ja')).join('、') : null,
+    };
+
+    await db
+      .collection('orgs')
+      .doc(orgId)
+      .collection('projects')
+      .doc(projectId)
+      .update(updateData);
+  } catch (error) {
+    console.warn('[ProjectMembers] Failed to sync member summary:', error);
+  }
 }
 
 /**
@@ -385,14 +513,64 @@ export async function listUserProjects(
 
   const membersSnapshot = await query.get();
 
-  const explicitProjects: Array<{ projectId: string; member: ProjectMember }> = [];
+  const explicitProjects: Array<{ projectId: string; member: ProjectMember; docId?: string }> = [];
 
   for (const memberDoc of membersSnapshot.docs) {
     const member = memberDoc.data() as ProjectMember;
     explicitProjects.push({
       projectId: member.projectId,
       member,
+      docId: memberDoc.id,
     });
+  }
+
+  const legacyMembers = explicitProjects.filter(({ member }) => !member.projectOrgId);
+  const inviterIds = Array.from(
+    new Set(
+      legacyMembers
+        .map(({ member }) => member.invitedBy)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  const inviterOrgMap = new Map<string, string>();
+  if (inviterIds.length > 0) {
+    const inviterDocs = await db.getAll(
+      ...inviterIds.map((id) => db.collection('users').doc(id))
+    );
+    inviterDocs.forEach((doc) => {
+      if (!doc.exists) return;
+      const data = doc.data() as User;
+      if (data?.orgId) {
+        inviterOrgMap.set(doc.id, data.orgId);
+      }
+    });
+  }
+
+  const updates: Array<Promise<unknown>> = [];
+  explicitProjects.forEach(({ member, docId }) => {
+    const resolvedOrgId =
+      member.projectOrgId ||
+      inviterOrgMap.get(member.invitedBy) ||
+      member.orgId;
+
+    if (!member.projectOrgId && resolvedOrgId && docId) {
+      updates.push(
+        db.collection('project_members').doc(docId).update({
+          projectOrgId: resolvedOrgId,
+          updatedAt: Timestamp.now(),
+        })
+      );
+      member.projectOrgId = resolvedOrgId;
+    }
+  });
+
+  if (updates.length > 0) {
+    const results = await Promise.allSettled(updates);
+    const failed = results.filter((result) => result.status === 'rejected');
+    if (failed.length > 0) {
+      console.warn('[listUserProjects] Failed to backfill projectOrgId:', failed.length);
+    }
   }
 
   // 同組織のメンバーの場合、全プロジェクトへのアクセスを追加
@@ -434,6 +612,7 @@ export async function listUserProjects(
     const implicitMember: ProjectMember = {
       id: `${projectId}_${userId}`,
       projectId,
+      projectOrgId: targetOrgId,
       userId,
       email: user.email,
       displayName: user.displayName,
@@ -461,9 +640,10 @@ export async function listUserProjects(
 
   for (const item of explicitProjects) {
     // プロジェクト情報を取得して含める
+    const projectOrgId = item.member.projectOrgId || item.member.orgId;
     const projectDoc = await db
       .collection('orgs')
-      .doc(item.member.orgId)
+      .doc(projectOrgId)
       .collection('projects')
       .doc(item.projectId)
       .get();

@@ -119,6 +119,8 @@ function normalizeProject(raw: any): Project {
     'フォルダURL': raw['フォルダURL'] ?? '',
     '備考': raw['備考'] ?? '',
     施工費: raw['施工費'] != null ? toNumber(raw['施工費']) : undefined,
+    memberNames: Array.isArray(raw.memberNames) ? raw.memberNames.filter(Boolean) : undefined,
+    memberNamesUpdatedAt: raw.memberNamesUpdatedAt,
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt,
   };

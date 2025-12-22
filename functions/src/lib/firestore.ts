@@ -246,12 +246,34 @@ function sanitizeFieldNames(payload: Record<string, any>): Record<string, any> {
 export async function createProject(payload: ProjectInput, orgId?: string, createdBy?: string) {
   const targetOrgId = orgId ?? ORG_ID;
   const now = admin.firestore.FieldValue.serverTimestamp();
-  // Always generate new ID to prevent accidental overwrites
-  const projectId = await getNextProjectId();
   const sanitizedPayload = sanitizeFieldNames(payload);
+  let didSyncCounter = false;
 
-  // バッチ書き込みを使用して複数の操作を一度に実行
-  const batch = db.batch();
+  const syncProjectCounterToLatest = async () => {
+    if (didSyncCounter) return;
+    didSyncCounter = true;
+
+    const latestSnapshot = await db
+      .collection('orgs')
+      .doc(targetOrgId)
+      .collection('projects')
+      .orderBy(admin.firestore.FieldPath.documentId(), 'desc')
+      .limit(1)
+      .get();
+
+    if (latestSnapshot.empty) return;
+
+    const latestId = latestSnapshot.docs[0].id;
+    const match = /^P-(\d+)$/.exec(latestId);
+    if (!match) return;
+
+    const latestNumber = Number(match[1]);
+    if (!Number.isFinite(latestNumber)) return;
+
+    await db
+      .doc(`orgs/${targetOrgId}/counters/projects`)
+      .set({ value: latestNumber }, { merge: true });
+  };
 
   // プロジェクト作成者のユーザー情報を事前に取得（バッチ外で実行）
   let userData: any = null;
@@ -264,80 +286,105 @@ export async function createProject(payload: ProjectInput, orgId?: string, creat
     }
   }
 
-  // プロジェクトドキュメントを追加
-  const docRef = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
-  const isExternalCreator = creatorOrgId !== targetOrgId;
-  batch.set(docRef, {
-    ...sanitizedPayload,
-    id: projectId,
-    ProjectID: projectId,
-    ownerOrgId: targetOrgId,
-    memberCount: 1,  // 作成者が最初のメンバー
-    externalMemberCount: isExternalCreator ? 1 : 0,  // 作成者が外部メンバーの場合
-    createdAt: now,
-    updatedAt: now,
-  });
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    // Always generate new ID to prevent accidental overwrites
+    // 組織ごとに独立したIDカウンターを使用
+    const projectId = await getNextProjectId(targetOrgId);
 
-  // プロジェクト作成者を自動的にメンバーとして追加
-  if (createdBy && userData) {
-    try {
-      const memberId = `${projectId}_${createdBy}`;
+    // プロジェクトドキュメントを追加
+    const docRef = db.collection('orgs').doc(targetOrgId).collection('projects').doc(projectId);
 
-      const memberData = {
-        id: memberId,
-        projectId: projectId,
-        userId: createdBy,
-        email: userData?.email || '',
-        displayName: userData?.displayName || userData?.email || '',
-        orgId: userData?.orgId || targetOrgId,
-        orgName: userData?.orgName || targetOrgId,
-        role: 'owner',
-        職種: userData?.職種 || null,
-        permissions: {
-          canEditProject: true,
-          canDeleteProject: true,
-          canManageMembers: true,
-          canViewTasks: true,
-          canCreateTasks: true,
-          canEditTasks: true,
-          canDeleteTasks: true,
-          canViewFiles: true,
-          canUploadFiles: true,
-        },
-        invitedBy: createdBy,
-        invitedAt: now,
-        joinedAt: now,
-        status: 'active',
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      // バッチにメンバーデータを追加
-      // トップレベルの project_members コレクションに保存
-      const memberDocRef = db.collection('project_members').doc(memberId);
-      batch.set(memberDocRef, memberData);
-
-      // プロジェクトのサブコレクションにも保存
-      const subMemberDocRef = db
-        .collection('orgs')
-        .doc(targetOrgId)
-        .collection('projects')
-        .doc(projectId)
-        .collection('members')
-        .doc(createdBy);
-      batch.set(subMemberDocRef, memberData);
-
-      console.log(`[createProject] Prepared creator ${createdBy} as owner of project ${projectId}`);
-    } catch (error) {
-      console.error('[createProject] Failed to prepare creator as member:', error);
-      // エラーが発生してもプロジェクト作成は成功させる
+    // 既存のプロジェクトが存在しないかチェック（上書き防止）
+    const existingProject = await docRef.get();
+    if (existingProject.exists) {
+      console.warn(`[createProject] Project ${projectId} already exists, retrying...`);
+      await syncProjectCounterToLatest();
+      continue;
     }
+
+    // バッチ書き込みを使用して複数の操作を一度に実行
+    const batch = db.batch();
+
+    const isExternalCreator = creatorOrgId !== targetOrgId;
+    const creatorName = userData?.displayName || userData?.email || '';
+    const memberNames = creatorName ? [creatorName] : [];
+    batch.set(docRef, {
+      ...sanitizedPayload,
+      id: projectId,
+      ProjectID: projectId,
+      ownerOrgId: targetOrgId,
+      memberCount: 1,  // 作成者が最初のメンバー
+      externalMemberCount: isExternalCreator ? 1 : 0,  // 作成者が外部メンバーの場合
+      memberNames,
+      memberNamesUpdatedAt: memberNames.length ? now : undefined,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // プロジェクト作成者を自動的にメンバーとして追加
+    if (createdBy && userData) {
+      try {
+        const memberId = `${projectId}_${createdBy}`;
+
+        const memberData = {
+          id: memberId,
+          projectId: projectId,
+          projectOrgId: targetOrgId,
+          userId: createdBy,
+          email: userData?.email || '',
+          displayName: userData?.displayName || userData?.email || '',
+          orgId: userData?.orgId || targetOrgId,
+          orgName: userData?.orgName || targetOrgId,
+          role: 'owner',
+          職種: userData?.職種 || null,
+          permissions: {
+            canEditProject: true,
+            canDeleteProject: true,
+            canManageMembers: true,
+            canViewTasks: true,
+            canCreateTasks: true,
+            canEditTasks: true,
+            canDeleteTasks: true,
+            canViewFiles: true,
+            canUploadFiles: true,
+          },
+          invitedBy: createdBy,
+          invitedAt: now,
+          joinedAt: now,
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        // バッチにメンバーデータを追加
+        // トップレベルの project_members コレクションに保存
+        const memberDocRef = db.collection('project_members').doc(memberId);
+        batch.set(memberDocRef, memberData);
+
+        // プロジェクトのサブコレクションにも保存
+        const subMemberDocRef = db
+          .collection('orgs')
+          .doc(targetOrgId)
+          .collection('projects')
+          .doc(projectId)
+          .collection('members')
+          .doc(createdBy);
+        batch.set(subMemberDocRef, memberData);
+
+        console.log(`[createProject] Prepared creator ${createdBy} as owner of project ${projectId}`);
+      } catch (error) {
+        console.error('[createProject] Failed to prepare creator as member:', error);
+        // エラーが発生してもプロジェクト作成は成功させる
+      }
+    }
+
+    // バッチをコミット（1回の操作で全ての書き込みを実行）
+    await batch.commit();
+
+    return projectId;
   }
 
-  // バッチをコミット（1回の操作で全ての書き込みを実行）
-  await batch.commit();
-
-  return projectId;
+  throw new Error('Failed to allocate a unique project ID. Please try again.');
 }
 
 export async function updateProject(projectId: string, payload: Partial<ProjectInput>, orgId?: string) {

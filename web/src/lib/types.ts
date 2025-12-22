@@ -28,6 +28,13 @@ export interface Project {
   updatedAt?: string;
   progressAggregate?: number;
   span?: { start?: string; end?: string };
+  memberNames?: string[];
+  memberNamesUpdatedAt?: string;
+  // 役職別メンバー（syncProjectMemberSummaryで自動更新）
+  営業?: string | null;
+  PM?: string | null;
+  設計?: string | null;
+  施工管理?: string | null;
 }
 
 export interface TaskNotificationSettings {

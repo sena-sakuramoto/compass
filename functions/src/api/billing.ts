@@ -149,23 +149,44 @@ router.get('/billing/stripe-live/subscriptions', async (req: any, res) => {
   }
 
   const fetchStripeSubscriptions = async (status: 'active' | 'trialing') => {
-    const params = new URLSearchParams();
-    params.set('status', status);
-    params.set('limit', '100');
-    params.append('expand[]', 'data.customer');
+    const all: any[] = [];
+    let startingAfter: string | undefined;
+    let hasMore = true;
+    while (hasMore) {
+      const params = new URLSearchParams();
+      params.set('status', status);
+      params.set('limit', '100');
+      params.append('expand[]', 'data.customer');
+      if (startingAfter) {
+        params.set('starting_after', startingAfter);
+      }
 
-    const response = await fetch(`https://api.stripe.com/v1/subscriptions?${params.toString()}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${secret}`,
-      },
-    });
+      const response = await fetch(`https://api.stripe.com/v1/subscriptions?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${secret}`,
+        },
+      });
 
-    const payload = (await response.json()) as { data?: any[]; error?: { message?: string } };
-    if (!response.ok) {
-      throw new Error(payload?.error?.message || 'Stripe API request failed');
+      const payload = (await response.json()) as { data?: any[]; has_more?: boolean; error?: { message?: string } };
+      if (!response.ok) {
+        throw new Error(payload?.error?.message || 'Stripe API request failed');
+      }
+
+      const data = payload.data ?? [];
+      all.push(...data);
+      if (!payload.has_more || data.length === 0) {
+        hasMore = false;
+        break;
+      }
+      const lastId = data[data.length - 1]?.id;
+      if (!lastId) {
+        hasMore = false;
+        break;
+      }
+      startingAfter = String(lastId);
     }
-    return payload.data ?? [];
+    return all;
   };
 
   try {
@@ -276,16 +297,36 @@ router.patch('/billing/orgs/:orgId', async (req: any, res) => {
 
   const payload = updateSchema.parse(req.body);
   const planType: BillingPlanType | undefined = payload.planType;
+  const stripeCustomerId = payload.stripeCustomerId ?? null;
 
-  if (planType === 'stripe' && !payload.stripeCustomerId) {
+  if (planType === 'stripe' && !stripeCustomerId) {
     return res.status(400).json({ error: 'stripeCustomerId is required when planType is stripe' });
+  }
+
+  let stripeSnapshotUpdates: Partial<OrgBillingRecord> = {};
+  if (stripeCustomerId) {
+    const stripeCustomer = await findStripeCustomer({ customerId: stripeCustomerId });
+    if (stripeCustomer) {
+      stripeSnapshotUpdates = {
+        subscriptionStatus: stripeCustomer.status ?? null,
+        subscriptionCurrentPeriodEnd: stripeCustomer.currentPeriodEnd ?? null,
+        subscriptionCancelAtPeriodEnd: stripeCustomer.cancelAtPeriodEnd ?? undefined,
+        entitled: stripeCustomer.entitled ?? null,
+        lastStripeSyncAt: Date.now(),
+        stripeSnapshot: {
+          productNames: stripeCustomer.productNames ?? [],
+          priceIds: stripeCustomer.priceIds ?? [],
+        },
+      };
+    }
   }
 
   await upsertOrgBilling(req.params.orgId, {
     planType: planType,
-    stripeCustomerId: payload.stripeCustomerId ?? null,
+    stripeCustomerId: stripeCustomerId ?? null,
     notes: payload.notes ?? null,
     updatedBy: user.id,
+    ...stripeSnapshotUpdates,
   });
 
   const updated = await getOrgBilling(req.params.orgId);

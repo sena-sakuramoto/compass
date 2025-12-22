@@ -3,6 +3,7 @@ import {
   addProjectMember,
   getProjectMember,
   listProjectMembers,
+  syncProjectMemberSummary,
   updateProjectMember,
   removeProjectMember,
   acceptProjectInvitation,
@@ -94,6 +95,10 @@ router.get('/projects/:projectId/members', authenticate, async (req: any, res) =
     const filteredMembers = members.filter((member) => {
       if (!member.userId) return true;
       return !superAdminIdsFromOtherOrgs.has(member.userId);
+    });
+
+    void syncProjectMemberSummary(projectOrgId, projectId).catch((err) => {
+      console.warn('[ProjectMembers] Failed to sync member summary:', err);
     });
 
     res.json(filteredMembers);

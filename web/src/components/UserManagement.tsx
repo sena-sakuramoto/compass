@@ -211,15 +211,33 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   async function handleCreateClient() {
     if (!newClientName.trim()) return;
 
+    const tempId = `temp-${Date.now()}`;
+    const optimisticClient: Client = {
+      id: tempId,
+      name: newClientName.trim(),
+      createdAt: new Date(),
+      createdBy: '',
+      updatedAt: new Date(),
+    };
+
     try {
       setClientError(null);
-      await createClient(newClientName.trim());
-      await loadClients();
+      // 楽観的更新: 先にUIを更新
+      setClients(prev => [...prev, optimisticClient]);
       setNewClientName('');
       setShowClientForm(false);
+
+      // APIを呼び出し
+      const result = await createClient(newClientName.trim());
+
+      // 一時IDを実際のIDに置き換え
+      setClients(prev => prev.map(c => c.id === tempId ? result : c));
     } catch (err) {
+      // 失敗したら楽観的更新を取り消し
+      setClients(prev => prev.filter(c => c.id !== tempId));
       setClientError(err instanceof Error ? err.message : 'クライアントの作成に失敗しました');
       console.error('Failed to create client:', err);
+      setShowClientForm(true);
     }
   }
 

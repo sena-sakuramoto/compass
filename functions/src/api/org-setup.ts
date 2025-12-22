@@ -17,6 +17,52 @@ const createSchema = z.object({
   orgName: z.string().min(1).max(200),
 });
 
+const orgIdCheckSchema = z.object({
+  orgId: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, '小文字英数字とハイフンのみ使用できます'),
+});
+
+router.get('/org-setup/org-id-check', async (req, res) => {
+  try {
+    const { header } = resolveAuthHeader(req as any);
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : header;
+
+    console.log('[OrgSetup] Org ID check request received for orgId:', req.query.orgId);
+    console.log('[OrgSetup] Has auth header:', !!header);
+
+    const decoded = await verifyToken(token);
+    if (!decoded) {
+      console.warn('[OrgSetup] Token verification failed for org ID check');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    console.log('[OrgSetup] Token verified for user:', decoded.email);
+
+    const payload = orgIdCheckSchema.parse({
+      orgId: req.query.orgId,
+    });
+
+    const existingOrg = await db.collection('orgs').doc(payload.orgId).get();
+    console.log('[OrgSetup] Org ID check result for', payload.orgId, '- available:', !existingOrg.exists);
+    res.json({ orgId: payload.orgId, available: !existingOrg.exists });
+  } catch (error: any) {
+    console.error('[OrgSetup] Org ID check failed:', error);
+    console.error('[OrgSetup] Error details:', {
+      name: error?.name,
+      message: error?.message,
+      code: error?.code,
+      stack: error?.stack,
+    });
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: '入力内容を確認してください（組織IDは小文字英数字とハイフンのみ）',
+        code: 'VALIDATION_ERROR',
+        details: error.errors,
+      });
+    }
+    res.status(500).json({ error: 'Failed to check organization id' });
+  }
+});
+
 function isStripeEligible(customer: any): { eligible: boolean; status: string } {
   const subscription = (customer?.raw?.subscription as Record<string, unknown> | undefined) ?? {};
   const status = String(
@@ -137,6 +183,14 @@ router.post('/org-setup', async (req, res) => {
     });
   } catch (error: any) {
     console.error('[OrgSetup] Failed to create org from Stripe subscriber:', error);
+    if (error instanceof z.ZodError) {
+      res.status(400).json({
+        error: '入力内容を確認してください（組織IDは小文字英数字とハイフンのみ）',
+        code: 'VALIDATION_ERROR',
+        details: error.errors,
+      });
+      return;
+    }
     if (error?.code === 'ORG_ID_EXISTS') {
       res.status(400).json({ error: 'Organization ID already exists', code: 'ORG_ID_EXISTS' });
       return;

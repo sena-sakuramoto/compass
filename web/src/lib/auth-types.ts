@@ -116,6 +116,7 @@ export interface User {
 export interface ProjectMember {
   id: string;                    // メンバーID（composite: {projectId}_{userId}）
   projectId: string;             // プロジェクトID
+  projectOrgId?: string;         // プロジェクトの所属組織ID
   userId: string;
   email: string;
   displayName: string;

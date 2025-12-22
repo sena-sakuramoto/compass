@@ -161,26 +161,6 @@ async function findStripeCustomerViaApi(email: string): Promise<{ customerId: st
   if (!secret) return { customerId: null, status: '', entitled: false };
 
   const emailLower = email.toLowerCase();
-  const fetchStripeSubscriptions = async (status: 'active' | 'trialing') => {
-    const params = new URLSearchParams();
-    params.set('status', status);
-    params.set('limit', '100');
-    params.append('expand[]', 'data.customer');
-
-    const response = await fetch(`https://api.stripe.com/v1/subscriptions?${params.toString()}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${secret}`,
-      },
-    });
-
-    const payload = (await response.json()) as { data?: any[]; error?: { message?: string } };
-    if (!response.ok) {
-      throw new Error(payload?.error?.message || 'Stripe API request failed');
-    }
-    return payload.data ?? [];
-  };
-
   const matchByEmail = (subs: any[]) => {
     for (const sub of subs) {
       const customer = (sub.customer || {}) as Record<string, unknown>;
@@ -205,9 +185,45 @@ async function findStripeCustomerViaApi(email: string): Promise<{ customerId: st
     return null;
   };
 
+  const fetchStripeSubscriptions = async (status: 'active' | 'trialing') => {
+    let startingAfter: string | undefined;
+    while (true) {
+      const params = new URLSearchParams();
+      params.set('status', status);
+      params.set('limit', '100');
+      params.append('expand[]', 'data.customer');
+      if (startingAfter) {
+        params.set('starting_after', startingAfter);
+      }
+
+      const response = await fetch(`https://api.stripe.com/v1/subscriptions?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${secret}`,
+        },
+      });
+
+      const payload = (await response.json()) as { data?: any[]; has_more?: boolean; error?: { message?: string } };
+      if (!response.ok) {
+        throw new Error(payload?.error?.message || 'Stripe API request failed');
+      }
+
+      const data = payload.data ?? [];
+      const hit = matchByEmail(data);
+      if (hit) return hit;
+      if (!payload.has_more || data.length === 0) return null;
+      const lastId = data[data.length - 1]?.id;
+      if (!lastId) return null;
+      startingAfter = String(lastId);
+    }
+  };
+
   try {
-    const [activeSubs, trialSubs] = await Promise.all([fetchStripeSubscriptions('active'), fetchStripeSubscriptions('trialing')]);
-    const hit = matchByEmail([...activeSubs, ...trialSubs]);
+    const [activeHit, trialHit] = await Promise.all([
+      fetchStripeSubscriptions('active'),
+      fetchStripeSubscriptions('trialing'),
+    ]);
+    const hit = activeHit ?? trialHit;
     if (hit) {
       return {
         customerId: hit.customerId,

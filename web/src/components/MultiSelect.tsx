@@ -13,6 +13,7 @@ interface MultiSelectProps {
   placeholder?: string;
   allLabel?: string;
   className?: string;
+  compact?: boolean;
 }
 
 export function MultiSelect({
@@ -22,6 +23,7 @@ export function MultiSelect({
   placeholder = '選択してください',
   allLabel = 'すべて',
   className = '',
+  compact = false,
 }: MultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,12 +72,16 @@ export function MultiSelect({
     ? options.find((opt) => opt.value === selectedValues[0])?.label || placeholder
     : `${selectedValues.length}件選択中`;
 
+  const buttonClass = compact
+    ? 'flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring'
+    : 'flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800';
+
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800"
+        className={buttonClass}
       >
         <span className={isAllSelected ? 'text-slate-900' : 'font-medium text-slate-900'}>
           {displayLabel}
@@ -96,7 +102,7 @@ export function MultiSelect({
       </button>
 
       {isOpen && (
-        <div className="absolute z-[120] mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+        <div className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
           {/* 「すべて」オプション */}
           <label
             className={`flex cursor-pointer items-center gap-2 px-3 py-2 transition hover:bg-slate-50 ${

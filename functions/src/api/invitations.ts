@@ -94,7 +94,11 @@ router.post('/', async (req: any, res, next) => {
     }
 
     // プロジェクト詳細を取得
-    const project = await getProject(projectMembership.member.orgId, projectId);
+    const projectOrgId =
+      projectMembership.project?.ownerOrgId ||
+      projectMembership.member.projectOrgId ||
+      projectMembership.member.orgId;
+    const project = await getProject(projectOrgId, projectId);
     if (!project) {
       res.status(404).json({ error: 'Project not found' });
       return;

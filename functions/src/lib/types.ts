@@ -25,6 +25,8 @@ export interface Project {
   フォルダURL?: string | null;
   備考?: string | null;
   施工費?: number | null;
+  memberNames?: string[];
+  memberNamesUpdatedAt?: FirebaseFirestore.Timestamp;
   createdAt: FirebaseFirestore.Timestamp;
   updatedAt: FirebaseFirestore.Timestamp;
 }

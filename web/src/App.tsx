@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Routes, Route, NavLink } from 'react-router-dom';
+import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import {
@@ -49,6 +49,7 @@ import {
   getBillingAccess,
   createOrgForStripeSubscriber,
   checkOrgSetupEligibility,
+  checkOrgIdAvailability,
 } from './lib/api';
 import type { BillingAccessInfo } from './lib/api';
 import { Filters } from './components/Filters';
@@ -432,7 +433,7 @@ function HeaderActions({
     anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
-  }, []);
+  }, [checkOrgSetupEligibility]);
 
   const handleExportJson = async () => {
     try {
@@ -818,6 +819,7 @@ function TaskModal({
   const [stages, setStages] = useState<Stage[]>([]);
   const taskNameInputRef = useRef<HTMLInputElement | null>(null);
   const submitIntentRef = useRef<'close' | 'continue'>('close');
+  const prevProjectRef = useRef<string>('');
   const allowContinuous = Boolean(allowContinuousCreate && !editingTask);
 
   const resetFormFields = useCallback((keepContext: boolean) => {
@@ -886,6 +888,19 @@ function TaskModal({
       }
     }
   }, [open, editingTask, defaultProjectId, defaultStageId, resetFormFields]);
+
+  useEffect(() => {
+    if (!open) {
+      prevProjectRef.current = '';
+      return;
+    }
+    if (prevProjectRef.current && prevProjectRef.current !== project) {
+      setStageId('');
+      setAssignee('');
+      setAssigneeEmail('');
+    }
+    prevProjectRef.current = project;
+  }, [open, project]);
 
   // プロジェクト選択時に工程一覧を取得
   useEffect(() => {
@@ -1068,6 +1083,19 @@ function TaskModal({
     }
   };
 
+  const assigneeOptions = projectMembers.map((member) => ({
+    key: member.userId || member.displayName,
+    value: member.displayName,
+    label: `${member.displayName} (${member.role})`,
+  }));
+  if (assignee && !projectMembers.some((member) => member.displayName === assignee)) {
+    assigneeOptions.unshift({
+      key: `current-${assignee}`,
+      value: assignee,
+      label: `${assignee} (現在の担当者)`,
+    });
+  }
+
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={editingTask ? "タスク編集" : "タスク追加"}>
       <form className="space-y-3" onSubmit={handleSubmit}>
@@ -1105,9 +1133,9 @@ function TaskModal({
                 onChange={(e) => setAssignee(e.target.value)}
               >
                 <option value="">選択</option>
-                {projectMembers.map((member) => (
-                  <option key={member.userId} value={member.displayName}>
-                    {member.displayName} ({member.role})
+                {assigneeOptions.map((option) => (
+                  <option key={option.key} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
@@ -1701,113 +1729,6 @@ type ProjectSortKey = 'due' | 'progress' | 'tasks' | 'priority';
 
 type TimeScale = 'auto' | 'six_weeks' | 'quarter' | 'half_year' | 'full';
 
-function FullScreenLoader({ message }: { message: string }) {
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 text-slate-600">
-      <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-slate-900" />
-      <p className="mt-4 text-sm font-medium">{message}</p>
-    </div>
-  );
-}
-
-function SignInRequired({ onSignIn, authError }: { onSignIn(method?: 'google' | 'email', emailPassword?: { email: string; password: string }): void; authError?: string | null }) {
-  const [showEmailForm, setShowEmailForm] = React.useState(false);
-  const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
-
-  const handleEmailSignIn = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (email && password) {
-      onSignIn('email', { email, password });
-    }
-  };
-
-  return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-900 px-6 text-slate-100">
-      <div className="w-full max-w-md space-y-6">
-        <div className="space-y-3 text-center">
-          <h1 className="text-2xl font-bold">Project Compass を利用するにはサインインが必要です</h1>
-          <p className="text-sm text-slate-300">
-            アカウントでサインインすると、プロジェクトとタスクがリアルタイムで同期されます。
-          </p>
-        </div>
-
-        {!showEmailForm ? (
-          <div className="space-y-3">
-            <button
-              type="button"
-              onClick={() => onSignIn('google')}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow hover:bg-slate-100 transition"
-            >
-              <svg className="h-5 w-5" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-              </svg>
-              Google でサインイン
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowEmailForm(true)}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg border-2 border-slate-600 px-6 py-3 text-sm font-semibold text-slate-100 hover:bg-slate-800 transition"
-            >
-              <LogIn className="h-5 w-5" />
-              メールアドレスでサインイン
-            </button>
-
-            <div className="text-center">
-              <p className="text-xs text-amber-300 bg-amber-900/30 px-3 py-2 rounded-lg">
-                推奨: Google連携機能を利用するには、Googleアカウントでサインインしてください
-              </p>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={handleEmailSignIn} className="space-y-4">
-            <div>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="メールアドレス"
-                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-            <div>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="パスワード"
-                className="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-700 text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white hover:bg-blue-700 transition"
-            >
-              サインイン
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowEmailForm(false)}
-              className="w-full rounded-lg border border-slate-600 px-6 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-800 transition"
-            >
-              戻る
-            </button>
-          </form>
-        )}
-
-        {authError ? <p className="text-xs text-rose-300 text-center">{authError}</p> : null}
-        <p className="text-xs text-slate-400 text-center">認証に問題がある場合は管理者にお問い合わせください。</p>
-      </div>
-    </div>
-  );
-}
-
 function AuthConfigMissingScreen() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-6 text-slate-700">
@@ -1879,6 +1800,7 @@ function DashboardPage({
   showArchivedProjects,
   archivedProjectsCount,
   onToggleArchivedProjects,
+  onRequestProjectMembers,
 }: {
   projects: ProjectWithDerived[];
   filteredTasks: Task[];
@@ -1897,6 +1819,7 @@ function DashboardPage({
   showArchivedProjects: boolean;
   archivedProjectsCount: number;
   onToggleArchivedProjects(): void;
+  onRequestProjectMembers?: (projectId: string) => void;
 }) {
   const today = new Date();
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -2009,6 +1932,17 @@ function DashboardPage({
     { value: 'priority', label: '優先度が高い順' },
   ];
 
+  // 役職フィールドがないプロジェクトのために、メンバーを読み込む
+  useEffect(() => {
+    if (!onRequestProjectMembers) return;
+    projects.forEach((project) => {
+      const hasRoleFields = project.営業 || project.PM || project.設計 || project.施工管理;
+      if (!hasRoleFields) {
+        onRequestProjectMembers(project.id);
+      }
+    });
+  }, [projects, onRequestProjectMembers]);
+
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -2106,8 +2040,8 @@ function DashboardPage({
             </div>
           ) : (
             projects.map((project) => {
-              // プロジェクトに関連するタスクを取得
-              const relatedTasks = allTasks.filter((task) => task.projectId === project.id);
+              // プロジェクトに関連するタスクを取得（工程は除外）
+              const relatedTasks = allTasks.filter((task) => task.projectId === project.id && task.type !== 'stage');
 
               let dueLabel: string | undefined;
               let overdue = false;
@@ -2120,8 +2054,9 @@ function DashboardPage({
                 dueLabel = undefined;
                 overdue = false;
               } else {
-                // 期限超過タスクをチェック（サマリーと同じロジック）
+                // 期限超過タスクをチェック（サマリーと同じロジック、工程は除外）
                 const overdueTasks = relatedTasks.filter((task) => {
+                  if (task.type === 'stage') return false;
                   const deadline = parseDate(task.end ?? task.期限 ?? task.実績完了日);
                   return deadline ? deadline.getTime() < startOfToday.getTime() && task.ステータス !== '完了' : false;
                 });
@@ -2148,28 +2083,36 @@ function DashboardPage({
                 }
               }
 
-              // プロジェクトメンバーから主要役割を抽出（複数人対応）
+              // 役職フィールドの取得（フォールバック対応）
               const members = allProjectMembers.get(project.id) || [];
+              const hasRoleFields = project.営業 || project.PM || project.設計 || project.施工管理;
 
-              // 役職の優先順位
-              const roleOrder: Record<string, number> = {
-                'owner': 1,
-                'manager': 2,
-                'member': 3,
-                'viewer': 4,
-              };
+              // 役職フィールドがない場合、project_membersから動的に生成
+              let 営業 = project.営業 || undefined;
+              let PM = project.PM || undefined;
+              let 設計 = project.設計 || undefined;
+              let 施工管理 = project.施工管理 || undefined;
 
-              // 役職順にソートしてから名前を結合
-              const sortByRole = (filtered: ProjectMember[]) =>
-                filtered
-                  .sort((a, b) => (roleOrder[a.role] || 999) - (roleOrder[b.role] || 999))
-                  .map(m => m.displayName)
-                  .join('、');
-
-              const 営業 = sortByRole(members.filter((m: ProjectMember) => m.jobTitle === '営業'));
-              const PM = sortByRole(members.filter((m: ProjectMember) => m.jobTitle === 'PM'));
-              const 設計 = sortByRole(members.filter((m: ProjectMember) => m.jobTitle === '設計'));
-              const 施工管理 = sortByRole(members.filter((m: ProjectMember) => m.jobTitle === '施工管理'));
+              if (!hasRoleFields && members.length > 0) {
+                const roleMap: Record<string, Set<string>> = {
+                  営業: new Set(),
+                  PM: new Set(),
+                  設計: new Set(),
+                  施工管理: new Set(),
+                };
+                members.forEach((member) => {
+                  if (!member.jobTitle) return;
+                  const name = member.displayName?.trim() || member.email?.split('@')[0]?.trim() || '';
+                  if (!name) return;
+                  if (roleMap[member.jobTitle]) {
+                    roleMap[member.jobTitle].add(name);
+                  }
+                });
+                営業 = roleMap.営業.size > 0 ? Array.from(roleMap.営業).sort((a, b) => a.localeCompare(b, 'ja')).join('、') : undefined;
+                PM = roleMap.PM.size > 0 ? Array.from(roleMap.PM).sort((a, b) => a.localeCompare(b, 'ja')).join('、') : undefined;
+                設計 = roleMap.設計.size > 0 ? Array.from(roleMap.設計).sort((a, b) => a.localeCompare(b, 'ja')).join('、') : undefined;
+                施工管理 = roleMap.施工管理.size > 0 ? Array.from(roleMap.施工管理).sort((a, b) => a.localeCompare(b, 'ja')).join('、') : undefined;
+              }
 
               return (
                 <motion.div key={project.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
@@ -2448,6 +2391,7 @@ function TasksPage({
 function SchedulePage({
   filtersProps,
   filteredTasks,
+  filteredTasksWithStages,
   projectMap,
   people,
   projects,
@@ -2466,9 +2410,12 @@ function SchedulePage({
   allProjectMembers,
   onStageAddTask,
   stageProgressMap,
+  onRequestPeople,
+  onRequestProjectMembers,
 }: {
   filtersProps: FiltersProps;
   filteredTasks: Task[];
+  filteredTasksWithStages: Task[];
   projectMap: Record<string, Project>;
   people: Person[];
   projects: Project[];
@@ -2487,6 +2434,8 @@ function SchedulePage({
   allProjectMembers?: Map<string, ProjectMember[]>;
   onStageAddTask?: (stage: GanttTask) => void;
   stageProgressMap: Record<string, number>;
+  onRequestPeople?: () => void;
+  onRequestProjectMembers?: (projectId: string) => void;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
@@ -2572,11 +2521,12 @@ function SchedulePage({
       return clampPct(ratio * 100);
     };
 
-    // デバッグ: filteredTasks の工程を確認
-    const stagesInFilteredTasks = filteredTasks.filter(t => t.type === 'stage');
-    console.log('[newGanttTasks] Stages in filteredTasks:', stagesInFilteredTasks.length, stagesInFilteredTasks.map(s => ({ name: s.タスク名, type: s.type })));
+    // ガントチャート用：filteredTasksWithStages プロップを使用（工程を含む）
+    // デバッグ: filteredTasksWithStages の工程を確認
+    const stagesInFilteredTasks = filteredTasksWithStages.filter(t => t.type === 'stage');
+    console.log('[newGanttTasks] Stages in filteredTasksWithStages:', stagesInFilteredTasks.length, stagesInFilteredTasks.map(s => ({ name: s.タスク名, type: s.type })));
 
-    const tasks = filteredTasks
+    const tasks = filteredTasksWithStages
       .filter((task) => {
         // 工程（type='stage'）もタスクも両方表示する
         const startDate = task.start || task.予定開始日;
@@ -2764,7 +2714,7 @@ function SchedulePage({
     });
 
     return sortedTasks;
-  }, [filteredTasks, projectMap, stageProgressMap]);
+  }, [filteredTasksWithStages, projectMap, stageProgressMap]);
 
   // 工程ベースのガントチャート用データ（削除：不要になったコード）
   /*
@@ -3051,69 +3001,71 @@ function SchedulePage({
   */
 
   return (
-    <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-4 md:-my-6 lg:-mx-8">
-      {/* ヘッダー */}
-      <section className="sticky top-0 z-20 border-b border-slate-200 bg-white px-4 py-2 sm:px-6 lg:px-8 flex-shrink-0">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-[200px]">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500">
-              <span>工程表</span>
-              <span className="text-slate-300">/</span>
-              <span>{todayLabel}</span>
+    <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-6 md:-my-8 lg:-mx-8">
+      {/* ヘッダー & フィルター */}
+      <section className="sticky top-0 z-20 border-b border-slate-200 bg-white px-3 py-1.5 shadow-sm sm:px-4 lg:px-6 flex-shrink-0">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex flex-wrap items-start gap-1.5">
+            <div className="min-w-[160px]">
+              <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-500">
+                <span>工程表</span>
+                <span className="text-slate-300">/</span>
+                <span>{todayLabel}</span>
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-600">
+                <span>進行中 {tasksActiveToday.length}件</span>
+                <span className="text-slate-300">|</span>
+                <span>今日開始 {tasksStartingToday}件</span>
+                <span className="text-slate-300">|</span>
+                <span className={tasksDueToday > 0 ? 'text-rose-600 font-medium' : ''}>
+                  今日締切 {tasksDueToday}件
+                </span>
+                <span className="text-slate-300">|</span>
+                <span>表示中 {newGanttTasks.length} アイテム</span>
+              </div>
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-slate-600">
-              <span>進行中 {tasksActiveToday.length}件</span>
-              <span className="text-slate-300">|</span>
-              <span>今日開始 {tasksStartingToday}件</span>
-              <span className="text-slate-300">|</span>
-              <span className={tasksDueToday > 0 ? 'text-rose-600 font-medium' : ''}>
-                今日締切 {tasksDueToday}件
-              </span>
-              <span className="text-slate-300">|</span>
-              <span>表示中 {newGanttTasks.length} アイテム</span>
+            <div className="flex items-center gap-1.5 ml-auto">
+              <button
+                type="button"
+                onClick={onOpenTask}
+                disabled={!canEdit}
+                className="rounded-md border border-emerald-600 px-2.5 py-0.5 text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+              >
+                タスク追加
+              </button>
+              <button
+                type="button"
+                onClick={onOpenProject}
+                disabled={!canEdit}
+                className="rounded-md border border-slate-300 px-2.5 py-0.5 text-[10px] font-semibold text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
+                title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+              >
+                プロジェクト追加
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onOpenTask}
-              disabled={!canEdit}
-              className="rounded-md border border-emerald-600 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-              title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
-            >
-              タスク追加
-            </button>
-            <button
-              type="button"
-              onClick={onOpenProject}
-              disabled={!canEdit}
-              className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
-              title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
-            >
-              プロジェクト追加
-            </button>
+
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[9px] uppercase tracking-wide text-slate-500">
+              <span>フィルターと検索</span>
+              <span className="text-slate-400">{filteredTasks.length} 件が条件に一致</span>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Filters {...filtersProps} resultCount={filteredTasks.length} compact />
+              {activeFilterChips.length > 0 && (
+                <div className="flex flex-wrap gap-1 text-[9px] text-slate-600">
+                  {activeFilterChips.map((chip) => (
+                    <span key={chip} className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-1.5 py-0.25">
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </section>
-
-      <div className="border-b border-slate-200 bg-white px-4 py-2 sm:px-6 lg:px-8 flex-shrink-0">
-        <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-500">
-          <span>フィルターと検索</span>
-          <span className="text-slate-400">{filteredTasks.length} 件が条件に一致</span>
-        </div>
-        <div className="mt-2">
-          <Filters {...filtersProps} resultCount={filteredTasks.length} />
-        </div>
-        {activeFilterChips.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-600">
-            {activeFilterChips.map((chip) => (
-              <span key={chip} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
-                {chip}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
 
       {filteredTasks.some(task => !task.start && !task.予定開始日) && (
         <div className="mx-4 my-2 flex items-center gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 sm:mx-6 lg:mx-8">
@@ -3135,6 +3087,8 @@ function SchedulePage({
             projectMap={projectMap}
             people={people}
             allProjectMembers={allProjectMembers}
+            onRequestPeople={onRequestPeople}
+            onRequestProjectMembers={onRequestProjectMembers}
             onTaskClick={(task) => {
               // タスククリックで編集モーダルを開く
               // Gantt内のモーダルが開くので、ここでは何もしない
@@ -3812,7 +3766,7 @@ const CRITICAL_THRESHOLD_DAYS = 2;
 function buildDangerTasks(tasks: Task[], projectMap: Record<string, Project>): DangerTaskInfo[] {
   const today = startOfDay(new Date());
   return tasks
-    .filter((task) => task.ステータス !== '完了')
+    .filter((task) => task.type !== 'stage' && task.ステータス !== '完了')
     .map((task) => {
       const due =
         parseDate(task.期限 ?? task.end ?? task.実績完了日 ?? task.実績開始日 ?? task.予定開始日 ?? task.start ?? null) ||
@@ -4008,17 +3962,50 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
     const load = async () => {
       setLoading(true);
       try {
-        const [p, t, pe] = await Promise.allSettled([listProjects(), listTasks({}), listPeople()]);
-        if (p.status === 'fulfilled' && t.status === 'fulfilled' && pe.status === 'fulfilled') {
-          const normalized = normalizeSnapshot({
-            projects: p.value.projects,
-            tasks: t.value.tasks,
-            people: pe.value.people,
+        const [p, t] = await Promise.allSettled([listProjects(), listTasks({})]);
+        if (p.status === 'fulfilled' && t.status === 'fulfilled') {
+          setState((prev) => {
+            const normalized = normalizeSnapshot({
+              projects: p.value.projects,
+              tasks: t.value.tasks,
+              people: prev.people,
+            });
+            return {
+              projects: normalized.projects,
+              tasks: normalized.tasks,
+              people: normalized.people,
+            };
           });
-          setState({
-            projects: normalized.projects,
-            tasks: normalized.tasks,
-            people: normalized.people,
+          return;
+        }
+
+        if (p.status === 'fulfilled') {
+          setState((prev) => {
+            const normalized = normalizeSnapshot({
+              projects: p.value.projects,
+              tasks: prev.tasks,
+              people: prev.people,
+            });
+            return {
+              projects: normalized.projects,
+              tasks: prev.tasks,
+              people: normalized.people,
+            };
+          });
+        }
+
+        if (t.status === 'fulfilled') {
+          setState((prev) => {
+            const normalized = normalizeSnapshot({
+              projects: prev.projects,
+              tasks: t.value.tasks,
+              people: prev.people,
+            });
+            return {
+              projects: prev.projects,
+              tasks: normalized.tasks,
+              people: normalized.people,
+            };
           });
         }
       } catch (err) {
@@ -4037,16 +4024,66 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
   return loading;
 }
 
+const PEOPLE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function readPeopleCache(key: string): { people: Person[]; fetchedAt: number } | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { people?: Person[]; fetchedAt?: number };
+    if (!Array.isArray(parsed.people) || typeof parsed.fetchedAt !== 'number') return null;
+    return { people: parsed.people, fetchedAt: parsed.fetchedAt };
+  } catch {
+    return null;
+  }
+}
+
+function writePeopleCache(key: string, people: Person[]) {
+  try {
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        people,
+        fetchedAt: Date.now(),
+      })
+    );
+  } catch {
+    // ignore cache write failures
+  }
+}
+
+function buildMemberNamesFromMembers(members: ProjectMember[]): string[] {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  members.forEach((member) => {
+    const name =
+      member.displayName?.trim() ||
+      member.email?.split('@')[0]?.trim() ||
+      '';
+    if (!name) return;
+    const key = member.userId || member.email || name;
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(name);
+  });
+  return names.sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
 const EMPTY_PROJECT_MEMBERS: ProjectMember[] = [];
 const EMPTY_PROJECT_STAGES: Task[] = [];
 
 function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
+  const location = useLocation();
   const [subscriptionRequired, setSubscriptionRequired] = useState(false);
+  const [subscriptionCheckLoading, setSubscriptionCheckLoading] = useState(false);
+  const [subscriptionCheckError, setSubscriptionCheckError] = useState<string | null>(null);
   const [orgSetupRequired, setOrgSetupRequired] = useState<{ stripeCustomerId?: string | null } | null>(null);
   const [orgSetupForm, setOrgSetupForm] = useState({ orgId: '', orgName: '' });
   const [orgSetupLoading, setOrgSetupLoading] = useState(false);
   const [orgSetupError, setOrgSetupError] = useState<string | null>(null);
+  const [orgIdAvailability, setOrgIdAvailability] = useState<'idle' | 'checking' | 'available' | 'unavailable' | 'invalid' | 'error'>('idle');
+  const [orgIdNormalized, setOrgIdNormalized] = useState('');
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskModalDefaults, setTaskModalDefaults] = useState<{ projectId?: string; stageId?: string } | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -4065,9 +4102,15 @@ function App() {
   const [allActivityLogs, setAllActivityLogs] = useState<Map<string, any[]>>(new Map());
   const loadedActivityLogsRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
   const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
+  const peopleLoadInFlightRef = useRef(false);
+  const peopleCacheKey = useMemo(
+    () => (user?.uid ? `compass_people_cache_${user.uid}` : 'compass_people_cache_guest'),
+    [user]
+  );
   const [currentUserRole, setCurrentUserRole] = useState<string | undefined>(undefined);
   const [roleChecking, setRoleChecking] = useState(false);
   const toastTimers = useRef<Map<string, number>>(new Map());
+  const billingErrorNotifiedRef = useRef(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [billingAccess, setBillingAccess] = useState<BillingAccessInfo | null>(null);
   const [billingChecking, setBillingChecking] = useState(false);
@@ -4153,12 +4196,21 @@ function App() {
     try {
       const info = await getBillingAccess();
       setBillingAccess(info);
+      billingErrorNotifiedRef.current = false;
     } catch (error) {
       console.error('[App] 課金状態の取得に失敗しました:', error);
+      if (!billingErrorNotifiedRef.current) {
+        pushToast({
+          tone: 'error',
+          title: '課金状態の確認に失敗しました',
+          description: '時間をおいて再度お試しください。',
+        });
+        billingErrorNotifiedRef.current = true;
+      }
     } finally {
       setBillingChecking(false);
     }
-  }, [authReady, authSupported, user]);
+  }, [authReady, authSupported, user, pushToast]);
 
   const handleCloseDangerModal = useCallback(() => {
     setShowDangerModal(false);
@@ -4218,13 +4270,79 @@ function App() {
     }
   }, [state.projects, state.people, setState]);
 
-const loading = useRemoteData(
-  setState,
-  authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
-);
+  const loading = useRemoteData(
+    setState,
+    authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
+  );
 
   const canSync = authSupported && Boolean(user);
   const canEdit = true;
+
+  useEffect(() => {
+    if (!canSync) return;
+    if (state.people.length > 0) return;
+    const cached = readPeopleCache(peopleCacheKey);
+    if (!cached) return;
+    if (Date.now() - cached.fetchedAt > PEOPLE_CACHE_TTL_MS) return;
+    setState((prev) => ({ ...prev, people: cached.people }));
+  }, [canSync, peopleCacheKey, setState, state.people.length]);
+
+  const ensurePeopleLoaded = useCallback(
+    async (options?: { force?: boolean }) => {
+      if (!canSync) return;
+      if (peopleLoadInFlightRef.current) return;
+
+      if (!options?.force) {
+        if (state.people.length > 0) return;
+        const cached = readPeopleCache(peopleCacheKey);
+        if (cached && Date.now() - cached.fetchedAt <= PEOPLE_CACHE_TTL_MS) {
+          setState((prev) => ({ ...prev, people: cached.people }));
+          return;
+        }
+      }
+
+      peopleLoadInFlightRef.current = true;
+      try {
+        const { people } = await listPeople();
+        const normalizedPeople = normalizeSnapshot({ projects: [], tasks: [], people }).people;
+        setState((prev) => ({ ...prev, people: normalizedPeople }));
+        writePeopleCache(peopleCacheKey, normalizedPeople);
+      } catch (error) {
+        console.warn('Failed to load people', error);
+      } finally {
+        peopleLoadInFlightRef.current = false;
+      }
+    },
+    [canSync, peopleCacheKey, setState, state.people.length]
+  );
+
+  const loadProjectMembersForProject = useCallback(
+    async (projectId: string) => {
+      if (!canSync || !projectId) return;
+      if (loadedProjectMembersRef.current.has(projectId)) return;
+
+      try {
+        const members = await listProjectMembers(projectId, { status: 'active' });
+        setAllProjectMembers(prev => new Map(prev).set(projectId, members));
+      } catch (error: any) {
+        if (error?.status === 404) {
+          console.debug(`Project ${projectId} not found in Firestore, skipping member load`);
+        } else {
+          console.warn(`Failed to load members for project ${projectId}:`, error);
+        }
+        setAllProjectMembers(prev => new Map(prev).set(projectId, []));
+      } finally {
+        loadedProjectMembersRef.current.add(projectId);
+      }
+    },
+    [canSync]
+  );
+
+  useEffect(() => {
+    if (taskModalOpen || editingTask) {
+      ensurePeopleLoaded();
+    }
+  }, [taskModalOpen, editingTask, ensurePeopleLoaded]);
 
   const normalizeOrgId = useCallback((value: string) => {
     return value
@@ -4233,6 +4351,71 @@ const loading = useRemoteData(
       .replace(/--+/g, '-')
       .replace(/^-+|-+$/g, '');
   }, []);
+
+  const handleSubscriptionCheck = useCallback(async () => {
+    setSubscriptionCheckLoading(true);
+    setSubscriptionCheckError(null);
+    try {
+      const eligibility = await checkOrgSetupEligibility();
+      if (eligibility.eligible) {
+        setOrgSetupRequired({ stripeCustomerId: eligibility.stripeCustomerId ?? null });
+        setSubscriptionRequired(false);
+      } else {
+        setSubscriptionCheckError('サブスク登録が確認できませんでした。決済直後の場合は数分後にお試しください。');
+      }
+    } catch (error) {
+      console.error('[App] サブスク確認に失敗しました:', error);
+      setSubscriptionCheckError('サブスク状態の確認に失敗しました。時間をおいて再度お試しください。');
+    } finally {
+      setSubscriptionCheckLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!orgSetupRequired) {
+      setOrgIdAvailability('idle');
+      setOrgIdNormalized('');
+      return;
+    }
+    const raw = orgSetupForm.orgId.trim();
+    if (!raw) {
+      setOrgIdAvailability('idle');
+      setOrgIdNormalized('');
+      return;
+    }
+    const normalized = normalizeOrgId(raw);
+    setOrgIdNormalized(normalized);
+    if (!normalized || !/^[a-z0-9-]+$/.test(normalized)) {
+      setOrgIdAvailability('invalid');
+      return;
+    }
+
+    let active = true;
+    setOrgIdAvailability('checking');
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await checkOrgIdAvailability(normalized);
+        if (!active) return;
+        setOrgIdAvailability(result.available ? 'available' : 'unavailable');
+      } catch (error: any) {
+        console.error('[App] Org ID availability check failed:', error);
+        console.error('[App] Error details:', {
+          message: error?.message,
+          status: error?.status,
+          statusText: error?.statusText,
+          code: error?.code,
+          data: error?.data,
+        });
+        if (!active) return;
+        setOrgIdAvailability('error');
+      }
+    }, 400);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [orgSetupForm.orgId, orgSetupRequired, normalizeOrgId, checkOrgIdAvailability]);
 
   const handleOrgSetupSubmit = useCallback(
     async (event?: React.FormEvent) => {
@@ -4278,35 +4461,46 @@ const loading = useRemoteData(
   // プロジェクトメンバーを一括取得（最適化版：未読み込みのプロジェクトのみ）
   useEffect(() => {
     if (!canSync) return;
+    if (location.pathname !== '/summary') return;
 
-    const loadNewMembers = async () => {
+    const loadMissingMembers = async () => {
       const loadedIds = loadedProjectMembersRef.current;
-      const projectsToLoad = state.projects.filter(p => !loadedIds.has(p.id));
+      const projectsToLoad = state.projects.filter(
+        (project) =>
+          !loadedIds.has(project.id) &&
+          (!project.memberNames || project.memberNames.length === 0)
+      );
 
-      if (projectsToLoad.length === 0) return; // 新しいプロジェクトがない場合は何もしない
+      if (projectsToLoad.length === 0) return; // 追加ロード不要
 
-      console.log(`[Members API] Loading members for ${projectsToLoad.length} new projects`);
+      console.log(`[Members API] Loading members for ${projectsToLoad.length} projects missing summary`);
 
       for (const project of projectsToLoad) {
         try {
           const members = await listProjectMembers(project.id, { status: 'active' });
+          const memberNames = buildMemberNamesFromMembers(members);
           setAllProjectMembers(prev => new Map(prev).set(project.id, members));
+          setState((prev) => ({
+            ...prev,
+            projects: prev.projects.map((item) =>
+              item.id === project.id ? { ...item, memberNames } : item
+            ),
+          }));
           loadedIds.add(project.id);
         } catch (error: any) {
-          // 404エラーの場合は警告レベルを下げる（プロジェクトがまだFirestoreに保存されていない可能性）
           if (error?.status === 404) {
             console.debug(`Project ${project.id} not found in Firestore, skipping member load`);
           } else {
             console.warn(`Failed to load members for project ${project.id}:`, error);
           }
           setAllProjectMembers(prev => new Map(prev).set(project.id, []));
-          loadedIds.add(project.id); // エラーでも読み込み済みとしてマーク
+          loadedIds.add(project.id);
         }
       }
     };
 
-    loadNewMembers();
-  }, [state.projects, canSync]);
+    loadMissingMembers();
+  }, [state.projects, canSync, location.pathname, setState]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -4461,7 +4655,36 @@ const loading = useRemoteData(
 
     const query = search.trim().toLowerCase();
     return tasksWithPending.filter((task) => {
+      // 工程は除外（タスクのみ表示）
+      if (task.type === 'stage') return false;
+
       // 配列が空の場合は全て表示、配列に値がある場合は含まれているかチェック
+      const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
+      const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
+      const statusMatch = statusFilter.length === 0 || statusFilter.includes(task.ステータス);
+      const haystack = [
+        task.id,
+        task.タスク名,
+        task.タスク種別,
+        task.assignee,
+        task.担当者,
+        task.ステータス,
+        projectMap[task.projectId]?.物件名,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      const queryMatch = !query || haystack.includes(query);
+      return projectMatch && assigneeMatch && statusMatch && queryMatch;
+    });
+  }, [state.tasks, pending, projectFilter, assigneeFilter, statusFilter, search, projectMap]);
+
+  // ガントチャート用：工程（stage）も含むフィルタ済みタスク
+  const filteredTasksWithStages = useMemo(() => {
+    const tasksWithPending = applyPendingToTasks(state.tasks, pending);
+    const query = search.trim().toLowerCase();
+    return tasksWithPending.filter((task) => {
+      // ガントチャートでは工程（stage）も表示する（タスク一覧とは異なる）
       const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
       const statusMatch = statusFilter.length === 0 || statusFilter.includes(task.ステータス);
@@ -4500,15 +4723,18 @@ const loading = useRemoteData(
         names.add(trimmed);
       }
     });
-    allProjectMembers.forEach((members) => {
-      members.forEach((member) => {
-        const trimmed = member.displayName?.trim();
+    state.projects.forEach((project) => {
+      project.memberNames?.forEach((name) => {
+        const trimmed = name?.trim();
         if (!trimmed) return;
-        const isExternal = member.memberType && member.memberType !== 'internal';
-        if (isExternal || !member.email) {
-          names.add(trimmed);
-        }
+        names.add(trimmed);
       });
+    });
+    state.tasks.forEach((task) => {
+      const name = (task.assignee ?? task.担当者 ?? '').trim();
+      if (name) {
+        names.add(name);
+      }
     });
     assigneeFilter.forEach((selected) => {
       if (selected) {
@@ -4517,7 +4743,7 @@ const loading = useRemoteData(
     });
     const sortedNames = Array.from(names).sort((a, b) => a.localeCompare(b, 'ja'));
     return [{ value: 'all', label: '全員' }, ...sortedNames.map((name) => ({ value: name, label: name }))];
-  }, [state.people, allProjectMembers, assigneeFilter]);
+  }, [state.people, state.projects, state.tasks, assigneeFilter]);
 
   const statusOptions = useMemo(() => {
     const statuses = new Set<string>();
@@ -4632,6 +4858,11 @@ const loading = useRemoteData(
     return allProjectMembers.get(editingProjectId) ?? EMPTY_PROJECT_MEMBERS;
   }, [editingProjectId, allProjectMembers]);
 
+  useEffect(() => {
+    if (!editingProjectId) return;
+    loadProjectMembersForProject(editingProjectId);
+  }, [editingProjectId, loadProjectMembersForProject]);
+
   const memoizedProjectStages = useMemo(() => {
     if (!editingProjectId) return EMPTY_PROJECT_STAGES;
     return state.tasks.filter(
@@ -4640,28 +4871,35 @@ const loading = useRemoteData(
   }, [editingProjectId, state.tasks]);
 
   const handleComplete = async (task: Task, done: boolean) => {
+    const nextStatus = done
+      ? '完了'
+      : task.ステータス === '完了'
+        ? '進行中'
+        : task.ステータス;
+    const optimisticUpdates: Partial<Task> = {
+      ステータス: nextStatus,
+      progress: done ? 1 : task.progress ?? 0,
+      updatedAt: todayString(),
+    };
+
+    setState((current) => ({
+      ...current,
+      tasks: current.tasks.map((item) => (item.id === task.id ? { ...item, ...optimisticUpdates } : item)),
+    }));
+
     if (!canSync) {
-      setState((current) => ({
-        ...current,
-        tasks: current.tasks.map((item) =>
-          item.id === task.id
-            ? {
-              ...item,
-              ステータス: done ? '完了' : item.ステータス === '完了' ? '進行中' : item.ステータス,
-              progress: done ? 1 : item.progress ?? 0,
-              updatedAt: todayString(),
-            }
-            : item
-        ),
-      }));
       pushToast({
         tone: 'success',
         title: done ? 'タスクを完了にしました（ローカル保存）' : 'タスクを再オープンしました（ローカル保存）',
       });
       return;
     }
+
+    const opId = addPending(task.id, optimisticUpdates);
+
     try {
       await completeTask(task.id, done);
+      ackPending(task.id, opId);
       pushToast({
         tone: 'success',
         title: done ? 'タスクを完了にしました' : 'タスクを再オープンしました',
@@ -4669,6 +4907,11 @@ const loading = useRemoteData(
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (err) {
       console.error(err);
+      rollbackPending(task.id);
+      setState((current) => ({
+        ...current,
+        tasks: current.tasks.map((item) => (item.id === task.id ? task : item)),
+      }));
       pushToast({ tone: 'error', title: '完了処理に失敗しました' });
     }
   };
@@ -4894,13 +5137,41 @@ const loading = useRemoteData(
       return;
     }
 
+    const tempId = `temp-${Date.now()}`;
+    const now = todayString();
+    const optimisticProject: Project = {
+      id: tempId,
+      物件名: payload.物件名,
+      ステータス: payload.ステータス,
+      優先度: payload.優先度,
+      開始日: payload.開始日,
+      予定完了日: payload.予定完了日,
+      createdAt: now,
+      updatedAt: now,
+    };
+
     try {
       console.debug('[Project] Authenticated user:', { uid: user.uid, email: user.email });
-      await createProject(payload as unknown as Partial<Project>);
+      setState((prev) => ({
+        ...prev,
+        projects: [...prev.projects, optimisticProject],
+      }));
+
+      const result = await createProject(payload as unknown as Partial<Project>);
+      setState((prev) => ({
+        ...prev,
+        projects: prev.projects.map((project) =>
+          project.id === tempId ? { ...optimisticProject, id: result.id } : project
+        ),
+      }));
       pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error('[Project] Failed to create project:', error);
+      setState((prev) => ({
+        ...prev,
+        projects: prev.projects.filter((project) => project.id !== tempId),
+      }));
       const errorMessage = error instanceof Error ? error.message : 'プロジェクトの追加に失敗しました';
       pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
     }
@@ -4938,12 +5209,32 @@ const loading = useRemoteData(
       return;
     }
 
+    const removedProject = project;
+    const removedTasks = state.tasks.filter((task) => task.projectId === project.id);
+    setState((current) => ({
+      ...current,
+      projects: current.projects.filter((p) => p.id !== project.id),
+      tasks: current.tasks.filter((task) => task.projectId !== project.id),
+    }));
+
     try {
       await deleteProject(project.id);
       pushToast({ tone: 'success', title: `プロジェクト「${project.物件名}」を削除しました` });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error('[Project] Failed to delete project:', error);
+      setState((current) => {
+        const hasProject = current.projects.some((p) => p.id === removedProject.id);
+        const restoredProjects = hasProject ? current.projects : [...current.projects, removedProject];
+        const missingTasks = removedTasks.filter(
+          (task) => !current.tasks.some((existing) => existing.id === task.id)
+        );
+        return {
+          ...current,
+          projects: restoredProjects,
+          tasks: [...current.tasks, ...missingTasks],
+        };
+      });
       const errorMessage = error instanceof Error ? error.message : 'プロジェクトの削除に失敗しました';
       pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
     }
@@ -4966,12 +5257,24 @@ const loading = useRemoteData(
       return;
     }
 
+    const removedTask = task;
+    setState((current) => ({
+      ...current,
+      tasks: current.tasks.filter((t) => t.id !== taskId),
+    }));
+
     try {
       await deleteTask(taskId);
       pushToast({ tone: 'success', title: `タスク「${task.タスク名}」を削除しました` });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error('[Task] Failed to delete task:', error);
+      setState((current) => {
+        const exists = current.tasks.some((t) => t.id === removedTask.id);
+        return exists
+          ? current
+          : { ...current, tasks: [...current.tasks, removedTask] };
+      });
       const errorMessage = error instanceof Error ? error.message : 'タスクの削除に失敗しました';
       pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
     }
@@ -5015,13 +5318,42 @@ const loading = useRemoteData(
       pushToast({ tone: 'success', title: `${entityType}を追加しました（ローカル保存）` });
       return;
     }
+    const tempId = `temp-${Date.now()}`;
+    const now = todayString();
+    const optimisticPerson: Person = {
+      id: tempId,
+      type: payload.type || 'person',
+      氏名: payload.氏名,
+      役割: payload.役割,
+      部署: payload.部署,
+      会社名: payload.会社名,
+      メール: payload.メール,
+      電話: payload.電話,
+      '稼働時間/日(h)': payload['稼働時間/日(h)'],
+      createdAt: now,
+      updatedAt: now,
+    };
     try {
-      await createPerson(payload as unknown as Partial<Person>);
+      setState((prev) => ({
+        ...prev,
+        people: [...prev.people, optimisticPerson],
+      }));
+      const result = await createPerson(payload as unknown as Partial<Person>);
       const entityType = (payload.type || 'person') === 'client' ? 'クライアント' : '担当者';
+      setState((prev) => ({
+        ...prev,
+        people: prev.people.map((person) =>
+          person.id === tempId ? { ...optimisticPerson, id: result.id } : person
+        ),
+      }));
       pushToast({ tone: 'success', title: `${entityType}を追加しました` });
       window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error(error);
+      setState((prev) => ({
+        ...prev,
+        people: prev.people.filter((person) => person.id !== tempId),
+      }));
       const entityType = (payload.type || 'person') === 'client' ? 'クライアント' : '担当者';
       pushToast({ tone: 'error', title: `${entityType}の追加に失敗しました` });
     }
@@ -5095,16 +5427,36 @@ const loading = useRemoteData(
           throw new Error('認証が必要です');
         }
 
+        const tempId = `temp-${Date.now()}`;
+        const now = todayString();
+        const optimisticProject: Project = {
+          ...(clean as Project),
+          id: tempId,
+          createdAt: now,
+          updatedAt: now,
+        };
         try {
           console.debug('[Project] Authenticated user:', { uid: user.uid, email: user.email });
+          setState((prev) => ({
+            ...prev,
+            projects: [...prev.projects, optimisticProject],
+          }));
           const result = await createProject(clean);
           savedProjectId = result.id;
+          setState((prev) => ({
+            ...prev,
+            projects: prev.projects.map((project) =>
+              project.id === tempId ? { ...optimisticProject, id: result.id } : project
+            ),
+          }));
           pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
-          // 再取得して描画
-          const list = await listProjects();
-          setState((prev) => ({ ...prev, projects: list.projects }));
+          window.dispatchEvent(new CustomEvent('snapshot:reload'));
         } catch (error) {
           console.error('[Project] Failed to create project:', error);
+          setState((prev) => ({
+            ...prev,
+            projects: prev.projects.filter((project) => project.id !== tempId),
+          }));
           const errorMessage = error instanceof Error ? error.message : 'プロジェクトの追加に失敗しました';
           pushToast({ tone: 'error', title: 'エラー', description: errorMessage });
           throw error; // Re-throw to prevent dialog from closing
@@ -5144,6 +5496,7 @@ const loading = useRemoteData(
 
     setProjectDialogOpen(false);
     setEditingProject(null);
+    return savedProjectId;
   };
 
   const handleUpdatePerson = async (personId: string, payload: Partial<Person>) => {
@@ -5160,6 +5513,15 @@ const loading = useRemoteData(
       pushToast({ tone: 'success', title: '担当者を更新しました（ローカル保存）' });
       return;
     }
+    const prevPerson = state.people.find((person) => person.id === personId) ?? null;
+    setState((prev) => ({
+      ...prev,
+      people: prev.people.map((person) =>
+        person.id === personId
+          ? { ...person, ...payload, updatedAt: todayString() }
+          : person
+      ),
+    }));
     try {
       await updatePerson(personId, payload);
       pushToast({ tone: 'success', title: '担当者を更新しました' });
@@ -5167,6 +5529,14 @@ const loading = useRemoteData(
       setEditingPerson(null);
     } catch (error) {
       console.error(error);
+      if (prevPerson) {
+        setState((prev) => ({
+          ...prev,
+          people: prev.people.map((person) =>
+            person.id === personId ? prevPerson : person
+          ),
+        }));
+      }
       pushToast({ tone: 'error', title: '担当者の更新に失敗しました' });
     }
   };
@@ -5377,31 +5747,33 @@ const loading = useRemoteData(
     window.dispatchEvent(new CustomEvent('snapshot:reload'));
   }, [canSync]);
 
+  // 認証準備中
   if (!authReady) {
     return (
-      <>
-        <FullScreenLoader message="サインイン状態を確認しています..." />
-        <ToastStack toasts={toasts} onDismiss={dismissToast} />
-      </>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-slate-600">サインイン状態を確認しています...</p>
+        </div>
+      </div>
     );
   }
 
-  if (authReady && authSupported && !user) {
+  // 未認証
+  if (authSupported && !user) {
     return (
-      <>
-        <ToastStack toasts={toasts} onDismiss={dismissToast} />
-        <SignInRequired onSignIn={signIn} authError={authError} />
-      </>
-    );
-  }
-
-  // ロール判定が完了するまで他画面を描画しない（無権限API呼び出しを防ぐ）
-  if (user && roleChecking) {
-    return (
-      <>
-        <FullScreenLoader message="権限を確認しています..." />
-        <ToastStack toasts={toasts} onDismiss={dismissToast} />
-      </>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center max-w-md p-8 bg-white rounded-lg shadow-lg">
+          <h2 className="text-2xl font-bold text-slate-800 mb-4">サインインが必要です</h2>
+          <p className="text-slate-600 mb-6">このアプリケーションを使用するには、サインインしてください。</p>
+          <button
+            onClick={() => signIn()}
+            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          >
+            Googleでサインイン
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -5439,7 +5811,7 @@ const loading = useRemoteData(
             <div className="flex flex-col sm:flex-row gap-3">
               <a
                 href="https://buy.stripe.com/dRm00l0J75OR3eV8Cbf7i00"
-                target="_blank"
+                target="blank"
                 rel="noreferrer"
                 className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-sm font-semibold shadow-lg shadow-indigo-900/30 transition"
               >
@@ -5447,23 +5819,21 @@ const loading = useRemoteData(
               </a>
               <button
                 type="button"
-                onClick={() => {
-                  window.location.reload();
-                  setOrgSetupRequired({ stripeCustomerId: null });
-                  setSubscriptionRequired(false);
-                }}
-                className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-sm font-semibold shadow-lg shadow-emerald-900/30 transition"
+                onClick={handleSubscriptionCheck}
+                disabled={subscriptionCheckLoading}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-sm font-semibold shadow-lg shadow-emerald-900/30 transition disabled:opacity-50"
               >
-                サブスク登録済みならこちら
+                {subscriptionCheckLoading ? '確認中…' : 'サブスク登録済みならこちら'}
               </button>
               <button
                 type="button"
-                onClick={() => window.location.reload()}
+                onClick={() => signOut()}
                 className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg border border-white/20 text-sm font-semibold text-white hover:bg-white/5 transition"
               >
-                再読み込み
+                別アカウントで試す
               </button>
             </div>
+            {subscriptionCheckError && <p className="text-xs text-rose-200">{subscriptionCheckError}</p>}
           </div>
         </div>
       </>
@@ -5555,16 +5925,46 @@ const loading = useRemoteData(
                     className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                   />
                   <p className="text-xs text-slate-300 mt-1">小文字英数字とハイフンのみ使用できます</p>
+                  {orgIdNormalized && orgIdNormalized !== orgSetupForm.orgId.trim() && (
+                    <p className="text-xs text-slate-400">使用されるID: {orgIdNormalized}</p>
+                  )}
+                  {orgIdAvailability === 'checking' && (
+                    <p className="text-xs text-slate-300">利用可否を確認中...</p>
+                  )}
+                  {orgIdAvailability === 'available' && (
+                    <p className="text-xs text-emerald-200">この組織IDは利用できます</p>
+                  )}
+                  {orgIdAvailability === 'unavailable' && (
+                    <p className="text-xs text-rose-300">この組織IDは既に使われています</p>
+                  )}
+                  {orgIdAvailability === 'invalid' && (
+                    <p className="text-xs text-rose-300">組織IDの形式が正しくありません</p>
+                  )}
+                  {orgIdAvailability === 'error' && (
+                    <p className="text-xs text-rose-300">組織IDの確認に失敗しました</p>
+                  )}
                 </div>
                 {orgSetupError && <p className="text-xs text-rose-300">{orgSetupError}</p>}
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="submit"
-                    disabled={orgSetupLoading}
+                    disabled={
+                      orgSetupLoading ||
+                      !orgSetupForm.orgId.trim() ||
+                      !orgSetupForm.orgName.trim() ||
+                      orgIdAvailability === 'checking' ||
+                      orgIdAvailability === 'invalid' ||
+                      orgIdAvailability === 'unavailable'
+                    }
                     className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-sm font-semibold shadow-lg shadow-indigo-900/30 transition disabled:opacity-50"
                   >
                     {orgSetupLoading ? '作成中...' : '組織を作成する'}
                   </button>
+                  {orgIdAvailability === 'error' && (
+                    <p className="text-xs text-amber-200">
+                      IDの確認ができませんでしたが、作成は可能です（重複時はエラーになります）
+                    </p>
+                  )}
                 </div>
               </div>
                 <div className="space-y-4 rounded-xl border border-white/10 bg-white/5 p-4">
@@ -5641,6 +6041,7 @@ const loading = useRemoteData(
               <SchedulePage
                 filtersProps={filtersProps}
                 filteredTasks={filteredTasks}
+                filteredTasksWithStages={filteredTasksWithStages}
                 projectMap={projectMap}
                 people={state.people}
                 projects={state.projects}
@@ -5667,6 +6068,8 @@ const loading = useRemoteData(
                 allProjectMembers={allProjectMembers}
                 onStageAddTask={handleStageTaskAdd}
                 stageProgressMap={stageProgressMap}
+                onRequestPeople={ensurePeopleLoaded}
+                onRequestProjectMembers={loadProjectMembersForProject}
               />
             }
           />
@@ -5699,6 +6102,7 @@ const loading = useRemoteData(
                 showArchivedProjects={showArchivedProjects}
                 archivedProjectsCount={archivedProjectsCount}
                 onToggleArchivedProjects={() => setShowArchivedProjects((prev) => !prev)}
+                onRequestProjectMembers={loadProjectMembersForProject}
               />
             }
           />
@@ -5734,6 +6138,7 @@ const loading = useRemoteData(
               <SchedulePage
                 filtersProps={filtersProps}
                 filteredTasks={filteredTasks}
+                filteredTasksWithStages={filteredTasksWithStages}
                 projectMap={projectMap}
                 people={state.people}
                 projects={state.projects}
@@ -5851,4 +6256,3 @@ const loading = useRemoteData(
 }
 
 export default App;
-

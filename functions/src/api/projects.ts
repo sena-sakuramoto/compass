@@ -30,11 +30,12 @@ router.get('/', async (req: any, res, next) => {
 
     // 組織IDごとにプロジェクトをグループ化
     const projectsByOrg = new Map<string, string[]>();
-    for (const { projectId, member } of userProjectMemberships) {
-      if (!projectsByOrg.has(member.orgId)) {
-        projectsByOrg.set(member.orgId, []);
+    for (const { projectId, member, project } of userProjectMemberships) {
+      const projectOrgId = project?.ownerOrgId || member.projectOrgId || member.orgId;
+      if (!projectsByOrg.has(projectOrgId)) {
+        projectsByOrg.set(projectOrgId, []);
       }
-      projectsByOrg.get(member.orgId)!.push(projectId);
+      projectsByOrg.get(projectOrgId)!.push(projectId);
     }
 
     // プロジェクト詳細を組織ごとにバッチ取得

@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
 import type { Project, Task, ManageableUserSummary, Stage } from '../lib/types';
 import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType } from '../lib/auth-types';
-import { listProjectMembers, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage, updateProject } from '../lib/api';
+import { listProjectMembers, addProjectMember, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage, updateProject, listUsers, getCurrentUser } from '../lib/api';
 import { PROJECT_ROLE_LABELS, ROLE_LABELS } from '../lib/auth-types';
 import { GoogleMapsAddressInput } from './GoogleMapsAddressInput';
 import { GoogleDriveFolderPicker } from './GoogleDriveFolderPicker';
@@ -22,7 +22,7 @@ interface ProjectEditDialogProps {
   project: Project | null;
   mode?: 'create' | 'edit';
   onClose: () => void;
-  onSave: (project: Project) => Promise<void>;
+  onSave: (project: Project) => Promise<string | undefined>;
   onSaveLocal?: (project: Project) => void;
   onRollback?: (projectId: string, prevProject: Project) => void;
   onDelete?: (project: Project) => Promise<void>;
@@ -86,6 +86,7 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
   });
   const [saving, setSaving] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const [currentUserOrgId, setCurrentUserOrgId] = useState<string | null>(null);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
@@ -139,6 +140,18 @@ const [stageSaving, setStageSaving] = useState(false);
 const [newTaskStageId, setNewTaskStageId] = useState('');
   const [logsExpanded, setLogsExpanded] = useState(false);
 const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(null);
+
+  // プロジェクト作成時の初期メンバー管理
+  interface InitialMember {
+    userId: string;
+    displayName: string;
+    email: string;
+    role: ProjectRole;
+    jobTitle: JobTitleType | '';
+  }
+  const [initialMembers, setInitialMembers] = useState<InitialMember[]>([]);
+  const [showInitialMembersSection, setShowInitialMembersSection] = useState(false);
+
   const holidaySet = useJapaneseHolidaySet();
   const broadcastMemberUpdate = useCallback((projectId: string, members: ProjectMember[]) => {
     if (typeof window === 'undefined') return;
@@ -173,17 +186,51 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     return () => window.clearTimeout(timer);
   }, [showTaskForm]);
 
+  // プロジェクトIDが変わった時に初期化フラグをリセット
+  const isInitialMount = useRef(true);
+  const prevProjectId = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    const currentProjectId = project?.id;
+    if (currentProjectId !== prevProjectId.current) {
+      isInitialMount.current = true;
+      prevProjectId.current = currentProjectId;
+    }
+  }, [project?.id]);
+
+  // 現在のユーザーの組織IDを取得
+  useEffect(() => {
+    getCurrentUser()
+      .then((user) => {
+        setCurrentUserOrgId(user.orgId);
+      })
+      .catch((err) => {
+        console.error('Failed to get current user:', err);
+      });
+  }, []);
+
   useEffect(() => {
     if (project) {
+      // 新規作成モードの場合、初回のみformDataを設定（入力中のリセットを防ぐ）
       if (!project.id && mode === 'create') {
-        setFormData((prev) => ({
-          ...prev,
-          ...project,
-        }));
+        if (isInitialMount.current) {
+          setFormData((prev) => ({
+            ...prev,
+            ...project,
+          }));
+          isInitialMount.current = false;
+        }
       } else {
+        // 編集モードの場合は常にprojectで更新
         setFormData(project);
       }
-      setProjectMembers(propsProjectMembers);
+
+      // 外部組織のメンバーを除外（現在のユーザーの組織のメンバーのみ表示）
+      const filteredMembers = currentUserOrgId
+        ? propsProjectMembers.filter(m => m.orgId === currentUserOrgId || m.memberType === 'external')
+        : propsProjectMembers;
+      setProjectMembers(filteredMembers);
+
       if (!hasLocalStageChanges) {
         setStages(propsStages);
       }
@@ -210,7 +257,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       setActivityLogs([]);
       setStages([]);
     }
-  }, [project, propsProjectMembers, propsStages, mode]);
+  }, [project, propsProjectMembers, propsStages, mode, hasLocalStageChanges, currentUserOrgId]);
 
   const projectId = project?.id;
 
@@ -272,6 +319,55 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       cancelled = true;
     };
   }, [projectId, logsExpanded, logsLoadedProjectId]);
+
+  // プロジェクト作成モードで初期メンバーセクションが開かれた時に自組織のユーザーを取得
+  useEffect(() => {
+    if (mode !== 'create' || !showInitialMembersSection || manageableLoaded) return;
+
+    let cancelled = false;
+    setManageableLoading(true);
+    setManageableError(null);
+
+    // 現在のユーザー情報を取得して、その組織のユーザーのみを取得
+    getCurrentUser()
+      .then((currentUser) => {
+        if (cancelled) return Promise.reject(new Error('Cancelled'));
+        if (!currentUser.orgId) {
+          throw new Error('組織IDが見つかりません');
+        }
+        return listUsers({ isActive: true, orgId: currentUser.orgId });
+      })
+      .then((users) => {
+        if (!cancelled && users) {
+          // User型をManageableUserSummary型に変換
+          const manageableSummaries: ManageableUserSummary[] = users.map(user => ({
+            id: user.id,
+            email: user.email,
+            displayName: user.displayName,
+            role: user.role,
+            isActive: user.isActive,
+            memberType: 'internal' as const,
+          }));
+          setManageableUsers(manageableSummaries);
+          setManageableLoaded(true);
+        }
+      })
+      .catch((error) => {
+        console.error('Failed to load users:', error);
+        if (!cancelled) {
+          setManageableError('ユーザーの取得に失敗しました');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setManageableLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, showInitialMembersSection, manageableLoaded]);
 
   // 招待フォームが開かれたときに候補ユーザーと協力者をロード
   useEffect(() => {
@@ -593,6 +689,14 @@ const loadCollaborators = async (force = false): Promise<void> => {
   const handleUpdateRole = async (userId: string, newRole: ProjectRole) => {
     if (!project?.id) return;
 
+    // 楽観的更新: 先にUIを更新
+    const previousMembers = [...projectMembers];
+    const optimisticMembers = projectMembers.map(m =>
+      m.userId === userId ? { ...m, role: newRole } : m
+    );
+    setProjectMembers(optimisticMembers);
+    broadcastMemberUpdate(project.id, optimisticMembers);
+
     try {
       const token = await getAuthToken();
       const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
@@ -606,18 +710,33 @@ const loadCollaborators = async (force = false): Promise<void> => {
 
       if (!response.ok) throw new Error('Failed to update member');
 
-      setSuccess('メンバーのロールを更新しました');
+      // APIから最新のメンバー情報を取得して確認
       const members = await listProjectMembers(project.id);
-      setProjectMembers(members);
-      broadcastMemberUpdate(project.id, members);
+      // 外部組織のメンバーを除外
+      const filteredMembers = currentUserOrgId
+        ? members.filter(m => m.orgId === currentUserOrgId || m.memberType === 'external')
+        : members;
+      setProjectMembers(filteredMembers);
+      broadcastMemberUpdate(project.id, filteredMembers);
     } catch (err) {
+      // 失敗したら楽観的更新を取り消し
       console.error('Error updating member:', err);
+      setProjectMembers(previousMembers);
+      broadcastMemberUpdate(project.id, previousMembers);
       setError('メンバーの更新に失敗しました');
     }
   };
 
   const handleUpdateJobType = async (userId: string, newJobType: JobTitleType | '') => {
     if (!project?.id) return;
+
+    // 楽観的更新: 先にUIを更新
+    const previousMembers = [...projectMembers];
+    const optimisticMembers = projectMembers.map(m =>
+      m.userId === userId ? { ...m, jobTitle: newJobType || undefined } : m
+    );
+    setProjectMembers(optimisticMembers);
+    broadcastMemberUpdate(project.id, optimisticMembers);
 
     try {
       const token = await getAuthToken();
@@ -632,12 +751,19 @@ const loadCollaborators = async (force = false): Promise<void> => {
 
       if (!response.ok) throw new Error('Failed to update member');
 
-      setSuccess('メンバーの職種を更新しました');
+      // APIから最新のメンバー情報を取得して確認
       const members = await listProjectMembers(project.id);
-      setProjectMembers(members);
-      broadcastMemberUpdate(project.id, members);
+      // 外部組織のメンバーを除外
+      const filteredMembers = currentUserOrgId
+        ? members.filter(m => m.orgId === currentUserOrgId || m.memberType === 'external')
+        : members;
+      setProjectMembers(filteredMembers);
+      broadcastMemberUpdate(project.id, filteredMembers);
     } catch (err) {
+      // 失敗したら楽観的更新を取り消し
       console.error('Error updating member job type:', err);
+      setProjectMembers(previousMembers);
+      broadcastMemberUpdate(project.id, previousMembers);
       setError('職種の更新に失敗しました');
     }
   };
@@ -680,8 +806,30 @@ const loadCollaborators = async (force = false): Promise<void> => {
         }
       } else {
         // 新規作成モード: 従来通りの処理
-        await onSave(updatedProject);
+        const createdProjectId = await onSave(updatedProject);
         toast.success('プロジェクトを作成しました');
+
+        // 初期メンバー一括追加
+        if (createdProjectId && initialMembers.length > 0) {
+          console.log('[ProjectEditDialog] Adding initial members:', initialMembers.length);
+          try {
+            const memberPromises = initialMembers.map((member) =>
+              addProjectMember(createdProjectId, {
+                userId: member.userId,
+                email: member.email,
+                displayName: member.displayName,
+                role: member.role,
+                jobTitle: member.jobTitle || undefined,
+              })
+            );
+            await Promise.all(memberPromises);
+            console.log('[ProjectEditDialog] Successfully added', initialMembers.length, 'members');
+            toast.success(`${initialMembers.length}名のメンバーを追加しました`);
+          } catch (memberError) {
+            console.error('[ProjectEditDialog] Failed to add members:', memberError);
+            toast.error('メンバーの追加に失敗しました');
+          }
+        }
       }
 
     } catch (error) {
@@ -1175,6 +1323,108 @@ const loadCollaborators = async (force = false): Promise<void> => {
               />
             </div>
 
+            {/* 初期メンバー設定（作成モード時のみ） */}
+            {mode === 'create' && (
+              <div className="border-t border-slate-200 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                    <Users className="inline h-4 w-4" />
+                    プロジェクトメンバー
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowInitialMembersSection(!showInitialMembersSection)}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    {showInitialMembersSection ? '閉じる' : '+ メンバーを追加'}
+                  </button>
+                </div>
+
+                {showInitialMembersSection && (
+                  <div className="border border-slate-200 rounded-lg p-4 bg-slate-50">
+                    {manageableLoading ? (
+                      <p className="text-sm text-slate-500 text-center py-4">読み込み中...</p>
+                    ) : manageableUsers.length > 0 ? (
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {manageableUsers.map((user) => {
+                          const isSelected = initialMembers.some(m => m.userId === user.id);
+                          const member = initialMembers.find(m => m.userId === user.id);
+
+                          return (
+                            <div key={user.id} className="flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-200">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setInitialMembers([...initialMembers, {
+                                      userId: user.id,
+                                      displayName: user.displayName,
+                                      email: user.email,
+                                      role: 'member' as ProjectRole,
+                                      jobTitle: '' as JobTitleType | '',
+                                    }]);
+                                  } else {
+                                    setInitialMembers(initialMembers.filter(m => m.userId !== user.id));
+                                  }
+                                }}
+                                className="h-4 w-4 text-blue-600"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-slate-900 truncate">{user.displayName}</p>
+                                <p className="text-xs text-slate-500 truncate">{user.email}</p>
+                              </div>
+                              {isSelected && (
+                                <div className="flex gap-2">
+                                  <select
+                                    value={member?.role || 'member'}
+                                    onChange={(e) => {
+                                      setInitialMembers(initialMembers.map(m =>
+                                        m.userId === user.id ? { ...m, role: e.target.value as ProjectRole } : m
+                                      ));
+                                    }}
+                                    className="text-xs px-2 py-1 border border-slate-300 rounded"
+                                  >
+                                    {Object.entries(PROJECT_ROLE_LABELS).map(([value, label]) => (
+                                      <option key={value} value={value}>{label}</option>
+                                    ))}
+                                  </select>
+                                  <select
+                                    value={member?.jobTitle || ''}
+                                    onChange={(e) => {
+                                      setInitialMembers(initialMembers.map(m =>
+                                        m.userId === user.id ? { ...m, jobTitle: e.target.value as JobTitleType | '' } : m
+                                      ));
+                                    }}
+                                    className="text-xs px-2 py-1 border border-slate-300 rounded"
+                                  >
+                                    {JOB_TYPE_OPTIONS.map((job) => (
+                                      <option key={job || 'none'} value={job}>{job || '未設定'}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-500 text-center py-4">
+                        追加可能なメンバーがいません
+                      </p>
+                    )}
+                    {initialMembers.length > 0 && (
+                      <div className="mt-3 pt-3 border-t border-slate-200">
+                        <p className="text-xs text-slate-600">
+                          選択中: {initialMembers.length}名
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* タスク追加（編集モード時のみ） */}
             {project && project.id && onTaskCreate && (
               <div className="border-t border-slate-200 pt-4">
@@ -1218,32 +1468,22 @@ const loadCollaborators = async (force = false): Promise<void> => {
                     {/* 担当者 */}
                     <div>
                       <label className="mb-1 block text-xs text-slate-500">担当者</label>
-                      {projectMembers.length > 0 ? (
-                        <select
-                          value={newTaskAssignee}
-                          onChange={(e) => setNewTaskAssignee(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="">選択</option>
-                          {projectMembers.map((member) => (
-                            <option key={member.userId} value={member.displayName}>
-                              {member.displayName} ({member.role})
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <select
-                          value={newTaskAssignee}
-                          onChange={(e) => setNewTaskAssignee(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="">未割り当て</option>
-                          {people.map((person) => (
-                            <option key={person.id} value={person.氏名}>
-                              {person.氏名}
-                            </option>
-                          ))}
-                        </select>
+                      <select
+                        value={newTaskAssignee}
+                        onChange={(e) => setNewTaskAssignee(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">未割り当て</option>
+                        {projectMembers.map((member) => (
+                          <option key={member.userId} value={member.displayName}>
+                            {member.displayName} ({member.role})
+                          </option>
+                        ))}
+                      </select>
+                      {projectMembers.length === 0 && (
+                        <p className="mt-1 text-xs text-amber-600">
+                          プロジェクトにメンバーを追加すると、担当者として選択できるようになります
+                        </p>
                       )}
                     </div>
 

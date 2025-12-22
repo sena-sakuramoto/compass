@@ -116,7 +116,9 @@ router.patch('/stages/:stageId', async (req: any, res, next) => {
     // ユーザーがアクセス可能な全組織からステージを検索（クロスオーガナイゼーション対応）
     const userProjectMemberships = await listUserProjects(null, req.uid);
     const accessibleOrgIds = new Set(
-      userProjectMemberships.map(m => m.project?.ownerOrgId || m.member.orgId)
+      userProjectMemberships.map(
+        m => m.project?.ownerOrgId || m.member.projectOrgId || m.member.orgId
+      )
     );
 
     let stage: any = null;
@@ -172,7 +174,9 @@ router.delete('/stages/:stageId', async (req: any, res, next) => {
     // ユーザーがアクセス可能な全組織からステージを検索（クロスオーガナイゼーション対応）
     const userProjectMemberships = await listUserProjects(null, req.uid);
     const accessibleOrgIds = new Set(
-      userProjectMemberships.map(m => m.project?.ownerOrgId || m.member.orgId)
+      userProjectMemberships.map(
+        m => m.project?.ownerOrgId || m.member.projectOrgId || m.member.orgId
+      )
     );
 
     let stage: any = null;

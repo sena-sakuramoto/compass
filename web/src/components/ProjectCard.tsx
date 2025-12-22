@@ -126,35 +126,35 @@ export function ProjectCard({
         </div>
       )}
 
-      {/* メンバー情報 */}
-      {(営業 || PM || 設計 || 施工管理) && (
+      {/* メンバー情報：役職付きのみ表示 */}
+      {(営業 || PM || 設計 || 施工管理) ? (
         <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
           {営業 && (
-            <div className="flex items-center gap-1 truncate">
+            <div className="flex items-start gap-1">
               <Briefcase className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              <span className="truncate">営業：{営業}</span>
+              <span className="whitespace-normal break-words">営業：{営業}</span>
             </div>
           )}
           {PM && (
-            <div className="flex items-center gap-1 truncate">
+            <div className="flex items-start gap-1">
               <Users2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              <span className="truncate">PM：{PM}</span>
+              <span className="whitespace-normal break-words">PM：{PM}</span>
             </div>
           )}
           {設計 && (
-            <div className="flex items-center gap-1 truncate">
+            <div className="flex items-start gap-1">
               <Pencil className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              <span className="truncate">設計：{設計}</span>
+              <span className="whitespace-normal break-words">設計：{設計}</span>
             </div>
           )}
           {施工管理 && (
-            <div className="flex items-center gap-1 truncate">
+            <div className="flex items-start gap-1">
               <HardHat className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-              <span className="truncate">施工管理：{施工管理}</span>
+              <span className="whitespace-normal break-words">施工管理：{施工管理}</span>
             </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {folderUrl && (
         <a

@@ -63,7 +63,11 @@ router.get('/activity-logs', authenticate, async (req: any, res) => {
     const userProjectMemberships = await listUserProjects(null, req.uid);
 
     // プロジェクトごとにグループ化（組織別）
-    const orgIds = new Set(userProjectMemberships.map(m => m.member.orgId));
+    const resolveProjectOrgId = (membership: any) =>
+      membership.project?.ownerOrgId ||
+      membership.member.projectOrgId ||
+      membership.member.orgId;
+    const orgIds = new Set(userProjectMemberships.map(resolveProjectOrgId));
     const allLogs: any[] = [];
 
     // 各組織からログを取得
@@ -78,7 +82,7 @@ router.get('/activity-logs', authenticate, async (req: any, res) => {
 
       // ユーザーがアクセスできるプロジェクトのログのみフィルタ
       const accessibleProjectIds = userProjectMemberships
-        .filter(m => m.member.orgId === orgId)
+        .filter(m => resolveProjectOrgId(m) === orgId)
         .map(m => m.projectId);
 
       const filteredLogs = logs.filter(log =>

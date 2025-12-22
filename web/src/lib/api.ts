@@ -224,6 +224,13 @@ export async function listProjectMembers(projectId: string, filters?: { status?:
   return request<ProjectMember[]>(`/projects/${projectId}/members${query}`);
 }
 
+export async function addProjectMember(projectId: string, payload: { userId?: string; email?: string; displayName?: string; role: string; jobTitle?: string; message?: string }) {
+  return request<ProjectMember>(`/projects/${projectId}/members`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function updateProject(projectId: string, payload: Partial<Project>) {
   return request<{ ok: true }>(`/projects/${projectId}`, {
     method: 'PATCH',
@@ -779,6 +786,12 @@ export async function createOrgForStripeSubscriber(payload: { orgId: string; org
 
 export async function checkOrgSetupEligibility() {
   return request<{ eligible: boolean; stripeCustomerId?: string | null; status?: string | null }>('/org-setup/eligibility');
+}
+
+export async function checkOrgIdAvailability(orgId: string) {
+  const query = new URLSearchParams();
+  query.set('orgId', orgId);
+  return request<{ orgId: string; available: boolean }>(`/org-setup/org-id-check?${query.toString()}`);
 }
 
 export async function getUnreadNotificationCount() {

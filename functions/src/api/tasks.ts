@@ -12,13 +12,14 @@ import {
   recordTaskCreator,
   canEditTask,
   getProject,
+  db,
 } from '../lib/firestore';
 import { getUser } from '../lib/users';
 import { enqueueNotificationSeed } from '../lib/jobs';
 import { listUserProjects } from '../lib/project-members';
 import { canDeleteTask } from '../lib/access-control';
 import { logActivity } from '../lib/activity-log';
-import { getProjectForUser, getEffectiveOrgId } from '../lib/access-helpers';
+import { getProjectForUser, getEffectiveOrgId, getTaskForUser } from '../lib/access-helpers';
 
 const router = Router();
 
@@ -58,20 +59,77 @@ router.get('/', async (req: any, res, next) => {
       return;
     }
 
-    // 各組織からタスクを取得
-    const orgIds = new Set(userProjectMemberships.map(m => m.member.orgId));
-    const allTasks: any[] = [];
+    const projectsByOwnerOrg = new Map<string, Set<string>>();
+    const projectsByTaskOrg = new Map<string, Set<string>>();
+    const addProject = (map: Map<string, Set<string>>, orgId: string | undefined, projectId: string) => {
+      if (!orgId) return;
+      if (!map.has(orgId)) {
+        map.set(orgId, new Set());
+      }
+      map.get(orgId)!.add(projectId);
+    };
+    userProjectMemberships.forEach((membership) => {
+      if (params.projectId && membership.projectId !== params.projectId) {
+        return;
+      }
+      const projectOrgId =
+        membership.project?.ownerOrgId ||
+        membership.member.projectOrgId ||
+        membership.member.orgId;
+      const memberOrgId = membership.member.orgId;
+      addProject(projectsByOwnerOrg, projectOrgId, membership.projectId);
+      addProject(projectsByTaskOrg, projectOrgId, membership.projectId);
+      if (memberOrgId && memberOrgId !== projectOrgId) {
+        addProject(projectsByTaskOrg, memberOrgId, membership.projectId);
+      }
+    });
 
-    for (const orgId of orgIds) {
+    for (const [projectOrgId, projectIdSet] of projectsByOwnerOrg.entries()) {
+      const projectIdsForMemberLookup = Array.from(projectIdSet);
+      for (let i = 0; i < projectIdsForMemberLookup.length; i += 10) {
+        const batch = projectIdsForMemberLookup.slice(i, i + 10);
+        const membersSnapshot = await db
+          .collection('project_members')
+          .where('projectOrgId', '==', projectOrgId)
+          .where('projectId', 'in', batch)
+          .get();
+        membersSnapshot.docs.forEach((doc) => {
+          const member = doc.data() as any;
+          addProject(projectsByTaskOrg, member.orgId, member.projectId);
+        });
+      }
+    }
+
+    const allTasks: any[] = [];
+    console.log('[GET /tasks] projectsByTaskOrg:', Array.from(projectsByTaskOrg.entries()).map(([org, projs]) => ({org, projects: Array.from(projs)})));
+    for (const [orgId, projectIdSet] of projectsByTaskOrg.entries()) {
+      if (params.projectId && !projectIdSet.has(params.projectId)) {
+        console.log(`[GET /tasks] Skipping orgId=${orgId}, projectId=${params.projectId} not in projectIdSet`);
+        continue;
+      }
+      console.log(`[GET /tasks] Fetching tasks for orgId=${orgId}, projectIds=${Array.from(projectIdSet)}`);
       const orgTasks = await listTasks({ ...params, orgId });
-      // この組織でユーザーがアクセスできるプロジェクトのタスクのみ
-      const accessibleProjectIds = userProjectMemberships
-        .filter(m => m.member.orgId === orgId)
-        .map(m => m.projectId);
-      const filtered = orgTasks.filter(task => accessibleProjectIds.includes(task.projectId));
+      console.log(`[GET /tasks] orgId=${orgId} returned ${orgTasks.length} tasks`);
+      const filtered = orgTasks.filter((task) => {
+        const taskProjectId = String(task.projectId ?? (task as any).ProjectID ?? '').trim();
+        if (!taskProjectId) return false;
+        if (!projectIdSet.has(taskProjectId)) return false;
+        if (!task.projectId) {
+          task.projectId = taskProjectId;
+        }
+        return true;
+      });
+      console.log(`[GET /tasks] orgId=${orgId} after filtering: ${filtered.length} tasks`);
       allTasks.push(...filtered);
     }
 
+    console.log(`[GET /tasks] Total tasks being returned: ${allTasks.length}`);
+    // P-0035のタスクだけ詳細ログ
+    const p0035Tasks = allTasks.filter(t => t.projectId === 'P-0035');
+    console.log(`[GET /tasks] P-0035 tasks: ${p0035Tasks.length}`);
+    p0035Tasks.forEach(t => {
+      console.log(`[GET /tasks] P-0035 task: id=${t.id}, name=${t.タスク名}, type=${t.type}, hasTypeField=${'type' in t}`);
+    });
     res.json({ tasks: allTasks });
   } catch (error) {
     next(error);
@@ -142,17 +200,21 @@ router.post('/', async (req: any, res, next) => {
 
     // 権限チェック
     const { getProjectMemberPermissions } = await import('../lib/project-members');
-    const permissions = await getProjectMemberPermissions(user.orgId, payload.projectId, req.uid);
+    const projectOrgId =
+      membership.project?.ownerOrgId ||
+      membership.member.projectOrgId ||
+      membership.member.orgId;
+    const permissions = await getProjectMemberPermissions(projectOrgId, payload.projectId, req.uid);
 
     if (!permissions || !permissions.canCreateTasks) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to create tasks' });
     }
 
-    const id = await createTask(payload, user.orgId);
+    const id = await createTask(payload, projectOrgId);
     console.log('[POST /tasks] Task created with ID:', id);
 
     // タスク作成者を記録
-    await recordTaskCreator(id, user.id, user.orgId);
+    await recordTaskCreator(id, user.id, projectOrgId);
 
     res.status(201).json({ id });
   } catch (error) {
@@ -171,16 +233,17 @@ router.patch('/:id', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // タスクを取得してプロジェクトIDを確認
-    const tasks = await listTasks({ orgId: user.orgId });
-    const task = tasks.find(t => t.id === req.params.id);
-    if (!task) {
-      return res.status(404).json({ error: 'Task not found' });
+    // タスクを効率的に取得（クロスオーガナイゼーション対応）
+    const taskData = await getTaskForUser(req.uid, req.params.id);
+    if (!taskData) {
+      return res.status(404).json({ error: 'Task not found or access denied' });
     }
 
-    // プロジェクトメンバーシップをチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const membership = userProjectMemberships.find(m => m.projectId === task.projectId);
+    const { task, orgId: taskOrgId, projectId } = taskData;
+
+    // プロジェクトメンバーシップを取得
+    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const membership = userProjectMemberships.find(m => m.projectId === projectId);
 
     if (!membership) {
       return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
@@ -188,7 +251,11 @@ router.patch('/:id', async (req: any, res, next) => {
 
     // 権限チェック
     const { getProjectMemberPermissions } = await import('../lib/project-members');
-    const permissions = await getProjectMemberPermissions(user.orgId, task.projectId, req.uid);
+    const projectOrgId =
+      membership.project?.ownerOrgId ||
+      membership.member.projectOrgId ||
+      membership.member.orgId;
+    const permissions = await getProjectMemberPermissions(projectOrgId, projectId, req.uid);
 
     if (!permissions || !permissions.canEditTasks) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to edit tasks' });
@@ -205,7 +272,7 @@ router.patch('/:id', async (req: any, res, next) => {
       }
     }
 
-    await updateTask(req.params.id, payload, user.orgId);
+    await updateTask(req.params.id, payload, taskOrgId);
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -222,23 +289,16 @@ router.post('/:id/complete', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // タスクを取得してプロジェクトIDを確認
-    const tasks = await listTasks({ orgId: user.orgId });
-    const task = tasks.find(t => t.id === req.params.id);
-    if (!task) {
-      return res.status(404).json({ error: 'Task not found' });
+    // タスクを効率的に取得（クロスオーガナイゼーション対応）
+    const taskData = await getTaskForUser(req.uid, req.params.id);
+    if (!taskData) {
+      return res.status(404).json({ error: 'Task not found or access denied' });
     }
 
-    // プロジェクトメンバーシップをチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const projectIds = userProjectMemberships.map(m => m.projectId);
-
-    if (!projectIds.includes(task.projectId)) {
-      return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
-    }
+    const { orgId: taskOrgId } = taskData;
 
     // プロジェクトメンバーであれば誰でも完了操作可能
-    await completeTaskRepo(req.params.id, done, user.orgId);
+    await completeTaskRepo(req.params.id, done, taskOrgId);
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -262,23 +322,16 @@ router.post('/:id/move', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // タスクを取得してプロジェクトIDを確認
-    const tasks = await listTasks({ orgId: user.orgId });
-    const task = tasks.find(t => t.id === req.params.id);
-    if (!task) {
-      return res.status(404).json({ error: 'Task not found' });
+    // タスクを効率的に取得（クロスオーガナイゼーション対応）
+    const taskData = await getTaskForUser(req.uid, req.params.id);
+    if (!taskData) {
+      return res.status(404).json({ error: 'Task not found or access denied' });
     }
 
-    // プロジェクトメンバーシップをチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
-    const projectIds = userProjectMemberships.map(m => m.projectId);
-
-    if (!projectIds.includes(task.projectId)) {
-      return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
-    }
+    const { orgId: taskOrgId } = taskData;
 
     // プロジェクトメンバーであれば誰でも移動可能
-    await moveTaskDates(req.params.id, payload, user.orgId);
+    await moveTaskDates(req.params.id, payload, taskOrgId);
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -301,31 +354,16 @@ router.delete('/:id', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // ユーザーがアクセス可能なすべてのプロジェクトからタスクを検索（クロスオーガナイゼーション対応）
-    const userProjectMemberships = await listUserProjects(null, req.uid);
-    const accessibleOrgIds = new Set(
-      userProjectMemberships.map(m => m.project?.ownerOrgId || m.member.orgId)
-    );
-
-    let task: any = null;
-    let taskOrgId: string | null = null;
-
-    for (const orgId of accessibleOrgIds) {
-      const orgTasks = await listTasks({ orgId });
-      const found = orgTasks.find(t => t.id === req.params.id);
-      if (found) {
-        task = found;
-        taskOrgId = orgId;
-        break;
-      }
+    // タスクを効率的に取得（クロスオーガナイゼーション対応）
+    const taskData = await getTaskForUser(req.uid, req.params.id);
+    if (!taskData) {
+      return res.status(404).json({ error: 'Task not found or access denied' });
     }
 
-    if (!task || !taskOrgId) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
+    const { task, orgId: taskOrgId, projectId } = taskData;
 
     // プロジェクト情報を取得（クロスオーガナイゼーション対応）
-    const projectData = await getProjectForUser(req.uid, task.projectId);
+    const projectData = await getProjectForUser(req.uid, projectId);
     if (!projectData) {
       return res.status(404).json({ error: 'Project not found or access denied' });
     }

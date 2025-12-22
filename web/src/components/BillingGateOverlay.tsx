@@ -48,6 +48,7 @@ export function BillingGateOverlay({ billing, loading, onRetry }: BillingGateOve
   const [selfLookupResult, setSelfLookupResult] = useState<BillingSelfLookupResult | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [portalError, setPortalError] = useState<string | null>(null);
+  const canOpenStripePortal = Boolean(billing?.stripeCustomerId) && billing?.planType === 'stripe';
 
   const handleSelfLookup = async (event?: React.FormEvent) => {
     event?.preventDefault();
@@ -98,7 +99,7 @@ export function BillingGateOverlay({ billing, loading, onRetry }: BillingGateOve
       if (error instanceof Error) {
         setPortalError(error.message);
       } else {
-        setPortalError('Slackポータルを開けませんでした。時間をおいて再度お試しください。');
+        setPortalError('Stripeポータルを開けませんでした。時間をおいて再度お試しください。');
       }
     } finally {
       setPortalLoading(false);
@@ -162,14 +163,16 @@ export function BillingGateOverlay({ billing, loading, onRetry }: BillingGateOve
                 <Mail className="h-4 w-4" />
                 サポートに連絡
               </a>
-              <button
-                type="button"
-                onClick={handleOpenStripePortal}
-                disabled={portalLoading}
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-700 shadow-sm hover:bg-indigo-100 disabled:opacity-50"
-              >
-                {portalLoading ? '開きています…' : 'Stripeポータルで確認'}
-              </button>
+              {canOpenStripePortal ? (
+                <button
+                  type="button"
+                  onClick={handleOpenStripePortal}
+                  disabled={portalLoading}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-[11px] font-semibold text-indigo-700 shadow-sm hover:bg-indigo-100 disabled:opacity-50"
+                >
+                  {portalLoading ? '開きています…' : 'Stripeポータルで確認'}
+                </button>
+              ) : null}
               {portalError && <span className="text-[11px] text-rose-600">{portalError}</span>}
             </div>
           </div>

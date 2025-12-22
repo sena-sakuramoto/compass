@@ -170,10 +170,25 @@ export function serializeStripeCustomer(doc: FirebaseFirestore.DocumentSnapshot 
   };
 }
 
-async function findStripeCustomerByField(field: 'discordId' | 'discordUserId' | 'email' | 'customerEmail', value: string) {
+async function findStripeCustomerByField(
+  field: 'discordId' | 'discordUserId' | 'email' | 'customerEmail' | 'billingEmail',
+  value: string
+) {
   const snapshot = await db
     .collection(STRIPE_CUSTOMERS_COLLECTION)
     .where(field, '==', value)
+    .limit(1)
+    .get();
+  if (snapshot.empty) {
+    return null;
+  }
+  return serializeStripeCustomer(snapshot.docs[0]);
+}
+
+async function findStripeCustomerByArrayField(field: 'emails', value: string) {
+  const snapshot = await db
+    .collection(STRIPE_CUSTOMERS_COLLECTION)
+    .where(field, 'array-contains', value)
     .limit(1)
     .get();
   if (snapshot.empty) {
@@ -209,6 +224,10 @@ export async function findStripeCustomer(params: {
     if (byEmail) return byEmail;
     const byCustomerEmail = await findStripeCustomerByField('customerEmail', email);
     if (byCustomerEmail) return byCustomerEmail;
+    const byBillingEmail = await findStripeCustomerByField('billingEmail', email);
+    if (byBillingEmail) return byBillingEmail;
+    const byEmails = await findStripeCustomerByArrayField('emails', email);
+    if (byEmails) return byEmails;
   }
 
   return null;
@@ -216,8 +235,20 @@ export async function findStripeCustomer(params: {
 
 export async function listStripeSubscribers(): Promise<StripeCustomerRecord[]> {
   // 既存サブスク利用者が漏れないよう、全件取得してから active/trial/entitled を抽出する
-  const snapshot = await db.collection(STRIPE_CUSTOMERS_COLLECTION).limit(1000).get();
-  const all = snapshot.docs.map((doc) => serializeStripeCustomer(doc));
+  const all: StripeCustomerRecord[] = [];
+  const pageSize = 1000;
+  let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+  while (true) {
+    let query = db.collection(STRIPE_CUSTOMERS_COLLECTION).limit(pageSize);
+    if (lastDoc) {
+      query = query.startAfter(lastDoc);
+    }
+    const snapshot = await query.get();
+    if (snapshot.empty) break;
+    all.push(...snapshot.docs.map((doc) => serializeStripeCustomer(doc)));
+    if (snapshot.size < pageSize) break;
+    lastDoc = snapshot.docs[snapshot.docs.length - 1];
+  }
   return all.filter((customer) => {
     const status = customer.status ?? '';
     return customer.entitled === true || status === 'active' || status === 'trialing';
@@ -231,23 +262,45 @@ async function fetchStripeSubscriptionsByStatus(status: 'active' | 'trialing') {
     return [];
   }
 
-  const params = new URLSearchParams();
-  params.set('status', status);
-  params.set('limit', '100');
-  params.append('expand[]', 'data.customer');
+  const all: any[] = [];
+  let startingAfter: string | undefined;
+  let hasMore = true;
+  while (hasMore) {
+    const params = new URLSearchParams();
+    params.set('status', status);
+    params.set('limit', '100');
+    params.append('expand[]', 'data.customer');
+    if (startingAfter) {
+      params.set('starting_after', startingAfter);
+    }
 
-  const response = await fetch(`${STRIPE_API_BASE}/subscriptions?${params.toString()}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${secret}`,
-    },
-  });
+    const response = await fetch(`${STRIPE_API_BASE}/subscriptions?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${secret}`,
+      },
+    });
 
-  const payload = (await response.json()) as { data?: any[]; error?: { message?: string } };
-  if (!response.ok) {
-    throw new Error(payload?.error?.message || 'Stripe API request failed');
+    const payload = (await response.json()) as { data?: any[]; has_more?: boolean; error?: { message?: string } };
+    if (!response.ok) {
+      throw new Error(payload?.error?.message || 'Stripe API request failed');
+    }
+
+    const data = payload.data ?? [];
+    all.push(...data);
+    if (!payload.has_more || data.length === 0) {
+      hasMore = false;
+      break;
+    }
+    const lastId = data[data.length - 1]?.id;
+    if (!lastId) {
+      hasMore = false;
+      break;
+    }
+    startingAfter = String(lastId);
   }
-  return payload.data ?? [];
+
+  return all;
 }
 
 export async function findActiveStripeSubscriptionByEmail(email: string): Promise<{ subscriptionId: string | null; customerId: string | null; status: string | null }> {
@@ -347,11 +400,30 @@ export interface BillingAccessResult {
 }
 
 export function evaluateBillingAccess(user: User, billingDoc: OrgBillingDoc | null): BillingAccessResult {
+  console.log('[Billing] Evaluating access for user:', {
+    userId: user.id,
+    email: user.email,
+    orgId: user.orgId,
+    role: user.role,
+  });
+
   if (user.role === 'super_admin') {
+    console.log('[Billing] Allowed: super_admin override');
     return {
       allowed: true,
       reason: 'super_admin_override',
       planType: billingDoc?.planType ?? DEFAULT_PLAN,
+    };
+  }
+
+  // 特別枠組織: archi-prisma（既存ユーザーと招待されたユーザー）
+  const SPECIAL_ORGS = ['archi-prisma'];
+  if (SPECIAL_ORGS.includes(user.orgId)) {
+    console.log('[Billing] Allowed: legacy organization -', user.orgId);
+    return {
+      allowed: true,
+      reason: 'legacy_organization',
+      planType: billingDoc?.planType ?? 'special_admin',
     };
   }
 

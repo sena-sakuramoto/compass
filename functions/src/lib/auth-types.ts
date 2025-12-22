@@ -143,6 +143,7 @@ export interface Collaborator {
 export interface ProjectMember {
   id: string;                    // メンバーID（composite: {projectId}_{userId}）
   projectId: string;             // プロジェクトID
+  projectOrgId?: string;         // プロジェクトの所属組織ID
   userId: string;                // ユーザーID
   email?: string;                // メールアドレス（外部協力者はオプショナル）
   displayName: string;           // 表示名

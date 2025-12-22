@@ -33,17 +33,17 @@ declare module 'firebase/auth' {
 
 declare module 'firebase/firestore' {
   import type { FirebaseApp } from 'firebase/app';
+
   export interface Firestore {}
   export interface DocumentReference<T = unknown> {}
   export interface DocumentSnapshot<T = unknown> {
     exists(): boolean;
-    data(): T;
+    data(): T | undefined;
   }
-  export interface Timestamp {
-    toMillis(): number;
-  }
+  export interface Timestamp {}
+
   export function getFirestore(app?: FirebaseApp): Firestore;
-  export function doc(db: Firestore, collectionPath: string, docPath: string): DocumentReference;
+  export function doc<T = unknown>(db: Firestore, path: string, ...pathSegments: string[]): DocumentReference<T>;
   export function getDoc<T = unknown>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T>>;
   export function setDoc<T = unknown>(ref: DocumentReference<T>, data: T): Promise<void>;
   export function serverTimestamp(): Timestamp;

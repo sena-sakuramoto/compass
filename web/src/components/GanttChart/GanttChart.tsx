@@ -31,6 +31,8 @@ interface GanttChartProps {
   projectMap?: Record<string, { ステータス?: string;[key: string]: any }>;
   people?: Person[];
   allProjectMembers?: Map<string, ProjectMember[]>;
+  onRequestPeople?: () => void;
+  onRequestProjectMembers?: (projectId: string) => void;
   onStageAddTask?: (stage: GanttTask) => void;
 }
 
@@ -48,6 +50,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   projectMap,
   people = [],
   allProjectMembers,
+  onRequestPeople,
+  onRequestProjectMembers,
   onStageAddTask,
 }) => {
   const holidaySet = useJapaneseHolidaySet();
@@ -62,6 +66,20 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!selectedTask) return;
+    if (people.length === 0) {
+      onRequestPeople?.();
+    }
+    const projectId = selectedTask.projectId;
+    if (projectId) {
+      const members = allProjectMembers?.get(projectId);
+      if (!members || members.length === 0) {
+        onRequestProjectMembers?.(projectId);
+      }
+    }
+  }, [selectedTask, people.length, allProjectMembers, onRequestPeople, onRequestProjectMembers]);
 
   // タスク一覧の幅（レスポンシブ）
   const [taskListWidth, setTaskListWidth] = useState(() => {
