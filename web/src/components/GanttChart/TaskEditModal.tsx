@@ -96,8 +96,9 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     editedTask.startDate.getTime() === editedTask.endDate.getTime();
 
   // このタスクが依存しているタスクで未完了のものをチェック
+  // 同じプロジェクトのタスクのみを検索対象にする
   const incompleteDependencies = (editedTask.dependencies || [])
-    .map(depId => allTasks.find(t => t.id === depId))
+    .map(depId => allTasks.find(t => t.id === depId && t.projectId === editedTask.projectId))
     .filter(t => t && t.status !== 'completed') as GanttTask[];
 
   const cannotComplete = incompleteDependencies.length > 0;

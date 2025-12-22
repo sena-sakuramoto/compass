@@ -98,6 +98,8 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
       .map(depId => taskMap.get(depId))
       .filter(t => {
         if (!t) return false;
+        // 同じプロジェクトのタスクのみを対象にする
+        if (t.projectId !== task.projectId) return false;
         // localCompletedStatesがあればそれを使用、なければサーバー状態を使用
         const isCompleted = localCompletedStates[t.id] ?? (t.status === 'completed');
         return !isCompleted; // 未完了のタスクのみを含める

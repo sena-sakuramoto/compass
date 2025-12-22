@@ -217,7 +217,8 @@ export function resolveDependencies(tasks: GanttTask[]): DependencyConnection[] 
     if (task.dependencies && task.dependencies.length > 0) {
       task.dependencies.forEach(depId => {
         const depTask = taskMap.get(depId);
-        if (depTask) {
+        // 同じプロジェクトのタスクのみを依存関係として扱う
+        if (depTask && depTask.projectId === task.projectId) {
           connections.push({
             from: depTask,
             to: task
