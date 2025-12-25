@@ -14,6 +14,7 @@ import {
   type StripeWelcomeBulkResult,
   listStripeLiveSubscriptions,
 } from '../lib/api';
+import { resolveApiBase } from '../lib/apiBase';
 
 interface AdminPageProps {
   user: User | null;
@@ -120,7 +121,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const loadInvitations = async () => {
     try {
       const token = await user?.getIdToken();
-      const apiUrl = `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/org-invitations`;
+      const apiUrl = `${resolveApiBase()}/org-invitations`;
       console.log('[AdminPage] 招待リスト取得 URL:', apiUrl);
 
       const response = await fetch(apiUrl, {
@@ -302,7 +303,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const loadOrganizations = async () => {
     try {
       const token = await user?.getIdToken();
-      const apiUrl = `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/organizations`;
+      const apiUrl = `${resolveApiBase()}/organizations`;
       console.log('[AdminPage] 組織リスト取得 URL:', apiUrl);
 
       const response = await fetch(apiUrl, {
@@ -333,7 +334,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     try {
       const token = await user?.getIdToken();
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/org-invitations`,
+        `${resolveApiBase()}/org-invitations`,
         {
           method: 'POST',
           headers: {
@@ -375,7 +376,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     try {
       const token = await user?.getIdToken();
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/organizations`,
+        `${resolveApiBase()}/organizations`,
         {
           method: 'POST',
           headers: {
@@ -414,7 +415,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     try {
       const token = await user?.getIdToken();
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/admin/migrate-task-types`,
+        `${resolveApiBase()}/admin/migrate-task-types`,
         {
           method: 'POST',
           headers: {
@@ -451,7 +452,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     try {
       const token = await user?.getIdToken();
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/admin/fix-stage-types`,
+        `${resolveApiBase()}/admin/fix-stage-types`,
         {
           method: 'POST',
           headers: {
@@ -488,7 +489,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     try {
       const token = await user?.getIdToken();
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/admin/migrate-clients`,
+        `${resolveApiBase()}/admin/migrate-clients`,
         {
           method: 'POST',
           headers: {
@@ -528,7 +529,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     try {
       const token = await user?.getIdToken();
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'https://api-g3xwwspyla-an.a.run.app'}/api/org-invitations/${invitationId}`,
+        `${resolveApiBase()}/org-invitations/${invitationId}`,
         {
           method: 'DELETE',
           headers: {

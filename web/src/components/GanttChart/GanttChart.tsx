@@ -34,6 +34,7 @@ interface GanttChartProps {
   onRequestPeople?: () => void;
   onRequestProjectMembers?: (projectId: string) => void;
   onStageAddTask?: (stage: GanttTask) => void;
+  showMilestonesWithoutTasks?: boolean;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -53,6 +54,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onRequestPeople,
   onRequestProjectMembers,
   onStageAddTask,
+  showMilestonesWithoutTasks = false,
 }) => {
   const holidaySet = useJapaneseHolidaySet();
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
@@ -135,8 +137,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     if (!projectMap) return [];
 
     const milestones: ProjectMilestone[] = [];
+    const taskProjectIds = new Set(tasks.map((task) => task.projectId));
 
     Object.entries(projectMap).forEach(([projectId, project]) => {
+      if (!showMilestonesWithoutTasks && !taskProjectIds.has(projectId)) return;
       // 現地調査日
       if (project.現地調査日) {
         const date = new Date(project.現地調査日);
@@ -191,7 +195,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     });
 
     return milestones;
-  }, [projectMap]);
+  }, [projectMap, tasks, showMilestonesWithoutTasks]);
 
   // コンテナ幅の計算（ズームレベルを適用）
   useEffect(() => {
@@ -235,17 +239,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     return () => window.removeEventListener('resize', updateWidth);
   }, [taskListWidth, viewMode, ticks.length, zoomLevel]);
 
-  // タイムラインのスクロール処理
-  const handleTimelineScroll = (left: number, top: number) => {
-    setScrollLeft(left);
-    setScrollTop(top);
-
-    // タスク一覧の縦スクロールを同期
-    if (taskListRef.current) {
-      taskListRef.current.scrollTop = top;
-    }
-  };
-
   const handleTaskListScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
     setScrollTop(top);
@@ -255,36 +248,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       timelineRef.current.scrollTop = top;
     }
   };
-
-  // タイムライン側でのホイールイベントを処理（縦スクロールをタスクリスト側に転送）
-  useEffect(() => {
-    const timelineElement = timelineRef.current;
-    if (!timelineElement) return;
-
-    const handleWheel = (e: WheelEvent) => {
-      // Ctrl+スクロール（ズーム）とShift+スクロール（横スクロール）は処理しない
-      if (e.ctrlKey || e.shiftKey) {
-        return;
-      }
-
-      // 横スクロールの場合は処理しない
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-        return;
-      }
-
-      // 縦スクロールの場合、タスクリスト側にスクロールを転送
-      if (taskListRef.current && Math.abs(e.deltaY) > 0) {
-        e.preventDefault();
-        taskListRef.current.scrollTop += e.deltaY;
-      }
-    };
-
-    timelineElement.addEventListener('wheel', handleWheel, { passive: false });
-    return () => {
-      timelineElement.removeEventListener('wheel', handleWheel);
-    };
-  }, []);
-
 
 
   const handleZoomIn = () => {
@@ -451,12 +414,12 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       </div>
 
       {/* メインコンテンツ */}
-      <div className="flex-1 flex overflow-hidden" style={{ direction: 'rtl' }}>
+      <div className="flex-1 flex overflow-hidden">
         {/* タスク一覧（左側固定） */}
         <div
           ref={taskListRef}
           className="flex-shrink-0 overflow-y-auto overflow-x-hidden"
-          style={{ width: `${taskListWidth}px`, direction: 'ltr', order: 2 }}
+          style={{ width: `${taskListWidth}px` }}
           onScroll={handleTaskListScroll}
         >
           <GanttTaskList
@@ -490,8 +453,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           ref={timelineRef}
           className="flex-1 overflow-y-auto overflow-x-auto"
           style={{
-            direction: 'ltr',
-            order: 1,
             scrollbarWidth: 'none',
             msOverflowStyle: 'none',
           }}
@@ -508,7 +469,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           }}
         >
           <style>{`
-            .flex-1::-webkit-scrollbar {
+            div[style*="overflow-y-auto overflow-x-auto"]::-webkit-scrollbar {
               width: 0;
               height: 0;
             }

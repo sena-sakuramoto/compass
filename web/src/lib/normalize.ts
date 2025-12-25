@@ -27,10 +27,22 @@ function normalizeTask(raw: any, index: number): Task {
   let progress: number;
   if (estimate > 0 && actual >= 0) {
     progress = Math.min(1, Math.max(0, actual / estimate));
-  } else if (typeof raw.progress === 'number') {
-    progress = Math.min(1, Math.max(0, raw.progress));
   } else {
-    progress = STATUS_PROGRESS[String(raw['ステータス'])] ?? 0;
+    const rawProgress = raw.progress ?? raw['進捗率'];
+    if (rawProgress != null && rawProgress !== '') {
+      const numeric = typeof rawProgress === 'number' ? rawProgress : Number(String(rawProgress).replace(/,/g, ''));
+      if (Number.isFinite(numeric)) {
+        const normalized = numeric > 1 && numeric <= 100 ? numeric / 100 : numeric;
+        progress = Math.min(1, Math.max(0, normalized));
+      } else {
+        progress = STATUS_PROGRESS[String(raw['ステータス'])] ?? 0;
+      }
+    } else {
+      progress = STATUS_PROGRESS[String(raw['ステータス'])] ?? 0;
+    }
+  }
+  if ((STATUS_PROGRESS[String(raw['ステータス'])] ?? 0) === 1 && progress < 1) {
+    progress = 1;
   }
 
   const idFromPayload = raw.id ?? raw.TaskID;

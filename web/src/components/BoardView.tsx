@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, MoreVertical } from 'lucide-react';
 import type { Task } from '../lib/types';
+import { computeProgress } from './TaskCard';
 
 interface BoardViewProps {
   tasks: Task[];
@@ -98,8 +99,14 @@ export function BoardView({ tasks, onTaskClick, onTaskMove, onAddTask }: BoardVi
                   : 'border-transparent'
               }`}
             >
-              {tasksByStatus[column.id]?.map((task) => (
-                <div
+              {tasksByStatus[column.id]?.map((task) => {
+                const progressRatio = typeof task.progress === 'number'
+                  ? computeProgress(task.progress, task.ステータス)
+                  : null;
+                const progressPct = progressRatio != null ? Math.round(progressRatio * 100) : 0;
+
+                return (
+                  <div
                   key={task.id}
                   draggable
                   onDragStart={() => handleDragStart(task)}
@@ -144,21 +151,22 @@ export function BoardView({ tasks, onTaskClick, onTaskMove, onAddTask }: BoardVi
                     )}
                   </div>
 
-                  {typeof task.progress === 'number' && (
+                  {progressRatio != null && (
                     <div className="mt-3">
                       <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-emerald-500 transition-all"
-                          style={{ width: `${task.progress * 100}%` }}
+                          style={{ width: `${progressPct}%` }}
                         />
                       </div>
                       <span className="text-xs text-slate-500 mt-1">
-                        {Math.round(task.progress * 100)}%
+                        {progressPct}%
                       </span>
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
 
               {tasksByStatus[column.id]?.length === 0 && (
                 <div className="text-center py-8 text-sm text-slate-400">

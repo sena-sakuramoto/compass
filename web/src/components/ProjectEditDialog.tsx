@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import toast from 'react-hot-toast';
 import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
 import type { Project, Task, ManageableUserSummary, Stage } from '../lib/types';
-import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType } from '../lib/auth-types';
+import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType, ProjectPermissions } from '../lib/auth-types';
 import { listProjectMembers, addProjectMember, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage, updateProject, listUsers, getCurrentUser } from '../lib/api';
 import { PROJECT_ROLE_LABELS, ROLE_LABELS } from '../lib/auth-types';
 import { GoogleMapsAddressInput } from './GoogleMapsAddressInput';
@@ -14,6 +14,7 @@ import { ClientSelector } from './ClientSelector';
 import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
 import { formatDate, formatJapaneseEra } from '../lib/date';
 import { parseHoursInput } from '../lib/number';
+import { resolveApiBase } from '../lib/apiBase';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -47,6 +48,17 @@ const STATUS_OPTIONS = [
   '失注',
 ];
 const PRIORITY_OPTIONS = ['高', '中', '低'];
+const DEFAULT_MEMBER_PERMISSIONS: ProjectPermissions = {
+  canEditProject: false,
+  canDeleteProject: false,
+  canManageMembers: false,
+  canViewTasks: false,
+  canCreateTasks: false,
+  canEditTasks: false,
+  canDeleteTasks: false,
+  canViewFiles: false,
+  canUploadFiles: false,
+};
 
 // 職種の選択肢
 const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
@@ -63,7 +75,7 @@ const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
   'その他',
 ];
 
-const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
+const BASE_URL = resolveApiBase();
 
 export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [], projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
@@ -153,6 +165,23 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
   const [showInitialMembersSection, setShowInitialMembersSection] = useState(false);
 
   const holidaySet = useJapaneseHolidaySet();
+  const assignableMembers = useMemo(() => {
+    const pool = new Map<string, ProjectMember>();
+    [...projectMembers, ...propsProjectMembers].forEach((member) => {
+      const key = member.userId || member.displayName;
+      if (!pool.has(key)) pool.set(key, member);
+    });
+    return Array.from(pool.values()).filter((member) => member.status === 'active');
+  }, [projectMembers, propsProjectMembers]);
+  const assigneeOptions = useMemo(
+    () =>
+      assignableMembers.map((member) => ({
+        key: member.userId || member.displayName,
+        value: member.displayName,
+        label: `${member.displayName} (${PROJECT_ROLE_LABELS[member.role] ?? member.role})`,
+      })),
+    [assignableMembers]
+  );
   const broadcastMemberUpdate = useCallback((projectId: string, members: ProjectMember[]) => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('project-members:updated', { detail: { projectId, members } }));
@@ -189,6 +218,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
   // プロジェクトIDが変わった時に初期化フラグをリセット
   const isInitialMount = useRef(true);
   const prevProjectId = useRef<string | undefined>(undefined);
+  const lastAppliedProjectId = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     const currentProjectId = project?.id;
@@ -220,21 +250,16 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
           }));
           isInitialMount.current = false;
         }
-      } else {
-        // 編集モードの場合は常にprojectで更新
-        setFormData(project);
+        return;
       }
 
-      // 外部組織のメンバーを除外（現在のユーザーの組織のメンバーのみ表示）
-      const filteredMembers = currentUserOrgId
-        ? propsProjectMembers.filter(m => m.orgId === currentUserOrgId || m.memberType === 'external')
-        : propsProjectMembers;
-      setProjectMembers(filteredMembers);
-
-      if (!hasLocalStageChanges) {
-        setStages(propsStages);
+      // 編集モードはプロジェクトIDが変わった時だけ反映（入力中の巻き戻り防止）
+      if (project.id && project.id !== lastAppliedProjectId.current) {
+        setFormData(project);
+        lastAppliedProjectId.current = project.id;
       }
     } else {
+      lastAppliedProjectId.current = undefined;
       setFormData({
         id: '',
         物件名: '',
@@ -257,7 +282,15 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       setActivityLogs([]);
       setStages([]);
     }
-  }, [project, propsProjectMembers, propsStages, mode, hasLocalStageChanges, currentUserOrgId]);
+  }, [project, mode]);
+
+  useEffect(() => {
+    if (!project) return;
+    setProjectMembers(propsProjectMembers);
+    if (!hasLocalStageChanges) {
+      setStages(propsStages);
+    }
+  }, [project?.id, propsProjectMembers, propsStages, hasLocalStageChanges]);
 
   const projectId = project?.id;
 
@@ -630,8 +663,35 @@ const loadCollaborators = async (force = false): Promise<void> => {
       return;
     }
 
+    const previousMembers = projectMembers;
+    let optimisticApplied = false;
+
     try {
       setSubmitting(true);
+      const nowIso = new Date().toISOString();
+      const tempUserId = `temp-${Date.now()}`;
+      const optimisticMember: ProjectMember = {
+        id: `${project.id}_${tempUserId}`,
+        projectId: project.id,
+        userId: tempUserId,
+        email: memberInput.email ?? '',
+        displayName: memberInput.displayName ?? memberInput.email ?? '招待中',
+        orgId: currentUserOrgId ?? '',
+        orgName: '',
+        role: memberInput.role,
+        jobTitle: memberInput.jobTitle || undefined,
+        permissions: DEFAULT_MEMBER_PERMISSIONS,
+        invitedBy: '',
+        invitedAt: nowIso,
+        status: 'invited',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      const optimisticMembers = [...previousMembers, optimisticMember];
+      optimisticApplied = true;
+      setProjectMembers(optimisticMembers);
+      broadcastMemberUpdate(project.id, optimisticMembers);
+
       await submitMemberInvite(project.id, memberInput);
       const successMessage = memberInput.displayName && !memberInput.email
         ? '協力者をメンバーとして追加しました'
@@ -641,6 +701,10 @@ const loadCollaborators = async (force = false): Promise<void> => {
       resetInviteForm();
     } catch (err: any) {
       console.error('Error inviting member:', err);
+      if (optimisticApplied && project?.id) {
+        setProjectMembers(previousMembers);
+        broadcastMemberUpdate(project.id, previousMembers);
+      }
       setError(err instanceof Error ? err.message : 'メンバーの追加に失敗しました');
     } finally {
       setSubmitting(false);
@@ -849,10 +913,10 @@ const loadCollaborators = async (force = false): Promise<void> => {
     const member = projectMembers.find((m) => m.displayName === newTaskAssignee);
     if (member) {
       setNewTaskAssigneeEmail(member.email);
-    } else {
-      const person = people.find((p) => p.氏名 === newTaskAssignee);
-      setNewTaskAssigneeEmail(person?.メール ?? '');
+      return;
     }
+    const person = people.find((p) => p.氏名 === newTaskAssignee);
+    setNewTaskAssigneeEmail(person?.メール ?? '');
   }, [newTaskAssignee, projectMembers, people]);
 
   // マイルストーン用の日付変更ハンドラ
@@ -1453,7 +1517,8 @@ const loadCollaborators = async (force = false): Promise<void> => {
                         <select
                           value={newTaskStageId}
                           onChange={(e) => setNewTaskStageId(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400 bg-slate-50 cursor-not-allowed"
+                          disabled
                         >
                           <option value="">未割り当て</option>
                           {stages.map((stage) => (
@@ -1474,13 +1539,13 @@ const loadCollaborators = async (force = false): Promise<void> => {
                         className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       >
                         <option value="">未割り当て</option>
-                        {projectMembers.map((member) => (
-                          <option key={member.userId} value={member.displayName}>
-                            {member.displayName} ({member.role})
+                        {assigneeOptions.map((option) => (
+                          <option key={option.key} value={option.value}>
+                            {option.label}
                           </option>
                         ))}
                       </select>
-                      {projectMembers.length === 0 && (
+                      {assigneeOptions.length === 0 && (
                         <p className="mt-1 text-xs text-amber-600">
                           プロジェクトにメンバーを追加すると、担当者として選択できるようになります
                         </p>

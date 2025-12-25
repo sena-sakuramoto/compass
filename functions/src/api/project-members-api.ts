@@ -84,24 +84,11 @@ router.get('/projects/:projectId/members', authenticate, async (req: any, res) =
       orgId,
     });
 
-    // super_admin（システム管理者）はプロジェクトの担当者リスト等に表示しない
-    // ただし、プロジェクトの組織のsuper_adminは表示する
-    const superAdmins = await listUsers({ role: 'super_admin', isActive: true });
-    const superAdminIdsFromOtherOrgs = new Set(
-      superAdmins
-        .filter(admin => admin.orgId !== projectOrgId) // プロジェクトの組織以外のsuper_adminのみ
-        .map(admin => admin.id)
-    );
-    const filteredMembers = members.filter((member) => {
-      if (!member.userId) return true;
-      return !superAdminIdsFromOtherOrgs.has(member.userId);
-    });
-
     void syncProjectMemberSummary(projectOrgId, projectId).catch((err) => {
       console.warn('[ProjectMembers] Failed to sync member summary:', err);
     });
 
-    res.json(filteredMembers);
+    res.json(members);
   } catch (error) {
     console.error('Error listing project members:', error);
     res.status(500).json({ error: 'Internal server error' });

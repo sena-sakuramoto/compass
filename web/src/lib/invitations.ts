@@ -1,7 +1,9 @@
 // プロジェクト招待API クライアント
 import { buildAuthHeaders } from './api';
 
-const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
+import { resolveApiBase } from './apiBase';
+
+const BASE_URL = resolveApiBase();
 
 function getIdToken() {
   return localStorage.getItem('apdw_id_token') ?? undefined;

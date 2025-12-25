@@ -122,9 +122,12 @@ export function TaskCard({
 }
 
 export function computeProgress(progress?: number, status?: string) {
+  const statusProgress = status ? STATUS_PROGRESS[status] : undefined;
+  if (statusProgress === 1) return 1;
   if (typeof progress === 'number' && !Number.isNaN(progress)) {
-    return Math.min(1, Math.max(0, progress));
+    const normalized = progress > 1 && progress <= 100 ? progress / 100 : progress;
+    return Math.min(1, Math.max(0, normalized));
   }
   if (!status) return 0;
-  return STATUS_PROGRESS[status] ?? 0;
+  return statusProgress ?? 0;
 }

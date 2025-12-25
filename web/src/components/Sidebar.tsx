@@ -30,6 +30,7 @@ interface SidebarProps {
   user?: User | null;
   onSignOut?: () => void;
   loading?: boolean;
+  panel?: React.ReactNode;
 }
 
 const iconMap = {
@@ -42,7 +43,7 @@ const iconMap = {
   HelpCircle,
 };
 
-export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, loading = false }: SidebarProps) {
+export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, loading = false, panel }: SidebarProps) {
   const location = useLocation();
   const [isConfigMode, setIsConfigMode] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => {
@@ -181,27 +182,34 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, 
                 })}
               </div>
             ) : (
-              <div className="space-y-1">
-                {visibleItems.map((item) => {
-                  const Icon = iconMap[item.icon as keyof typeof iconMap] || Home;
-                  return (
-                    <NavLink
-                      key={item.id}
-                      to={item.path}
-                      className={({ isActive }) =>
-                        `group flex items-center gap-3 rounded-lg px-3 py-2 transition ${
-                          isActive
-                            ? 'bg-slate-900 text-white shadow-sm'
-                            : 'text-slate-700 hover:bg-slate-100'
-                        }`
-                      }
-                    >
-                      <Icon size={18} />
-                      <span className="text-sm font-medium">{item.label}</span>
-                      <ChevronRight size={16} className="ml-auto text-current/40 opacity-0 transition group-hover:opacity-100" />
-                    </NavLink>
-                  );
-                })}
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  {visibleItems.map((item) => {
+                    const Icon = iconMap[item.icon as keyof typeof iconMap] || Home;
+                    return (
+                      <NavLink
+                        key={item.id}
+                        to={item.path}
+                        className={({ isActive }) =>
+                          `group flex items-center gap-3 rounded-lg px-3 py-2 transition ${
+                            isActive
+                              ? 'bg-slate-900 text-white shadow-sm'
+                              : 'text-slate-700 hover:bg-slate-100'
+                          }`
+                        }
+                      >
+                        <Icon size={18} />
+                        <span className="text-sm font-medium">{item.label}</span>
+                        <ChevronRight size={16} className="ml-auto text-current/40 opacity-0 transition group-hover:opacity-100" />
+                      </NavLink>
+                    );
+                  })}
+                </div>
+                {panel ? (
+                  <div className="border-t border-slate-200 pt-4">
+                    {panel}
+                  </div>
+                ) : null}
               </div>
             )}
           </nav>

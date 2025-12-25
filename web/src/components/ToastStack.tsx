@@ -49,7 +49,7 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
   if (!toasts.length) return null;
 
   const toastContainer = (
-    <div className="pointer-events-none fixed top-4 right-4 z-[9999] flex max-w-xs flex-col gap-3 sm:max-w-sm" style={{ position: 'fixed' }}>
+    <div className="no-print toast-stack pointer-events-none fixed top-4 right-4 z-[9999] flex max-w-xs flex-col gap-3 sm:max-w-sm" style={{ position: 'fixed' }}>
       {toasts.map((toast) => {
         const tone = toneClasses(toast.tone);
         return (

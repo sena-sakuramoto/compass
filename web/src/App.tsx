@@ -55,9 +55,10 @@ import type { BillingAccessInfo } from './lib/api';
 import { Filters } from './components/Filters';
 import { ProjectCard } from './components/ProjectCard';
 import { TaskCard, computeProgress } from './components/TaskCard';
-import { TaskTable, TaskTableRow } from './components/TaskTable';
+import { TaskTable, TaskTableRow, TaskTableSortDirection, TaskTableSortKey } from './components/TaskTable';
 import { GanttDatum } from './components/GanttChart';
 import { GanttChart as NewGanttChart, GanttTask } from './components/GanttChart/GanttChart';
+import GanttPrintView from './components/GanttChart/GanttPrintView';
 import { WorkerMonitor } from './components/WorkerMonitor';
 import { Sidebar } from './components/Sidebar';
 import { ToastStack, ToastMessage } from './components/ToastStack';
@@ -74,8 +75,10 @@ import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from '.
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage } from './lib/types';
 import type { ProjectMember } from './lib/auth-types';
+import { PROJECT_ROLE_LABELS } from './lib/auth-types';
 import { isArchivedProjectStatus, isClosedProjectStatus, STATUS_PROGRESS } from './lib/constants';
 import { clampToSingleDecimal, parseHoursInput } from './lib/number';
+import { getCachedIdToken } from './lib/authToken';
 import {
   format,
   startOfWeek,
@@ -87,6 +90,9 @@ import {
   subWeeks,
   subMonths,
   subYears,
+  addWeeks,
+  addMonths,
+  addYears,
   eachDayOfInterval,
   eachWeekOfInterval,
   eachMonthOfInterval,
@@ -113,6 +119,7 @@ import {
   Line as WorkloadLine,
 } from 'recharts';
 import { useFirebaseAuth } from './lib/firebaseClient';
+import { useJapaneseHolidaySet } from './lib/japaneseHolidays';
 import type { User } from 'firebase/auth';
 import { usePendingOverlay, applyPendingToTasks } from './state/pendingOverlay';
 
@@ -260,7 +267,9 @@ function AppLayout({
   onImportSnapshot,
   onImportExcel,
   onNotify,
+  actionPanel,
   loading,
+  sidebarPanel,
 }: {
   children: React.ReactNode;
   onOpenTask(): void;
@@ -279,7 +288,9 @@ function AppLayout({
   onImportSnapshot(payload: SnapshotPayload): Promise<void>;
   onImportExcel(file: File): Promise<void>;
   onNotify(message: ToastInput): void;
+  actionPanel?: React.ReactNode;
   loading?: boolean;
+  sidebarPanel?: React.ReactNode;
 }) {
   const navLinks = [
     { path: '/', label: '工程表' },
@@ -291,10 +302,22 @@ function AppLayout({
   const offline = !authSupported || !user;
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50">
-      <Sidebar user={user} onSignOut={onSignOut} loading={loading} />
-      <div className="flex-1 flex flex-col lg:pl-56 min-h-0">
-        <header className="flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
+    <div className="app-root h-screen flex flex-col bg-slate-50">
+      <div className="no-print">
+        <Sidebar
+          user={user}
+          onSignOut={onSignOut}
+          loading={loading}
+          panel={
+            <>
+              {actionPanel}
+              {sidebarPanel}
+            </>
+          }
+        />
+      </div>
+      <div className="app-content flex-1 flex flex-col lg:pl-56 min-h-0">
+        <header className="no-print flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
           <div className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-1 lg:px-6">
             <div className="flex items-center justify-between gap-1">
               {/* モバイル：ハンバーガーメニュー用のスペース + タイトル */}
@@ -482,7 +505,6 @@ function HeaderActions({
       const parsed = JSON.parse(await file.text()) as SnapshotPayload;
       await onImportSnapshot(parsed);
       onNotify({ tone: 'success', title: 'JSONを読み込みました' });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error(error);
       onNotify({ tone: 'error', title: 'JSON読み込みに失敗しました' });
@@ -504,7 +526,6 @@ function HeaderActions({
       setBusy(true);
       await onImportExcel(file);
       onNotify({ tone: 'success', title: 'Excelを読み込みました' });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
     } catch (error) {
       console.error(error);
       onNotify({ tone: 'error', title: 'Excel読み込みに失敗しました' });
@@ -951,11 +972,11 @@ function TaskModal({
     const member = projectMembers.find((m) => m.displayName === assignee);
     if (member) {
       setAssigneeEmail(member.email);
-    } else {
-      // フォールバック: peopleから検索（後方互換性のため）
-      const person = people.find((p) => p.氏名 === assignee);
-      setAssigneeEmail(person?.メール ?? '');
+      return;
     }
+    // フォールバック: peopleから検索（後方互換性のため）
+    const person = people.find((p) => p.氏名 === assignee);
+    setAssigneeEmail(person?.メール ?? '');
   }, [assignee, projectMembers, people]);
 
   useEffect(() => {
@@ -1064,6 +1085,11 @@ function TaskModal({
         '通知設定'?: TaskNotificationSettings;
       };
 
+      const shouldClose = editingTask || !(allowContinuous && intent === 'continue');
+      if (shouldClose) {
+        onOpenChange(false);
+      }
+
       if (editingTask && onUpdate) {
         console.log('[TaskModal] Updating task with payload:', payload);
         await onUpdate(editingTask.id, payload);
@@ -1076,29 +1102,42 @@ function TaskModal({
         taskNameInputRef.current?.focus();
         return;
       }
-      onOpenChange(false);
     } catch (err) {
       console.error(err);
       onNotify?.({ tone: 'error', title: editingTask ? 'タスクの更新に失敗しました' : 'タスクの追加に失敗しました' });
     }
   };
 
-  const assigneeOptions = projectMembers.map((member) => ({
-    key: member.userId || member.displayName,
-    value: member.displayName,
-    label: `${member.displayName} (${member.role})`,
-  }));
-  if (assignee && !projectMembers.some((member) => member.displayName === assignee)) {
-    assigneeOptions.unshift({
-      key: `current-${assignee}`,
-      value: assignee,
-      label: `${assignee} (現在の担当者)`,
-    });
-  }
+  const assignableMembers = useMemo(
+    () => projectMembers.filter((member) => member.status === 'active'),
+    [projectMembers]
+  );
+
+  const assigneeOptions = assignableMembers.map((member) => {
+    const roleLabel = PROJECT_ROLE_LABELS[member.role] ?? member.role;
+    return {
+      key: member.userId || member.displayName,
+      value: member.displayName,
+      label: `${member.displayName} (${roleLabel})`,
+    };
+  });
+
+  const handleFormKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== 'Enter') return;
+    const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number };
+    if (nativeEvent.isComposing || nativeEvent.keyCode === 229) {
+      e.preventDefault();
+      return;
+    }
+    const target = e.target as HTMLElement;
+    if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) {
+      e.preventDefault();
+    }
+  };
 
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={editingTask ? "タスク編集" : "タスク追加"}>
-      <form className="space-y-3" onSubmit={handleSubmit}>
+      <form className="space-y-3" onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs text-slate-500">プロジェクト</label>
@@ -1126,7 +1165,7 @@ function TaskModal({
               <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
                 メンバー読み込み中...
               </div>
-            ) : projectMembers.length > 0 ? (
+            ) : assigneeOptions.length > 0 ? (
               <select
                 className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
                 value={assignee}
@@ -1140,13 +1179,18 @@ function TaskModal({
                 ))}
               </select>
             ) : (
-              <input
-                type="text"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
-                placeholder="メンバーが見つかりません - 直接入力してください"
-              />
+              <div>
+                <select
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-400 bg-slate-50"
+                  value=""
+                  disabled
+                >
+                  <option value="">担当者候補がありません</option>
+                </select>
+                <p className="mt-1 text-xs text-amber-600">
+                  プロジェクトにメンバーを追加すると、担当者として選択できます
+                </p>
+              </div>
             )}
           </div>
         </div>
@@ -1163,9 +1207,10 @@ function TaskModal({
         <div>
           <label className="mb-1 block text-xs text-slate-500">工程</label>
           <select
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-400 bg-slate-50 cursor-not-allowed"
             value={stageId}
             onChange={(e) => setStageId(e.target.value)}
+            disabled
           >
             <option value="">未割り当て</option>
             {stages.map((stage) => (
@@ -1890,41 +1935,6 @@ function DashboardPage({
     [filteredTasks.length, openTaskCount, overdueCount, averageProgress, totalConstructionCost, projects.length, filtersProps.hasActiveFilters, filtersProps.assignees.length]
   );
 
-  const activeFilterChips = useMemo(() => {
-    const chips: string[] = [];
-    const projectArray = Array.isArray(filtersProps.project) ? filtersProps.project : [];
-    const assigneeArray = Array.isArray(filtersProps.assignee) ? filtersProps.assignee : [];
-    const statusArray = Array.isArray(filtersProps.status) ? filtersProps.status : [];
-
-    if (projectArray.length > 0) {
-      if (projectArray.length === 1) {
-        const label = filtersProps.projects.find((option) => option.value === projectArray[0])?.label;
-        if (label) chips.push(`プロジェクト: ${label}`);
-      } else {
-        chips.push(`プロジェクト: ${projectArray.length}件選択`);
-      }
-    }
-    if (assigneeArray.length > 0) {
-      if (assigneeArray.length === 1) {
-        const label = filtersProps.assignees.find((option) => option.value === assigneeArray[0])?.label;
-        if (label) chips.push(`担当: ${label}`);
-      } else {
-        chips.push(`担当: ${assigneeArray.length}件選択`);
-      }
-    }
-    if (statusArray.length > 0) {
-      if (statusArray.length === 1) {
-        chips.push(`ステータス: ${statusArray[0]}`);
-      } else {
-        chips.push(`ステータス: ${statusArray.length}件選択`);
-      }
-    }
-    if ((filtersProps.query ?? '').trim()) {
-      chips.push(`検索: "${filtersProps.query.trim()}"`);
-    }
-    return chips;
-  }, [filtersProps]);
-
   const sortOptions: { value: ProjectSortKey; label: string }[] = [
     { value: 'due', label: '期限が近い順' },
     { value: 'progress', label: '進捗が低い順' },
@@ -1970,13 +1980,12 @@ function DashboardPage({
       </section>
 
       <section className="space-y-4">
-        <Filters {...filtersProps} />
         <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:flex-row sm:items-center sm:justify-between">
           <span>
             {archivedProjectsCount > 0
               ? showArchivedProjects
-                ? `${archivedProjectsCount}件の失注/引渡し済みプロジェクトを表示中です`
-                : `${archivedProjectsCount}件の失注/引渡し済みプロジェクトを非表示にしています`
+                ? `${archivedProjectsCount}件の完了/失注/引渡し済みプロジェクトを表示中です`
+                : `${archivedProjectsCount}件の完了/失注/引渡し済みプロジェクトを非表示にしています`
               : '失注/引渡し済みのプロジェクトはありません'}
           </span>
           <button
@@ -2003,36 +2012,8 @@ function DashboardPage({
               ))}
             </select>
           </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 md:flex"
-              onClick={onOpenTask}
-              disabled={!canEdit}
-              title={!canEdit ? '現在は変更できません' : undefined}
-            >
-              <Plus className="h-4 w-4" /> タスク追加
-            </button>
-            <button
-              type="button"
-              className="hidden items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 md:flex"
-              onClick={onOpenProject}
-              disabled={!canEdit}
-              title={!canEdit ? '現在は変更できません' : undefined}
-            >
-              <Plus className="h-4 w-4" /> プロジェクト追加
-            </button>
-          </div>
+          <div className="hidden md:block" />
         </div>
-        {activeFilterChips.length ? (
-          <div className="flex flex-wrap gap-2 text-xs text-slate-600">
-            {activeFilterChips.map((chip) => (
-              <span key={chip} className="rounded-full bg-slate-100 px-2 py-1">
-                {chip}
-              </span>
-            ))}
-          </div>
-        ) : null}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
           {projects.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
@@ -2171,7 +2152,6 @@ interface ProjectWithDerived extends Project {
 }
 
 function TasksPage({
-  filtersProps,
   filteredTasks,
   projectMap,
   people,
@@ -2187,7 +2167,6 @@ function TasksPage({
   canEdit,
   canSync,
 }: {
-  filtersProps: FiltersProps;
   filteredTasks: Task[];
   projectMap: Record<string, Project>;
   people: Person[];
@@ -2205,7 +2184,8 @@ function TasksPage({
 }) {
   const [seedBusyIds, setSeedBusyIds] = useState<Set<string>>(new Set());
   const [calendarBusyIds, setCalendarBusyIds] = useState<Set<string>>(new Set());
-  const [sortKey, setSortKey] = useState<'name' | 'project' | 'assignee' | 'schedule' | 'status'>('status');
+  const [sortKey, setSortKey] = useState<TaskTableSortKey>('status');
+  const [sortDirection, setSortDirection] = useState<TaskTableSortDirection>('asc');
 
   const runWithBusy = useCallback(
     async (
@@ -2282,24 +2262,58 @@ function TasksPage({
   // ソート処理
   const sortedRows = useMemo(() => {
     const sorted = [...rows];
+    const direction = sortDirection === 'asc' ? 1 : -1;
+    const statusOrder = { '未着手': 0, '進行中': 1, '完了': 2 };
+    const priorityOrder = { '高': 0, '中': 1, '低': 2 };
+
+    const compareStrings = (aValue: string, bValue: string) => aValue.localeCompare(bValue, 'ja') * direction;
+    const compareNumbers = (aValue: number, bValue: number) => (aValue - bValue) * direction;
+    const parseEffort = (value: string) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : Number.POSITIVE_INFINITY;
+    };
+    const parseScheduleDate = (row: TaskTableRow) => {
+      const date = parseDate(row.scheduleEnd ?? row.scheduleStart ?? null);
+      return date ? date.getTime() : Number.POSITIVE_INFINITY;
+    };
+
     sorted.sort((a, b) => {
       switch (sortKey) {
+        case 'completed': {
+          const aDone = a.status === '完了' ? 1 : 0;
+          const bDone = b.status === '完了' ? 1 : 0;
+          return compareNumbers(aDone, bDone);
+        }
         case 'name':
-          return a.name.localeCompare(b.name);
+          return compareStrings(a.name, b.name);
         case 'project':
-          return a.projectLabel.localeCompare(b.projectLabel);
+          return compareStrings(a.projectLabel, b.projectLabel);
         case 'assignee':
-          return a.assignee.localeCompare(b.assignee);
+          return compareStrings(a.assignee, b.assignee);
         case 'schedule':
-          return a.schedule.localeCompare(b.schedule);
+          return compareNumbers(parseScheduleDate(a), parseScheduleDate(b));
+        case 'effort':
+          return compareNumbers(parseEffort(a.effort), parseEffort(b.effort));
+        case 'progress': {
+          const aProgress = computeProgress(a.progress, a.status);
+          const bProgress = computeProgress(b.progress, b.status);
+          return compareNumbers(aProgress, bProgress);
+        }
+        case 'priority':
+          return compareNumbers(
+            priorityOrder[a.priority as keyof typeof priorityOrder] ?? 3,
+            priorityOrder[b.priority as keyof typeof priorityOrder] ?? 3
+          );
         case 'status':
         default:
-          const statusOrder = { '未着手': 0, '進行中': 1, '完了': 2 };
-          return (statusOrder[a.status as keyof typeof statusOrder] ?? 3) - (statusOrder[b.status as keyof typeof statusOrder] ?? 3);
+          return compareNumbers(
+            statusOrder[a.status as keyof typeof statusOrder] ?? 3,
+            statusOrder[b.status as keyof typeof statusOrder] ?? 3
+          );
       }
     });
     return sorted;
-  }, [rows, sortKey]);
+  }, [rows, sortKey, sortDirection]);
 
   return (
     <div className="space-y-4">
@@ -2310,11 +2324,10 @@ function TasksPage({
         </div>
       ) : null}
       <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
-        <Filters {...filtersProps} />
         <div className="flex items-center gap-2">
           <select
             value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
+            onChange={(e) => setSortKey(e.target.value as TaskTableSortKey)}
             className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700"
           >
             <option value="status">並替: ステータス</option>
@@ -2322,25 +2335,12 @@ function TasksPage({
             <option value="project">並替: プロジェクト</option>
             <option value="assignee">並替: 担当者</option>
             <option value="schedule">並替: 期限</option>
+            <option value="effort">並替: 工数</option>
+            <option value="progress">並替: 進捗</option>
+            <option value="priority">並替: 優先度</option>
+            <option value="completed">並替: 完了</option>
           </select>
-          <div className="hidden gap-2 md:flex">
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={onOpenTask}
-              disabled={!canEdit}
-            >
-              <Plus className="h-4 w-4" /> タスク追加
-            </button>
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={onOpenProject}
-              disabled={!canEdit}
-            >
-              <Plus className="h-4 w-4" /> プロジェクト追加
-            </button>
-          </div>
+          <div className="hidden md:block" />
         </div>
       </div>
       <div className="grid gap-3 md:hidden">
@@ -2370,6 +2370,12 @@ function TasksPage({
       <div className="hidden md:block">
         <TaskTable
           rows={sortedRows}
+          sortKey={sortKey}
+          sortDirection={sortDirection}
+          onSortChange={(key, direction) => {
+            setSortKey(key);
+            setSortDirection(direction);
+          }}
           onToggle={(id, checked) => {
             const task = filteredTasks.find((t) => t.id === id);
             if (task) onComplete(task, checked);
@@ -2389,7 +2395,6 @@ function TasksPage({
 }
 
 function SchedulePage({
-  filtersProps,
   filteredTasks,
   filteredTasksWithStages,
   projectMap,
@@ -2412,8 +2417,22 @@ function SchedulePage({
   stageProgressMap,
   onRequestPeople,
   onRequestProjectMembers,
+  projectFilter,
+  printPanelOpen,
+  printProjectIds,
+  printPaperSize,
+  printRangeMode,
+  printProjectOptions,
+  openPrintPanel,
+  togglePrintProject,
+  handlePrintSubmit,
+  setPrintPanelOpen,
+  setPrintProjectIds,
+  setPrintPaperSize,
+  setPrintRangeMode,
+  holidaySet,
+  user,
 }: {
-  filtersProps: FiltersProps;
   filteredTasks: Task[];
   filteredTasksWithStages: Task[];
   projectMap: Record<string, Project>;
@@ -2436,6 +2455,21 @@ function SchedulePage({
   stageProgressMap: Record<string, number>;
   onRequestPeople?: () => void;
   onRequestProjectMembers?: (projectId: string) => void;
+  projectFilter: string[];
+  printPanelOpen: boolean;
+  printProjectIds: string[];
+  printPaperSize: 'a3' | 'a4';
+  printRangeMode: 'tasks' | 'construction';
+  printProjectOptions: { id: string; name: string }[];
+  openPrintPanel: () => void;
+  togglePrintProject: (id: string) => void;
+  handlePrintSubmit: () => void;
+  setPrintPanelOpen: (open: boolean) => void;
+  setPrintProjectIds: (ids: string[] | ((prev: string[]) => string[])) => void;
+  setPrintPaperSize: (size: 'a3' | 'a4') => void;
+  setPrintRangeMode: (mode: 'tasks' | 'construction') => void;
+  holidaySet: any;
+  user: User | null;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const today = new Date();
@@ -2472,41 +2506,6 @@ function SchedulePage({
   }, [filteredTasks, today]);
 
 
-  const activeFilterChips = useMemo(() => {
-    const chips: string[] = [];
-    const projectArray = Array.isArray(filtersProps.project) ? filtersProps.project : [];
-    const assigneeArray = Array.isArray(filtersProps.assignee) ? filtersProps.assignee : [];
-    const statusArray = Array.isArray(filtersProps.status) ? filtersProps.status : [];
-
-    if (projectArray.length > 0) {
-      if (projectArray.length === 1) {
-        const label = filtersProps.projects.find((option) => option.value === projectArray[0])?.label;
-        if (label) chips.push(`プロジェクト: ${label}`);
-      } else {
-        chips.push(`プロジェクト: ${projectArray.length}件選択`);
-      }
-    }
-    if (assigneeArray.length > 0) {
-      if (assigneeArray.length === 1) {
-        const label = filtersProps.assignees.find((option) => option.value === assigneeArray[0])?.label;
-        if (label) chips.push(`担当: ${label}`);
-      } else {
-        chips.push(`担当: ${assigneeArray.length}件選択`);
-      }
-    }
-    if (statusArray.length > 0) {
-      if (statusArray.length === 1) {
-        chips.push(`ステータス: ${statusArray[0]}`);
-      } else {
-        chips.push(`ステータス: ${statusArray.length}件選択`);
-      }
-    }
-    if ((filtersProps.query ?? '').trim()) {
-      chips.push(`検索: "${filtersProps.query.trim()}"`);
-    }
-    return chips;
-  }, [filtersProps]);
-
   // 新しいGanttChartのためのデータ変換
   const newGanttTasks = useMemo((): GanttTask[] => {
     const clampPct = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
@@ -2514,10 +2513,7 @@ function SchedulePage({
       if (task.type === 'stage') {
         return stageProgressMap[task.id] ?? 0;
       }
-      const ratio =
-        typeof task.progress === 'number' && Number.isFinite(task.progress)
-          ? task.progress
-          : STATUS_PROGRESS[task.ステータス] ?? 0;
+      const ratio = computeProgress(task.progress, task.ステータス);
       return clampPct(ratio * 100);
     };
 
@@ -3001,9 +2997,10 @@ function SchedulePage({
   */
 
   return (
-    <div className="h-full flex flex-col gap-0 min-h-0 -mx-4 -my-6 md:-my-8 lg:-mx-8">
+    <>
+      <div className="no-print h-full flex flex-col gap-0 min-h-0 -mx-4 lg:-mx-8">
       {/* ヘッダー & フィルター */}
-      <section className="sticky top-0 z-20 border-b border-slate-200 bg-white px-3 py-1.5 shadow-sm sm:px-4 lg:px-6 flex-shrink-0">
+      <section className="sticky top-0 z-[45] border-b border-slate-200 bg-white px-3 py-1.5 shadow-sm sm:px-4 lg:px-6 flex-shrink-0">
         <div className="flex flex-col gap-1.5">
           <div className="flex flex-wrap items-start gap-1.5">
             <div className="min-w-[160px]">
@@ -3024,46 +3021,17 @@ function SchedulePage({
                 <span>表示中 {newGanttTasks.length} アイテム</span>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 ml-auto">
+            <div className="ml-auto flex items-center gap-2">
               <button
                 type="button"
-                onClick={onOpenTask}
-                disabled={!canEdit}
-                className="rounded-md border border-emerald-600 px-2.5 py-0.5 text-[10px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-                title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+                onClick={openPrintPanel}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
               >
-                タスク追加
-              </button>
-              <button
-                type="button"
-                onClick={onOpenProject}
-                disabled={!canEdit}
-                className="rounded-md border border-slate-300 px-2.5 py-0.5 text-[10px] font-semibold text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
-                title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
-              >
-                プロジェクト追加
+                PDF出力
               </button>
             </div>
           </div>
 
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-[9px] uppercase tracking-wide text-slate-500">
-              <span>フィルターと検索</span>
-              <span className="text-slate-400">{filteredTasks.length} 件が条件に一致</span>
-            </div>
-            <div className="flex flex-col gap-1">
-              <Filters {...filtersProps} resultCount={filteredTasks.length} compact />
-              {activeFilterChips.length > 0 && (
-                <div className="flex flex-wrap gap-1 text-[9px] text-slate-600">
-                  {activeFilterChips.map((chip) => (
-                    <span key={chip} className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-1.5 py-0.25">
-                      {chip}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
       </section>
 
@@ -3089,6 +3057,7 @@ function SchedulePage({
             allProjectMembers={allProjectMembers}
             onRequestPeople={onRequestPeople}
             onRequestProjectMembers={onRequestProjectMembers}
+            showMilestonesWithoutTasks={projectFilter.length === 0}
             onTaskClick={(task) => {
               // タスククリックで編集モーダルを開く
               // Gantt内のモーダルが開くので、ここでは何もしない
@@ -3222,6 +3191,135 @@ function SchedulePage({
         />
       </section>
     </div>
+
+      {printPanelOpen && (
+        <div className="no-print fixed inset-0 z-[1600] flex items-center justify-center bg-slate-900/40 px-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">工程表PDFの出力</h2>
+                <p className="text-xs text-slate-500">出力したいプロジェクトを選択してください。</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrintPanelOpen(false)}
+                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                閉じる
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+              <span>複数選択可・1件のみの出力もOKです</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-1 text-[11px] text-slate-600">
+                  <input
+                    type="radio"
+                    name="print-paper-size"
+                    value="a3"
+                    checked={printPaperSize === 'a3'}
+                    onChange={() => setPrintPaperSize('a3')}
+                  />
+                  A3横
+                </label>
+                <label className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-1 text-[11px] text-slate-600">
+                  <input
+                    type="radio"
+                    name="print-paper-size"
+                    value="a4"
+                    checked={printPaperSize === 'a4'}
+                    onChange={() => setPrintPaperSize('a4')}
+                  />
+                  A4横
+                </label>
+                <label className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-1 text-[11px] text-slate-600">
+                  <input
+                    type="radio"
+                    name="print-range-mode"
+                    value="tasks"
+                    checked={printRangeMode === 'tasks'}
+                    onChange={() => setPrintRangeMode('tasks')}
+                  />
+                  タスク範囲優先
+                </label>
+                <label className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2 py-1 text-[11px] text-slate-600">
+                  <input
+                    type="radio"
+                    name="print-range-mode"
+                    value="construction"
+                    checked={printRangeMode === 'construction'}
+                    onChange={() => setPrintRangeMode('construction')}
+                  />
+                  工期優先
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setPrintProjectIds(printProjectOptions.map((option) => option.id))}
+                  className="rounded-full border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
+                >
+                  全選択
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintProjectIds([])}
+                  className="rounded-full border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
+                >
+                  全解除
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 max-h-64 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
+              {printProjectOptions.length === 0 ? (
+                <div className="text-sm text-slate-500">出力できるプロジェクトがありません。</div>
+              ) : (
+                printProjectOptions.map((option) => (
+                  <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={printProjectIds.includes(option.id)}
+                      onChange={() => togglePrintProject(option.id)}
+                      className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                    />
+                    <span>{option.name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPrintPanelOpen(false)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={handlePrintSubmit}
+                disabled={printProjectIds.length === 0}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                PDF出力
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="print-only">
+        <GanttPrintView
+          tasks={newGanttTasks}
+          projectIds={printProjectIds}
+          viewMode="week"
+          holidaySet={holidaySet}
+          generatedBy={user?.displayName || user?.email || null}
+          projectMeta={projectMap}
+          rangeMode={printRangeMode}
+        />
+      </div>
+    </>
   );
 }
 
@@ -3375,9 +3473,12 @@ interface DateRange {
   end: Date;
 }
 
-function WorkloadPage({ filtersProps, tasks, projects }: { filtersProps: FiltersProps; tasks: Task[]; projects: Project[] }) {
+function WorkloadPage({ tasks, projects, people }: { tasks: Task[]; projects: Project[]; people: Person[] }) {
   const [timeScale, setTimeScale] = useState<WorkloadScale>('week');
-  const referenceDate = useMemo(() => new Date(), []);
+  const [workloadSortKey, setWorkloadSortKey] = useState<'hours' | 'tasks' | 'capacity' | 'utilization' | 'overload' | 'assignee'>('hours');
+  const [workloadSortDirection, setWorkloadSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [referenceDate, setReferenceDate] = useState<Date>(new Date());
+  const [selectedAssignee, setSelectedAssignee] = useState<string>('');
 
   const currentRange = useMemo(() => getPeriodRange(timeScale, referenceDate), [timeScale, referenceDate]);
   const previousRange = useMemo(() => getPreviousRange(currentRange, timeScale), [currentRange, timeScale]);
@@ -3393,7 +3494,15 @@ function WorkloadPage({ filtersProps, tasks, projects }: { filtersProps: Filters
   );
   const totalTasks = tasksInRange.length;
   const previousTasks = tasksInPrevRange.length;
-  const activeMembers = workload.length;
+  const activeAssignees = useMemo(() => {
+    const names = new Set<string>();
+    tasksInRange.forEach((task) => {
+      const name = (task.assignee ?? task.担当者 ?? '').trim();
+      if (name) names.add(name);
+    });
+    return names;
+  }, [tasksInRange]);
+  const activeMembers = activeAssignees.size;
   const avgHoursPerPerson = activeMembers ? totalHours / activeMembers : 0;
 
   const revenueSpans = useMemo(() => buildProjectRevenueSpans(projects), [projects]);
@@ -3444,28 +3553,210 @@ function WorkloadPage({ filtersProps, tasks, projects }: { filtersProps: Filters
     },
   ];
 
+  const activeDaysByAssignee = useMemo(
+    () => buildActiveDaysByAssignee(tasksInRange, currentRange),
+    [tasksInRange, currentRange]
+  );
+  const personDailyHours = useMemo(() => {
+    const map = new Map<string, number>();
+    people.forEach((person) => {
+      const name = person.氏名?.trim();
+      if (!name) return;
+      const daily = toNumber(person['稼働時間/日(h)']);
+      map.set(name, daily || 8);
+    });
+    return map;
+  }, [people]);
+
+  const workloadRows = useMemo(() => {
+    return workload.map((entry) => {
+      const dailyHours = personDailyHours.get(entry.assignee) ?? (entry.assignee ? 8 : 0);
+      const activeDays = activeDaysByAssignee.get(entry.assignee) ?? 0;
+      const capacity = dailyHours > 0 ? dailyHours * activeDays : 0;
+      const utilization = capacity > 0 ? entry.est / capacity : null;
+      const overload = capacity > 0 ? Math.max(0, entry.est - capacity) : null;
+      return {
+        assignee: entry.assignee,
+        hours: entry.est,
+        tasks: entry.count,
+        capacity,
+        utilization,
+        overload,
+      };
+    });
+  }, [workload, personDailyHours, activeDaysByAssignee]);
+
+  const sortedWorkloadRows = useMemo(() => {
+    const copy = [...workloadRows];
+    const direction = workloadSortDirection === 'asc' ? 1 : -1;
+    const compareNumbers = (a: number, b: number) => (a - b) * direction;
+    const compareStrings = (a: string, b: string) => a.localeCompare(b, 'ja') * direction;
+    copy.sort((a, b) => {
+      switch (workloadSortKey) {
+        case 'assignee':
+          return compareStrings(a.assignee, b.assignee);
+        case 'capacity':
+          return compareNumbers(a.capacity, b.capacity);
+        case 'tasks':
+          return compareNumbers(a.tasks, b.tasks);
+        case 'utilization':
+          return compareNumbers(a.utilization ?? -1, b.utilization ?? -1);
+        case 'overload':
+          return compareNumbers(a.overload ?? 0, b.overload ?? 0);
+        case 'hours':
+        default:
+          return compareNumbers(a.hours, b.hours);
+      }
+    });
+    return copy;
+  }, [workloadRows, workloadSortKey, workloadSortDirection]);
+
+  const weeklySummary = useMemo(
+    () => buildWeeklySummary(currentRange, tasksInRange, revenueSpans),
+    [currentRange, tasksInRange, revenueSpans]
+  );
+  const monthlySummary = useMemo(
+    () => buildMonthlySummary(currentRange, tasksInRange, revenueSpans),
+    [currentRange, tasksInRange, revenueSpans]
+  );
+
+  const handleShiftRange = useCallback(
+    (direction: 'prev' | 'next') => {
+      const offset = direction === 'prev' ? -1 : 1;
+      setReferenceDate((current) => {
+        if (timeScale === 'week') return addWeeks(current, offset);
+        if (timeScale === 'month') return addMonths(current, offset);
+        return addYears(current, offset);
+      });
+    },
+    [timeScale]
+  );
+
+  const selectedAssigneeTasks = useMemo(() => {
+    if (!selectedAssignee) return [];
+    return tasksInRange.filter((task) => {
+      const assignee = (task.assignee ?? task.担当者 ?? '').trim() || '未設定';
+      return assignee === selectedAssignee;
+    });
+  }, [tasksInRange, selectedAssignee]);
+
+  const assigneeProjectBreakdown = useMemo(() => {
+    if (!selectedAssigneeTasks.length) return [];
+    const map = new Map<string, { projectId: string; projectName: string; hours: number; tasks: number }>();
+    selectedAssigneeTasks.forEach((task) => {
+      const entry = map.get(task.projectId) ?? {
+        projectId: task.projectId,
+        projectName: projects.find((project) => project.id === task.projectId)?.物件名 || task.projectId,
+        hours: 0,
+        tasks: 0,
+      };
+      entry.hours += getTaskHoursInRange(task, currentRange);
+      entry.tasks += 1;
+      map.set(task.projectId, entry);
+    });
+    return Array.from(map.values()).sort((a, b) => b.hours - a.hours);
+  }, [selectedAssigneeTasks, projects, currentRange]);
+
+  const assigneeTaskBreakdown = useMemo(() => {
+    if (!selectedAssigneeTasks.length) return [];
+    return selectedAssigneeTasks
+      .map((task) => ({
+        id: task.id,
+        name: task.タスク名 || '（無題）',
+        projectName: projects.find((project) => project.id === task.projectId)?.物件名 || task.projectId,
+        hours: getTaskHoursInRange(task, currentRange),
+        status: task.ステータス || '',
+      }))
+      .sort((a, b) => b.hours - a.hours);
+  }, [selectedAssigneeTasks, projects, currentRange]);
+
+  const utilizationTone = (value: number | null) => {
+    if (value == null) return 'bg-slate-200';
+    if (value >= 1.2) return 'bg-rose-500';
+    if (value >= 1.0) return 'bg-amber-500';
+    if (value >= 0.8) return 'bg-emerald-500';
+    return 'bg-slate-300';
+  };
+
+  const handleExportCsv = () => {
+    const lines = [
+      ['担当者', '稼働時間(h)', 'タスク数', 'キャパ(h)', '稼働率', '超過(h)'],
+      ...sortedWorkloadRows.map((row) => [
+        row.assignee || '未設定',
+        formatHours(row.hours),
+        String(row.tasks),
+        row.capacity ? formatHours(row.capacity) : '',
+        row.utilization != null ? `${Math.round(row.utilization * 100)}%` : '',
+        row.overload != null ? formatHours(row.overload) : '',
+      ]),
+    ];
+    const csv = lines.map((row) => row.map(escapeCsvValue).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    downloadCsv(blob, `workload_${formatDate(currentRange.start)}_${formatDate(currentRange.end)}.csv`);
+  };
+
   return (
     <div className="space-y-4">
-      <Filters {...filtersProps} />
       <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-wide text-slate-500">対象期間</p>
             <p className="text-lg font-semibold text-slate-900">{periodLabel}</p>
           </div>
-          <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 text-sm font-medium">
-            {(['week', 'month', 'year'] as WorkloadScale[]).map((scale) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 p-1 text-sm font-medium">
+              {(['week', 'month', 'year'] as WorkloadScale[]).map((scale) => (
+                <button
+                  key={scale}
+                  type="button"
+                  onClick={() => setTimeScale(scale)}
+                  className={`rounded-full px-3 py-1 transition ${
+                    timeScale === scale ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {scale === 'week' ? '週' : scale === 'month' ? '月' : '年'}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1">
               <button
-                key={scale}
                 type="button"
-                onClick={() => setTimeScale(scale)}
-                className={`rounded-full px-3 py-1 transition ${
-                  timeScale === scale ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
-                }`}
+                onClick={() => handleShiftRange('prev')}
+                className="rounded-full px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
               >
-                {scale === 'week' ? '週' : scale === 'month' ? '月' : '年'}
+                前
               </button>
-            ))}
+              <DatePicker
+                selected={referenceDate}
+                onChange={(date) => date && setReferenceDate(date)}
+                locale="ja"
+                showMonthYearPicker={timeScale === 'month'}
+                showYearPicker={timeScale === 'year'}
+                dateFormat={timeScale === 'week' ? 'yyyy/MM/dd' : timeScale === 'month' ? 'yyyy年MM月' : 'yyyy年'}
+                className="w-[120px] bg-transparent text-center text-xs font-semibold text-slate-700 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => handleShiftRange('next')}
+                className="rounded-full px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                次
+              </button>
+            </div>
+            <a
+              href="/help#workload"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              計算ロジック
+            </a>
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              <Download className="h-3.5 w-3.5" />
+              CSV
+            </button>
           </div>
         </div>
 
@@ -3497,6 +3788,206 @@ function WorkloadPage({ filtersProps, tasks, projects }: { filtersProps: Filters
                 この期間に紐づくタスクはありません
               </div>
             )}
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="lg:col-span-3 rounded-2xl border border-slate-100 bg-white p-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-800">担当者別 稼働</h3>
+              <div className="text-[11px] text-slate-500">稼働日数は担当タスクのある日数で算出</div>
+            </div>
+            <div className="mt-3 overflow-auto rounded-xl border border-slate-200">
+              <table className="min-w-full text-xs">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    {renderWorkloadSortHeader('assignee', '担当者', workloadSortKey, workloadSortDirection, setWorkloadSortKey, setWorkloadSortDirection)}
+                    {renderWorkloadSortHeader('hours', '稼働(h)', workloadSortKey, workloadSortDirection, setWorkloadSortKey, setWorkloadSortDirection)}
+                    {renderWorkloadSortHeader('tasks', 'タスク', workloadSortKey, workloadSortDirection, setWorkloadSortKey, setWorkloadSortDirection)}
+                    {renderWorkloadSortHeader('capacity', 'キャパ(h)', workloadSortKey, workloadSortDirection, setWorkloadSortKey, setWorkloadSortDirection)}
+                    {renderWorkloadSortHeader('utilization', '稼働率', workloadSortKey, workloadSortDirection, setWorkloadSortKey, setWorkloadSortDirection)}
+                    {renderWorkloadSortHeader('overload', '超過(h)', workloadSortKey, workloadSortDirection, setWorkloadSortKey, setWorkloadSortDirection)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedWorkloadRows.length ? (
+                    sortedWorkloadRows.map((row) => {
+                      const utilizationPct = row.utilization != null ? Math.round(row.utilization * 100) : null;
+                      const isOver = utilizationPct != null && utilizationPct >= 110;
+                      const isSelected = selectedAssignee === (row.assignee || '未設定');
+                      return (
+                        <tr
+                          key={row.assignee}
+                          className={`border-t border-slate-100 cursor-pointer transition ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                          onClick={() => setSelectedAssignee(row.assignee || '未設定')}
+                        >
+                          <td className="px-3 py-2 font-medium text-slate-800">{row.assignee || '未設定'}</td>
+                          <td className="px-3 py-2 text-slate-600">{formatHours(row.hours)}</td>
+                          <td className="px-3 py-2 text-slate-600">{row.tasks}</td>
+                          <td className="px-3 py-2 text-slate-600">{row.capacity ? formatHours(row.capacity) : '-'}</td>
+                          <td className="px-3 py-2">
+                            {utilizationPct != null ? (
+                              <div className="flex items-center gap-2">
+                                <div className="h-2 w-20 rounded-full bg-slate-100">
+                                  <div
+                                    className={`h-2 rounded-full ${utilizationTone(row.utilization)}`}
+                                    style={{ width: `${Math.min(100, utilizationPct)}%` }}
+                                  />
+                                </div>
+                                <span className={isOver ? 'text-rose-600 font-semibold' : 'text-slate-600'}>
+                                  {utilizationPct}%
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </td>
+                          <td className={`px-3 py-2 ${row.overload && row.overload > 0 ? 'text-rose-600 font-semibold' : 'text-slate-600'}`}>
+                            {row.overload != null ? formatHours(row.overload) : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-center text-slate-500">
+                        対象期間の稼働がありません
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+              {selectedAssignee ? (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-500">内訳</p>
+                      <p className="text-sm font-semibold text-slate-800">{selectedAssignee}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAssignee('')}
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                    >
+                      閉じる
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white">
+                      <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                        プロジェクト別
+                      </div>
+                      <div className="max-h-48 overflow-auto">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500">
+                            <tr>
+                              <th className="px-3 py-2 text-left">プロジェクト</th>
+                              <th className="px-3 py-2 text-right">稼働(h)</th>
+                              <th className="px-3 py-2 text-right">タスク</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {assigneeProjectBreakdown.map((row) => (
+                              <tr key={row.projectId} className="border-t border-slate-100">
+                                <td className="px-3 py-2 text-slate-700">{row.projectName}</td>
+                                <td className="px-3 py-2 text-right text-slate-600">{formatHours(row.hours)}</td>
+                                <td className="px-3 py-2 text-right text-slate-500">{row.tasks}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white">
+                      <div className="border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                        タスク別
+                      </div>
+                      <div className="max-h-48 overflow-auto">
+                        <table className="min-w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-500">
+                            <tr>
+                              <th className="px-3 py-2 text-left">タスク</th>
+                              <th className="px-3 py-2 text-right">稼働(h)</th>
+                              <th className="px-3 py-2 text-right">ステータス</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {assigneeTaskBreakdown.map((row) => (
+                              <tr key={row.id} className="border-t border-slate-100">
+                                <td className="px-3 py-2 text-slate-700">
+                                  <div className="text-[11px] text-slate-400">{row.projectName}</div>
+                                  <div>{row.name}</div>
+                                </td>
+                                <td className="px-3 py-2 text-right text-slate-600">{formatHours(row.hours)}</td>
+                                <td className="px-3 py-2 text-right text-slate-500">{row.status || '-'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-xs text-slate-500">担当者行をクリックすると稼働内訳が表示されます。</div>
+              )}
+            </div>
+          </div>
+
+          <div className="lg:col-span-2 space-y-4">
+            <div className="rounded-2xl border border-slate-100 bg-white p-4">
+              <h3 className="text-sm font-semibold text-slate-800">週次サマリー</h3>
+              <div className="mt-3 overflow-auto rounded-xl border border-slate-200">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2 text-left">週</th>
+                      <th className="px-3 py-2 text-left">稼働(h)</th>
+                      <th className="px-3 py-2 text-left">タスク</th>
+                      <th className="px-3 py-2 text-left">稼ぎ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {weeklySummary.map((row) => (
+                      <tr key={row.label} className="border-t border-slate-100">
+                        <td className="px-3 py-2 text-slate-700">{row.label}</td>
+                        <td className="px-3 py-2 text-slate-600">{formatHours(row.hours)}</td>
+                        <td className="px-3 py-2 text-slate-600">{row.tasks}</td>
+                        <td className="px-3 py-2 text-slate-600">{formatCurrency(row.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-white p-4">
+              <h3 className="text-sm font-semibold text-slate-800">月次サマリー</h3>
+              <div className="mt-3 overflow-auto rounded-xl border border-slate-200">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-slate-50 text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2 text-left">月</th>
+                      <th className="px-3 py-2 text-left">稼働(h)</th>
+                      <th className="px-3 py-2 text-left">タスク</th>
+                      <th className="px-3 py-2 text-left">稼ぎ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {monthlySummary.map((row) => (
+                      <tr key={row.label} className="border-t border-slate-100">
+                        <td className="px-3 py-2 text-slate-700">{row.label}</td>
+                        <td className="px-3 py-2 text-slate-600">{formatHours(row.hours)}</td>
+                        <td className="px-3 py-2 text-slate-600">{row.tasks}</td>
+                        <td className="px-3 py-2 text-slate-600">{formatCurrency(row.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -3614,6 +4105,27 @@ function filterTasksByRange(tasks: Task[], range: DateRange): Task[] {
   });
 }
 
+function buildActiveDaysByAssignee(tasks: Task[], range: DateRange): Map<string, number> {
+  const daySets = new Map<string, Set<string>>();
+  tasks.forEach((task) => {
+    const assignee = (task.assignee ?? task.担当者 ?? '未設定').trim() || '未設定';
+    const taskRange = getTaskRange(task);
+    if (!taskRange) return;
+    const overlap = getOverlapRange(taskRange, range);
+    if (!overlap) return;
+    const set = daySets.get(assignee) ?? new Set<string>();
+    eachDayOfInterval(overlap).forEach((day) => {
+      set.add(format(day, 'yyyy-MM-dd'));
+    });
+    daySets.set(assignee, set);
+  });
+  const counts = new Map<string, number>();
+  daySets.forEach((set, key) => {
+    counts.set(key, set.size);
+  });
+  return counts;
+}
+
 function buildWorkload(tasks: Task[], range: DateRange) {
   const map = new Map<string, { assignee: string; est: number; count: number }>();
   tasks.forEach((task) => {
@@ -3623,9 +4135,7 @@ function buildWorkload(tasks: Task[], range: DateRange) {
     entry.count += 1;
     map.set(key, entry);
   });
-  return Array.from(map.values())
-    .filter((item) => item.est > 0)
-    .sort((a, b) => b.est - a.est);
+  return Array.from(map.values()).sort((a, b) => b.est - a.est);
 }
 
 interface ProjectRevenueSpan {
@@ -3707,6 +4217,14 @@ function formatPeriodLabel(range: DateRange, scale: WorkloadScale): string {
   return format(range.start, 'yyyy年');
 }
 
+function countTasksInRange(tasks: Task[], range: DateRange): number {
+  return tasks.reduce((count, task) => {
+    const taskRange = getTaskRange(task);
+    if (!taskRange) return count;
+    return getOverlapRange(taskRange, range) ? count + 1 : count;
+  }, 0);
+}
+
 function sumHoursForRange(tasks: Task[], start: Date, end: Date): number {
   return sumTaskHoursInRange(tasks, { start, end });
 }
@@ -3759,6 +4277,89 @@ function buildTimelineData(
       revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
     };
   });
+}
+
+type WorkloadSummaryRow = {
+  label: string;
+  hours: number;
+  tasks: number;
+  revenue: number;
+};
+
+function buildWeeklySummary(range: DateRange, tasks: Task[], revenueSpans: ProjectRevenueSpan[]): WorkloadSummaryRow[] {
+  return eachWeekOfInterval(range, { weekStartsOn: 1 }).map((weekStart) => {
+    const bucketStart = weekStart < range.start ? range.start : weekStart;
+    const bucketEndCandidate = endOfWeek(weekStart, { weekStartsOn: 1 });
+    const bucketEnd = bucketEndCandidate > range.end ? range.end : bucketEndCandidate;
+    return {
+      label: `${format(bucketStart, 'M/d')}〜${format(bucketEnd, 'M/d')}`,
+      hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
+      tasks: countTasksInRange(tasks, { start: bucketStart, end: bucketEnd }),
+      revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
+    };
+  });
+}
+
+function buildMonthlySummary(range: DateRange, tasks: Task[], revenueSpans: ProjectRevenueSpan[]): WorkloadSummaryRow[] {
+  return eachMonthOfInterval(range).map((monthStart) => {
+    const bucketStart = monthStart < range.start ? range.start : monthStart;
+    const bucketEndCandidate = endOfMonth(monthStart);
+    const bucketEnd = bucketEndCandidate > range.end ? range.end : bucketEndCandidate;
+    return {
+      label: format(bucketStart, 'yyyy/M'),
+      hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
+      tasks: countTasksInRange(tasks, { start: bucketStart, end: bucketEnd }),
+      revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
+    };
+  });
+}
+
+function escapeCsvValue(value: string): string {
+  const normalized = value ?? '';
+  if (/[",\n]/.test(normalized)) {
+    return `"${normalized.replace(/"/g, '""')}"`;
+  }
+  return normalized;
+}
+
+function downloadCsv(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function renderWorkloadSortHeader(
+  key: 'hours' | 'tasks' | 'capacity' | 'utilization' | 'overload' | 'assignee',
+  label: string,
+  sortKey: 'hours' | 'tasks' | 'capacity' | 'utilization' | 'overload' | 'assignee',
+  sortDirection: 'asc' | 'desc',
+  setSortKey: React.Dispatch<
+    React.SetStateAction<'hours' | 'tasks' | 'capacity' | 'utilization' | 'overload' | 'assignee'>
+  >,
+  setSortDirection: React.Dispatch<React.SetStateAction<'asc' | 'desc'>>
+) {
+  const active = sortKey === key;
+  const nextDirection = active && sortDirection === 'asc' ? 'desc' : 'asc';
+  return (
+    <th className="px-3 py-2 text-left">
+      <button
+        type="button"
+        onClick={() => {
+          setSortKey(key);
+          setSortDirection(nextDirection);
+        }}
+        className="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 hover:text-slate-900"
+      >
+        {label}
+        {active ? <span>{sortDirection === 'asc' ? '▲' : '▼'}</span> : <span className="text-slate-300">▲</span>}
+      </button>
+    </th>
+  );
 }
 
 const CRITICAL_THRESHOLD_DAYS = 2;
@@ -4084,6 +4685,8 @@ function App() {
   const [orgSetupError, setOrgSetupError] = useState<string | null>(null);
   const [orgIdAvailability, setOrgIdAvailability] = useState<'idle' | 'checking' | 'available' | 'unavailable' | 'invalid' | 'error'>('idle');
   const [orgIdNormalized, setOrgIdNormalized] = useState('');
+  const [authBlocked, setAuthBlocked] = useState(false);
+  const [authBlockedMessage, setAuthBlockedMessage] = useState<string | null>(null);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskModalDefaults, setTaskModalDefaults] = useState<{ projectId?: string; stageId?: string } | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -4101,7 +4704,21 @@ function App() {
   const dangerModalShownRef = useRef(false);
   const [allActivityLogs, setAllActivityLogs] = useState<Map<string, any[]>>(new Map());
   const loadedActivityLogsRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
-  const { user, authReady, authSupported, authError, signIn, signOut } = useFirebaseAuth();
+  const [projectFilter, setProjectFilter] = useState<string[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [search, setSearch] = useState('');
+  const [projectSort, setProjectSort] = useState<ProjectSortKey>('due');
+  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+  const [printPanelOpen, setPrintPanelOpen] = useState(false);
+  const [printProjectIds, setPrintProjectIds] = useState<string[]>([]);
+  const [printPaperSize, setPrintPaperSize] = useState<'a3' | 'a4'>('a3');
+  const [printRangeMode, setPrintRangeMode] = useState<'tasks' | 'construction'>('tasks');
+  const { user, authReady, authSupported, authError, signIn, signUpWithEmail, signOut } = useFirebaseAuth();
+  const holidaySet = useJapaneseHolidaySet(authReady && Boolean(user));
+  const [emailAuthInput, setEmailAuthInput] = useState({ email: '', password: '' });
+  const [emailAuthLoading, setEmailAuthLoading] = useState(false);
+  const [emailAuthError, setEmailAuthError] = useState<string | null>(null);
   const peopleLoadInFlightRef = useRef(false);
   const peopleCacheKey = useMemo(
     () => (user?.uid ? `compass_people_cache_${user.uid}` : 'compass_people_cache_guest'),
@@ -4114,6 +4731,8 @@ function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [billingAccess, setBillingAccess] = useState<BillingAccessInfo | null>(null);
   const [billingChecking, setBillingChecking] = useState(false);
+  const snapshotReloadTimerRef = useRef<number | null>(null);
+  const snapshotReloadReasonsRef = useRef<string[]>([]);
   const stageProgressMap = useMemo(() => {
     const counters = new Map<string, { done: number; total: number }>();
     const stageDateMap = new Map<string, { start?: Date; end?: Date }>();
@@ -4159,6 +4778,51 @@ function App() {
   // 楽観的更新のためのPending Overlayストア
   const { addPending, ackPending, rollbackPending, pending } = usePendingOverlay();
 
+  const canSync = authSupported && Boolean(user);
+
+  const requestSnapshotReload = useCallback(
+    (reason: string, delayMs = 120000) => {
+      if (!canSync) return;
+      snapshotReloadReasonsRef.current = [...snapshotReloadReasonsRef.current, reason];
+      if (snapshotReloadTimerRef.current) {
+        window.clearTimeout(snapshotReloadTimerRef.current);
+      }
+      snapshotReloadTimerRef.current = window.setTimeout(() => {
+        snapshotReloadTimerRef.current = null;
+        snapshotReloadReasonsRef.current = [];
+        window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      }, delayMs);
+    },
+    [canSync]
+  );
+
+  const togglePrintProject = useCallback((id: string) => {
+    setPrintProjectIds((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((item) => item !== id);
+      }
+      return [...prev, id];
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleAfterPrint = () => {
+      document.body.classList.remove('printing');
+      document.body.removeAttribute('data-print-size');
+    };
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => window.removeEventListener('afterprint', handleAfterPrint);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (snapshotReloadTimerRef.current) {
+        window.clearTimeout(snapshotReloadTimerRef.current);
+        snapshotReloadTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
     const timers = toastTimers.current;
@@ -4194,6 +4858,11 @@ function App() {
     }
     setBillingChecking(true);
     try {
+      const token = await getCachedIdToken();
+      if (!token) {
+        setBillingChecking(false);
+        return;
+      }
       const info = await getBillingAccess();
       setBillingAccess(info);
       billingErrorNotifiedRef.current = false;
@@ -4275,7 +4944,6 @@ function App() {
     authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
   );
 
-  const canSync = authSupported && Boolean(user);
   const canEdit = true;
 
   useEffect(() => {
@@ -4526,6 +5194,8 @@ function App() {
       setSubscriptionRequired(false);
       setOrgSetupRequired(null);
       setOrgSetupForm({ orgId: '', orgName: '' });
+      setAuthBlocked(false);
+      setAuthBlockedMessage(null);
       setRoleChecking(false);
     }
 
@@ -4539,29 +5209,29 @@ function App() {
         setRoleChecking(true);
         const userData = await getCurrentUser();
         setCurrentUserRole(userData.role);
+        setAuthBlocked(false);
+        setAuthBlockedMessage(null);
       } catch (error) {
         if (error instanceof ApiError) {
           if (error.code === 'ORG_SETUP_REQUIRED') {
             setOrgSetupRequired({ stripeCustomerId: error.data?.stripeCustomerId ?? null });
+            setSubscriptionRequired(false);
+            setAuthBlocked(false);
+            setAuthBlockedMessage(null);
           } else if (error.status === 401) {
-            // 401の場合でもStripe契約があるか確認し、あれば組織作成フローへ
-            try {
-              const eligibility = await checkOrgSetupEligibility();
-              if (eligibility.eligible) {
-                setOrgSetupRequired({ stripeCustomerId: eligibility.stripeCustomerId ?? null });
-                setSubscriptionRequired(false);
-              } else {
-                setSubscriptionRequired(true);
-              }
-            } catch (eligibilityError) {
-              console.error('Failed to check org setup eligibility:', eligibilityError);
-              setSubscriptionRequired(true);
-            }
+            setAuthBlocked(true);
+            setAuthBlockedMessage(
+              'このアカウントでは利用できません。招待済みのメールでサインインするか、Stripe決済時のメールアドレスが一致しているかご確認ください。'
+            );
+            setSubscriptionRequired(false);
+            setOrgSetupRequired(null);
           } else if (error.status === 402) {
             // 課金未契約・停止時は購読リクエスト画面を表示
             setSubscriptionRequired(true);
             setOrgSetupRequired(null);
             setOrgSetupForm({ orgId: '', orgName: '' });
+            setAuthBlocked(false);
+            setAuthBlockedMessage(null);
           } else {
             console.error('Failed to fetch user role:', error);
           }
@@ -4614,13 +5284,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, canUndo, canRedo, pushToast]);
 
-  const [projectFilter, setProjectFilter] = useState<string[]>([]);
-  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [search, setSearch] = useState('');
-  const [projectSort, setProjectSort] = useState<ProjectSortKey>('due');
-  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
-
   const projectMap = useMemo(() => {
     const map: Record<string, Project> = {};
     state.projects.forEach((project) => {
@@ -4629,10 +5292,55 @@ function App() {
     return map;
   }, [state.projects]);
 
+  const printProjectOptions = useMemo(() => {
+    const projectIds = Array.from(new Set(state.tasks.map((task) => task.projectId)));
+    const options = projectIds.map((id) => {
+      const project = state.projects.find(p => p.id === id);
+      return {
+        id,
+        name: project?.物件名 || id,
+      };
+    });
+    return options.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  }, [state.tasks, state.projects]);
+
+  const openPrintPanel = useCallback(() => {
+    const defaults = projectFilter.length > 0
+      ? projectFilter
+      : Array.from(new Set(state.tasks.map((task) => task.projectId)));
+    setPrintProjectIds(defaults);
+    setPrintPanelOpen(true);
+  }, [projectFilter, state.tasks]);
+
+  const handlePrintSubmit = useCallback(() => {
+    if (printProjectIds.length === 0) {
+      pushToast({ tone: 'error', title: '出力するプロジェクトを選択してください' });
+      return;
+    }
+    setPrintPanelOpen(false);
+    const styleId = 'print-page-style';
+    const style = document.getElementById(styleId) || document.createElement('style');
+    style.id = styleId;
+    style.textContent = `@media print { @page { size: ${printPaperSize.toUpperCase()} landscape; margin: 8mm; } }`;
+    if (!style.parentNode) {
+      document.head.appendChild(style);
+    }
+    document.body.classList.add('printing');
+    document.body.setAttribute('data-print-size', printPaperSize);
+    window.setTimeout(() => window.print(), 120);
+  }, [printProjectIds, printPaperSize, pushToast]);
+
   const dangerTasks = useMemo(
     () => buildDangerTasks(state.tasks, projectMap),
     [state.tasks, projectMap]
   );
+
+  const normalizeTaskStatus = useCallback((value?: string | null) => {
+    const normalized = (value ?? '').trim();
+    if (!normalized) return '';
+    if (normalized === '進捗中') return '進行中';
+    return normalized;
+  }, []);
 
   const handleStageTaskAdd = useCallback(
     (stage: GanttTask) => {
@@ -4658,10 +5366,16 @@ function App() {
       // 工程は除外（タスクのみ表示）
       if (task.type === 'stage') return false;
 
+      if (!showArchivedProjects) {
+        const projectStatus = projectMap[task.projectId]?.ステータス;
+        if (isArchivedProjectStatus(projectStatus)) return false;
+      }
+
       // 配列が空の場合は全て表示、配列に値がある場合は含まれているかチェック
       const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
-      const statusMatch = statusFilter.length === 0 || statusFilter.includes(task.ステータス);
+      const statusValue = normalizeTaskStatus(task.ステータス);
+      const statusMatch = statusFilter.length === 0 || statusFilter.includes(statusValue);
       const haystack = [
         task.id,
         task.タスク名,
@@ -4677,7 +5391,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, projectFilter, assigneeFilter, statusFilter, search, projectMap]);
+  }, [state.tasks, pending, projectFilter, assigneeFilter, statusFilter, search, projectMap, normalizeTaskStatus, showArchivedProjects]);
 
   // ガントチャート用：工程（stage）も含むフィルタ済みタスク
   const filteredTasksWithStages = useMemo(() => {
@@ -4685,9 +5399,15 @@ function App() {
     const query = search.trim().toLowerCase();
     return tasksWithPending.filter((task) => {
       // ガントチャートでは工程（stage）も表示する（タスク一覧とは異なる）
+      if (!showArchivedProjects) {
+        const projectStatus = projectMap[task.projectId]?.ステータス;
+        if (isArchivedProjectStatus(projectStatus)) return false;
+      }
+
       const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
-      const statusMatch = statusFilter.length === 0 || statusFilter.includes(task.ステータス);
+      const statusValue = normalizeTaskStatus(task.ステータス);
+      const statusMatch = statusFilter.length === 0 || statusFilter.includes(statusValue);
       const haystack = [
         task.id,
         task.タスク名,
@@ -4703,7 +5423,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, projectFilter, assigneeFilter, statusFilter, search, projectMap]);
+  }, [state.tasks, pending, projectFilter, assigneeFilter, statusFilter, search, projectMap, normalizeTaskStatus, showArchivedProjects]);
 
   const projectOptions = useMemo(
     () => [
@@ -4715,27 +5435,14 @@ function App() {
 
   const assigneeOptions = useMemo(() => {
     const names = new Set<string>();
-    state.people.forEach((person) => {
-      const personType = person.type ?? 'person';
-      if (personType === 'client') return;
-      const trimmed = person.氏名?.trim();
-      if (trimmed) {
-        names.add(trimmed);
-      }
-    });
-    state.projects.forEach((project) => {
-      project.memberNames?.forEach((name) => {
-        const trimmed = name?.trim();
-        if (!trimmed) return;
-        names.add(trimmed);
+    state.tasks
+      .filter((task) => task.type !== 'stage')
+      .forEach((task) => {
+        const name = (task.assignee ?? task.担当者 ?? '').trim();
+        if (name) {
+          names.add(name);
+        }
       });
-    });
-    state.tasks.forEach((task) => {
-      const name = (task.assignee ?? task.担当者 ?? '').trim();
-      if (name) {
-        names.add(name);
-      }
-    });
     assigneeFilter.forEach((selected) => {
       if (selected) {
         names.add(selected);
@@ -4743,15 +5450,24 @@ function App() {
     });
     const sortedNames = Array.from(names).sort((a, b) => a.localeCompare(b, 'ja'));
     return [{ value: 'all', label: '全員' }, ...sortedNames.map((name) => ({ value: name, label: name }))];
-  }, [state.people, state.projects, state.tasks, assigneeFilter]);
+  }, [state.tasks, assigneeFilter]);
 
   const statusOptions = useMemo(() => {
     const statuses = new Set<string>();
     state.tasks.forEach((task) => {
-      if (task.ステータス) statuses.add(task.ステータス);
+      const normalized = normalizeTaskStatus(task.ステータス);
+      if (normalized) statuses.add(normalized);
     });
-    return [{ value: 'all', label: '全て' }, ...Array.from(statuses).map((status) => ({ value: status, label: status }))];
-  }, [state.tasks]);
+    const preferredOrder = ['未着手', '進行中', '確認待ち', '保留', '完了'];
+    const ordered = preferredOrder.filter((status) => statuses.has(status));
+    const extras = Array.from(statuses)
+      .filter((status) => !preferredOrder.includes(status))
+      .sort((a, b) => a.localeCompare(b, 'ja'));
+    return [
+      { value: 'all', label: '全て' },
+      ...[...ordered, ...extras].map((status) => ({ value: status, label: status })),
+    ];
+  }, [state.tasks, normalizeTaskStatus]);
 
   const archivedProjectsCount = useMemo(
     () => state.projects.filter((project) => isArchivedProjectStatus(project.ステータス)).length,
@@ -4784,6 +5500,93 @@ function App() {
     hasActiveFilters,
     resultCount: filteredTasks.length,
   };
+
+  const filterChips = useMemo(() => {
+    const chips: string[] = [];
+    const projectArray = Array.isArray(filtersProps.project) ? filtersProps.project : [];
+    const assigneeArray = Array.isArray(filtersProps.assignee) ? filtersProps.assignee : [];
+    const statusArray = Array.isArray(filtersProps.status) ? filtersProps.status : [];
+
+    if (projectArray.length > 0) {
+      if (projectArray.length === 1) {
+        const label = filtersProps.projects.find((option) => option.value === projectArray[0])?.label;
+        if (label) chips.push(`プロジェクト: ${label}`);
+      } else {
+        chips.push(`プロジェクト: ${projectArray.length}件選択`);
+      }
+    }
+    if (assigneeArray.length > 0) {
+      if (assigneeArray.length === 1) {
+        const label = filtersProps.assignees.find((option) => option.value === assigneeArray[0])?.label;
+        if (label) chips.push(`担当: ${label}`);
+      } else {
+        chips.push(`担当: ${assigneeArray.length}件選択`);
+      }
+    }
+    if (statusArray.length > 0) {
+      if (statusArray.length === 1) {
+        chips.push(`ステータス: ${statusArray[0]}`);
+      } else {
+        chips.push(`ステータス: ${statusArray.length}件選択`);
+      }
+    }
+    if ((filtersProps.query ?? '').trim()) {
+      chips.push(`検索: "${filtersProps.query.trim()}"`);
+    }
+    return chips;
+  }, [filtersProps]);
+
+  const showFilterSidebar =
+    location.pathname === '/' ||
+    location.pathname === '/gantt' ||
+    location.pathname === '/summary' ||
+    location.pathname === '/tasks' ||
+    location.pathname === '/workload';
+  const actionPanel = showFilterSidebar ? (
+    <div className="space-y-2">
+      <div className="text-xs font-semibold uppercase text-slate-500">クイック操作</div>
+      <div className="grid gap-2">
+        <button
+          type="button"
+          onClick={() => openTaskModal()}
+          disabled={!canEdit}
+          className="inline-flex items-center justify-center rounded-lg border border-emerald-600 bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+          title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+        >
+          タスク追加
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setProjectDialogMode('create');
+            setEditingProject(null);
+            setProjectDialogOpen(true);
+          }}
+          disabled={!canEdit}
+          className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          title={!canEdit ? 'ローカル閲覧中は追加できません' : undefined}
+        >
+          プロジェクト追加
+        </button>
+      </div>
+    </div>
+  ) : null;
+  const filtersSidebarPanel = showFilterSidebar ? (
+    <div className="space-y-2">
+      <div className="text-xs font-semibold uppercase text-slate-500">フィルターと検索</div>
+      <div className="text-[11px] text-slate-500">{filteredTasks.length} 件が条件に一致</div>
+      <Filters {...filtersProps} compact stacked />
+      {filterChips.length > 0 ? (
+        <div className="flex flex-wrap gap-1 text-[10px] text-slate-600">
+          {filterChips.map((chip) => (
+            <span key={chip} className="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5">
+              {chip}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
 
   const projectsWithDerived: ProjectWithDerived[] = useMemo(() => {
     return state.projects.map((project) => {
@@ -4904,7 +5707,7 @@ function App() {
         tone: 'success',
         title: done ? 'タスクを完了にしました' : 'タスクを再オープンしました',
       });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('task:complete');
     } catch (err) {
       console.error(err);
       rollbackPending(task.id);
@@ -4975,7 +5778,7 @@ function App() {
 
       pushToast({ tone: 'error', title: 'タスクの更新に失敗しました', description: String(err) });
       // エラー時はリロードして正しい状態に戻す
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('task:update:recover', 0);
     }
   };
 
@@ -5082,7 +5885,7 @@ function App() {
         tasks: prev.tasks.map((t) => (t.id === tempId ? { ...optimisticTask, id: result.id } : t)),
       }));
       toast.success('タスクを追加しました');
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('task:create');
     } catch (error) {
       console.error(error);
       // 失敗: 一時タスクを削除
@@ -5165,7 +5968,7 @@ function App() {
         ),
       }));
       pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('project:create');
     } catch (error) {
       console.error('[Project] Failed to create project:', error);
       setState((prev) => ({
@@ -5220,7 +6023,7 @@ function App() {
     try {
       await deleteProject(project.id);
       pushToast({ tone: 'success', title: `プロジェクト「${project.物件名}」を削除しました` });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('project:delete');
     } catch (error) {
       console.error('[Project] Failed to delete project:', error);
       setState((current) => {
@@ -5266,7 +6069,7 @@ function App() {
     try {
       await deleteTask(taskId);
       pushToast({ tone: 'success', title: `タスク「${task.タスク名}」を削除しました` });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('task:delete');
     } catch (error) {
       console.error('[Task] Failed to delete task:', error);
       setState((current) => {
@@ -5347,7 +6150,7 @@ function App() {
         ),
       }));
       pushToast({ tone: 'success', title: `${entityType}を追加しました` });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('person:create');
     } catch (error) {
       console.error(error);
       setState((prev) => ({
@@ -5376,7 +6179,7 @@ function App() {
     try {
       await updateProject(projectId, payload);
       pushToast({ tone: 'success', title: 'プロジェクトを更新しました' });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('project:update');
       setEditingProject(null);
     } catch (error) {
       console.error(error);
@@ -5450,7 +6253,7 @@ function App() {
             ),
           }));
           pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
-          window.dispatchEvent(new CustomEvent('snapshot:reload'));
+          requestSnapshotReload('project:create');
         } catch (error) {
           console.error('[Project] Failed to create project:', error);
           setState((prev) => ({
@@ -5525,7 +6328,7 @@ function App() {
     try {
       await updatePerson(personId, payload);
       pushToast({ tone: 'success', title: '担当者を更新しました' });
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('person:update');
       setEditingPerson(null);
     } catch (error) {
       console.error(error);
@@ -5590,10 +6393,10 @@ function App() {
         pushToast({ tone: 'error', title: '担当者の更新に失敗しました' });
 
         // エラー時はリロードして正しい状態に戻す
-        window.dispatchEvent(new CustomEvent('snapshot:reload'));
+        requestSnapshotReload('task:assignee:recover', 0);
       }
     },
-    [canSync, state.tasks, addPending, ackPending, rollbackPending]
+    [canSync, state.tasks, addPending, ackPending, rollbackPending, requestSnapshotReload]
   );
 
   const handleTaskDateChange = useCallback(
@@ -5666,10 +6469,10 @@ function App() {
         pushToast({ tone: 'error', title: 'スケジュールの更新に失敗しました' });
 
         // エラー時はリロードして正しい状態に戻す
-        window.dispatchEvent(new CustomEvent('snapshot:reload'));
+        requestSnapshotReload('task:dates:recover', 0);
       }
     },
-    [canSync, setState, addPending, ackPending, rollbackPending]
+    [canSync, setState, addPending, ackPending, rollbackPending, requestSnapshotReload]
   );
 
   const handleSeedReminders = useCallback(
@@ -5728,7 +6531,7 @@ function App() {
   const handleImportSnapshot = useCallback(async (payload: SnapshotPayload) => {
     if (canSync) {
       await importSnapshot(payload);
-      window.dispatchEvent(new CustomEvent('snapshot:reload'));
+      requestSnapshotReload('snapshot:import', 1000);
       return;
     }
     const normalized = normalizeSnapshot(payload);
@@ -5737,15 +6540,38 @@ function App() {
       tasks: normalized.tasks,
       people: normalized.people,
     });
-  }, [canSync, setState]);
+  }, [canSync, setState, requestSnapshotReload]);
 
   const handleImportExcelSafe = useCallback(async (file: File) => {
     if (!canSync) {
       throw new Error('Excel import is available after signing in.');
     }
     await importExcel(file);
-    window.dispatchEvent(new CustomEvent('snapshot:reload'));
-  }, [canSync]);
+    requestSnapshotReload('excel:import', 1000);
+  }, [canSync, requestSnapshotReload]);
+
+  const handleEmailAuth = useCallback(
+    async (mode: 'signin' | 'signup') => {
+      const email = emailAuthInput.email.trim();
+      const password = emailAuthInput.password;
+      if (!email || !password) {
+        setEmailAuthError('メールアドレスとパスワードを入力してください。');
+        return;
+      }
+      setEmailAuthError(null);
+      setEmailAuthLoading(true);
+      try {
+        if (mode === 'signin') {
+          await signIn('email', { email, password });
+        } else {
+          await signUpWithEmail(email, password);
+        }
+      } finally {
+        setEmailAuthLoading(false);
+      }
+    },
+    [emailAuthInput, signIn, signUpWithEmail]
+  );
 
   // 認証準備中
   if (!authReady) {
@@ -5772,6 +6598,59 @@ function App() {
           >
             Googleでサインイン
           </button>
+          <div className="my-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-slate-200" />
+            <span className="text-xs text-slate-400">または</span>
+            <div className="h-px flex-1 bg-slate-200" />
+          </div>
+          <div className="space-y-3 text-left">
+            <label className="block text-xs font-semibold text-slate-600">
+              メールアドレス
+              <input
+                type="email"
+                value={emailAuthInput.email}
+                onChange={(event) => setEmailAuthInput((prev) => ({ ...prev, email: event.target.value }))}
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-400 focus:outline-none"
+                placeholder="example@company.co.jp"
+                autoComplete="email"
+              />
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">
+              パスワード
+              <input
+                type="password"
+                value={emailAuthInput.password}
+                onChange={(event) => setEmailAuthInput((prev) => ({ ...prev, password: event.target.value }))}
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:border-blue-400 focus:outline-none"
+                placeholder="8文字以上"
+                autoComplete="current-password"
+              />
+            </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => handleEmailAuth('signin')}
+                disabled={emailAuthLoading}
+                className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                メールでログイン
+              </button>
+              <button
+                type="button"
+                onClick={() => handleEmailAuth('signup')}
+                disabled={emailAuthLoading}
+                className="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              >
+                メールで新規登録
+              </button>
+            </div>
+            {(emailAuthError || authError) && (
+              <p className="text-xs text-rose-500">{emailAuthError || authError}</p>
+            )}
+            <p className="text-[11px] text-slate-400">
+              会社のメールで登録する場合、管理者の許可が必要なことがあります。
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -5788,6 +6667,12 @@ function App() {
               <h1 className="text-2xl font-bold text-white">サブスクリプションの登録が必要です</h1>
               <p className="text-slate-200 text-sm leading-relaxed">
                 まだ招待またはご契約が確認できません。登録後に、組織作成・工程管理・通知連携などすべての機能をご利用いただけます。
+              </p>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                すでに登録済みなのに確認できない場合、Stripe決済時のメールアドレスが異なる可能性があります。Stripeから届いた領収書メールの宛先、または決済完了画面のメールアドレスをご確認ください。
+              </p>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                解決しない場合は compass@archi-prisma.co.jp までご連絡ください。
               </p>
             </div>
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-slate-100">
@@ -5834,6 +6719,38 @@ function App() {
               </button>
             </div>
             {subscriptionCheckError && <p className="text-xs text-rose-200">{subscriptionCheckError}</p>}
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (authBlocked) {
+    return (
+      <>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-center px-6">
+          <div className="max-w-2xl w-full bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 space-y-6 shadow-2xl">
+            <div className="space-y-2">
+              <p className="text-sm uppercase tracking-[0.2em] text-indigo-200">Welcome to Compass</p>
+              <h1 className="text-2xl font-bold text-white">認証が完了できませんでした</h1>
+              <p className="text-slate-200 text-sm leading-relaxed">
+                {authBlockedMessage ??
+                  'このアカウントでは利用できません。招待済みのメールでサインインするか、管理者にご確認ください。'}
+              </p>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                解決しない場合は compass@archi-prisma.co.jp までご連絡ください。
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => signOut()}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-sm font-semibold shadow-lg shadow-emerald-900/30 transition"
+              >
+                別アカウントで試す
+              </button>
+            </div>
           </div>
         </div>
       </>
@@ -6033,13 +6950,14 @@ function App() {
         onImportExcel={handleImportExcelSafe}
         onNotify={pushToast}
         loading={loading}
+        sidebarPanel={filtersSidebarPanel}
+        actionPanel={actionPanel}
       >
         <Routes>
           <Route
             path="/"
             element={
               <SchedulePage
-                filtersProps={filtersProps}
                 filteredTasks={filteredTasks}
                 filteredTasksWithStages={filteredTasksWithStages}
                 projectMap={projectMap}
@@ -6070,6 +6988,21 @@ function App() {
                 stageProgressMap={stageProgressMap}
                 onRequestPeople={ensurePeopleLoaded}
                 onRequestProjectMembers={loadProjectMembersForProject}
+                projectFilter={projectFilter}
+                printPanelOpen={printPanelOpen}
+                printProjectIds={printProjectIds}
+                printPaperSize={printPaperSize}
+                printRangeMode={printRangeMode}
+                printProjectOptions={printProjectOptions}
+                openPrintPanel={openPrintPanel}
+                togglePrintProject={togglePrintProject}
+                handlePrintSubmit={handlePrintSubmit}
+                setPrintPanelOpen={setPrintPanelOpen}
+                setPrintProjectIds={setPrintProjectIds}
+                setPrintPaperSize={setPrintPaperSize}
+                setPrintRangeMode={setPrintRangeMode}
+                holidaySet={holidaySet}
+                user={user}
               />
             }
           />
@@ -6110,7 +7043,6 @@ function App() {
             path="/tasks"
             element={
               <TasksPage
-                filtersProps={filtersProps}
                 filteredTasks={filteredTasks}
                 projectMap={projectMap}
                 people={state.people}
@@ -6136,7 +7068,6 @@ function App() {
             path="/gantt"
             element={
               <SchedulePage
-                filtersProps={filtersProps}
                 filteredTasks={filteredTasks}
                 filteredTasksWithStages={filteredTasksWithStages}
                 projectMap={projectMap}
@@ -6165,12 +7096,27 @@ function App() {
                 allProjectMembers={allProjectMembers}
                 onStageAddTask={handleStageTaskAdd}
                 stageProgressMap={stageProgressMap}
+                projectFilter={projectFilter}
+                printPanelOpen={printPanelOpen}
+                printProjectIds={printProjectIds}
+                printPaperSize={printPaperSize}
+                printRangeMode={printRangeMode}
+                printProjectOptions={printProjectOptions}
+                openPrintPanel={openPrintPanel}
+                togglePrintProject={togglePrintProject}
+                handlePrintSubmit={handlePrintSubmit}
+                setPrintPanelOpen={setPrintPanelOpen}
+                setPrintProjectIds={setPrintProjectIds}
+                setPrintPaperSize={setPrintPaperSize}
+                setPrintRangeMode={setPrintRangeMode}
+                holidaySet={holidaySet}
+                user={user}
               />
             }
           />
           <Route
             path="/workload"
-            element={<WorkloadPage filtersProps={filtersProps} tasks={filteredTasks} projects={state.projects} />}
+            element={<WorkloadPage tasks={filteredTasks} projects={state.projects} people={state.people} />}
           />
           <Route path="/users" element={<UserManagement projects={state.projects} />} />
           <Route path="/notifications" element={<NotificationsPage />} />

@@ -81,3 +81,479 @@ button {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;  /* Chrome, Safari, Opera */
 }
+
+/* Print styles for construction-style Gantt PDF */
+.print-only {
+  display: none;
+}
+
+.no-print {
+  display: block;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+
+  html, body, #root {
+    height: 100%;
+    overflow: visible;
+  }
+
+  body {
+    background: #fff;
+    color: #111827;
+    font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+    margin: 0;
+  }
+
+  body[data-print-size='a3'] .gantt-print-root {
+    font-size: 11px;
+  }
+
+  body[data-print-size='a3'] .gantt-print-title-main {
+    font-size: 20px;
+  }
+
+  body[data-print-size='a3'] .gantt-print-sheet {
+    padding: 8px;
+  }
+
+  .app-root,
+  .app-content {
+    height: auto !important;
+    min-height: auto !important;
+    padding-left: 0 !important;
+  }
+
+  .gantt-print-sheet {
+    height: calc(100vh - 12mm);
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .react-hot-toast,
+  [data-react-hot-toast] {
+    display: none !important;
+  }
+}
+
+.gantt-print-root {
+  color: #111827;
+  font-size: 10px;
+  line-height: 1.4;
+  width: 100%;
+  height: 100%;
+}
+
+.gantt-print-sheet {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  padding: 8px;
+  margin-bottom: 0;
+  page-break-after: always;
+  page-break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 12mm);
+}
+
+.gantt-print-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 2px solid #1e293b;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.gantt-print-header-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.gantt-print-stamps {
+  display: flex;
+  gap: 6px;
+}
+
+.gantt-print-stamp-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.gantt-print-stamp-label {
+  font-size: 9px;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.gantt-print-stamp-circle {
+  width: 50px;
+  height: 50px;
+  border: 2px solid #1e293b;
+  border-radius: 50%;
+  background: white;
+}
+
+.gantt-print-title-main {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.gantt-print-title-sub {
+  font-size: 10px;
+  color: #64748b;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.gantt-print-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+}
+
+.gantt-print-meta-row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 6px;
+}
+
+.gantt-print-meta-label {
+  color: #64748b;
+}
+
+.gantt-print-table-head,
+.gantt-print-row {
+  display: grid;
+  grid-template-columns: 200px 70px 70px 70px 50px 50px 1fr;
+  align-items: stretch;
+}
+
+.gantt-print-table-head {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-bottom: none;
+  font-weight: 600;
+}
+
+.gantt-print-table {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.gantt-print-table-body {
+  border: 1px solid #e2e8f0;
+  flex: 1;
+  min-height: 0;
+}
+
+.gantt-print-col {
+  padding: 4px 6px;
+  border-right: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+}
+
+.gantt-print-col-task {
+  align-items: flex-start;
+}
+
+.gantt-print-col-date,
+.gantt-print-col-days,
+.gantt-print-col-progress {
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.gantt-print-col:last-child {
+  border-right: none;
+}
+
+.gantt-print-row {
+  min-height: 32px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.gantt-print-row.is-stage {
+  background: #f1f5f9;
+  font-weight: 600;
+}
+
+.gantt-print-row.is-child .gantt-print-task-name {
+  font-weight: 500;
+}
+
+.gantt-print-task-name {
+  font-weight: 600;
+}
+
+.gantt-print-task-note {
+  font-size: 9px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.gantt-print-col-timeline {
+  position: relative;
+  padding: 0;
+  min-height: 32px;
+}
+
+.gantt-print-col-timeline::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.3) 100%);
+}
+
+.gantt-print-weekend-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: #f3f4f6;
+  opacity: 0.9;
+  z-index: 1;
+}
+
+.gantt-print-ticks {
+  display: grid;
+  width: 100%;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+}
+
+.gantt-print-months {
+  display: grid;
+  width: 100%;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.gantt-print-month {
+  text-align: center;
+  font-size: 9px;
+  padding: 2px 0;
+  border-right: 1px solid #e2e8f0;
+  font-weight: 600;
+}
+
+.gantt-print-weeks {
+  display: grid;
+  width: 100%;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  background: #fff;
+  border-bottom: 1.5px solid #cbd5e1;
+}
+
+.gantt-print-week {
+  text-align: center;
+  font-size: 10px;
+  padding: 4px 0;
+  border-right: 1px solid #e2e8f0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.gantt-print-tick {
+  padding: 0;
+  text-align: center;
+  border-right: 1px solid #e2e8f0;
+  font-size: 9px;
+  height: 6px;
+}
+
+.gantt-print-tick.is-month-boundary {
+  border-left: 2px solid #94a3b8;
+}
+
+.gantt-print-tick.is-week-boundary {
+  border-left: 1.5px solid #cbd5e1;
+}
+
+.gantt-print-tick.is-weekend,
+.gantt-print-grid-cell.is-weekend {
+  background: #f3f4f6;
+}
+
+.gantt-print-tick.is-holiday,
+.gantt-print-grid-cell.is-holiday {
+  background: #e5e7eb;
+}
+
+.gantt-print-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  z-index: 0;
+}
+
+.gantt-print-grid-cell {
+  border-right: 1px solid #f1f5f9;
+}
+
+.gantt-print-grid-cell.is-month-boundary {
+  border-left: 2px solid #94a3b8;
+}
+
+.gantt-print-grid-cell.is-week-boundary {
+  border-left: 1.5px solid #cbd5e1;
+}
+
+.gantt-print-bar {
+  position: absolute;
+  top: 7px;
+  height: 18px;
+  border-radius: 8px;
+  min-width: 1px;
+  z-index: 2;
+}
+
+.gantt-print-bar-progress {
+  height: 100%;
+  background: rgba(255, 255, 255, 0.35);
+  border-right: 1px solid rgba(15, 23, 42, 0.35);
+}
+
+.gantt-print-today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #111827;
+  opacity: 0.45;
+  z-index: 3;
+}
+
+.gantt-print-bar[data-status='not_started'] {
+  background-image: repeating-linear-gradient(135deg, rgba(15, 23, 42, 0.2), rgba(15, 23, 42, 0.2) 4px, transparent 4px, transparent 8px);
+}
+
+.gantt-print-bar[data-status='on_hold'] {
+  background-image: repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.25), rgba(15, 23, 42, 0.25) 3px, transparent 3px, transparent 6px);
+}
+
+.gantt-print-bar[data-status='overdue'] {
+  background-image: repeating-linear-gradient(45deg, rgba(15, 23, 42, 0.35), rgba(15, 23, 42, 0.35) 3px, transparent 3px, transparent 6px);
+}
+
+.gantt-print-bar-empty {
+  position: absolute;
+  top: 7px;
+  left: 8px;
+  font-size: 9px;
+  color: #94a3b8;
+}
+
+.gantt-print-milestone {
+  position: absolute;
+  top: 5px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border: 2px solid #0f172a;
+  transform: translateX(-50%) rotate(45deg);
+  z-index: 4;
+}
+
+.gantt-print-milestone-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed #64748b;
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.gantt-print-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 6px;
+  font-size: 9px;
+  color: #475569;
+}
+
+.gantt-print-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gantt-print-legend-swatch {
+  width: 16px;
+  height: 6px;
+  border-radius: 3px;
+}
+
+.gantt-print-legend-diamond {
+  width: 10px;
+  height: 10px;
+  background: #0f172a;
+  transform: rotate(45deg);
+}
+
+.gantt-print-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.gantt-print-footer-section {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.gantt-print-footer-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #334155;
+  min-width: 50px;
+}
+
+.gantt-print-footer-remarks {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gantt-print-footer-remark-line {
+  height: 20px;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.gantt-print-footer-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #64748b;
+  font-size: 9px;
+}
+
+.gantt-print-footer-page {
+  font-weight: 600;
+  color: #475569;
+}

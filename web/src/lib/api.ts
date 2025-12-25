@@ -2,7 +2,9 @@ import type { Project, Task, Person, ManageableUserSummary } from './types';
 import type { ProjectMember } from './auth-types';
 import { getCachedIdToken } from './authToken';
 
-const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
+import { resolveApiBase } from './apiBase';
+
+const BASE_URL = resolveApiBase();
 
 // カスタムエラークラス（ステータスコードを保持）
 export class ApiError extends Error {

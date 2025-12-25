@@ -14,7 +14,9 @@ interface ClientSelectorProps {
   className?: string;
 }
 
-const BASE_URL = import.meta.env.VITE_API_BASE ?? '/api';
+import { resolveApiBase } from '../lib/apiBase';
+
+const BASE_URL = resolveApiBase();
 
 export function ClientSelector({
   value,

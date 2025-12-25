@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { listJapaneseHolidays, type JapaneseHoliday } from './api';
+import { getCachedIdToken } from './authToken';
 import { formatDate, parseDate } from './date';
 
 type HolidaySet = Set<string>;
@@ -24,6 +25,10 @@ async function ensureCache(): Promise<void> {
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return;
   }
+  const token = await getCachedIdToken();
+  if (!token) {
+    return;
+  }
   if (!pendingPromise) {
     pendingPromise = listJapaneseHolidays()
       .then(({ holidays }) => {
@@ -42,12 +47,16 @@ async function ensureCache(): Promise<void> {
   return pendingPromise;
 }
 
-export function useJapaneseHolidaySet(): HolidaySet | null {
+export function useJapaneseHolidaySet(enabled: boolean = true): HolidaySet | null {
   const [holidaySet, setHolidaySet] = useState<HolidaySet | null>(
     cached?.set ?? null
   );
 
   useEffect(() => {
+    if (!enabled) {
+      setHolidaySet(null);
+      return;
+    }
     let mounted = true;
     ensureCache()
       .then(() => {

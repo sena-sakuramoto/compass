@@ -1,11 +1,12 @@
 // タスク編集モーダルコンポーネント
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import type { GanttTask } from './types';
 import type { ProjectMember } from '../../lib/auth-types';
+import { PROJECT_ROLE_LABELS } from '../../lib/auth-types';
 import { parseHoursInput } from '../../lib/number';
 
 // 日本語ロケールを登録
@@ -85,9 +86,6 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
 
   // 工程の場合は編集不可メッセージを表示
   const isStage = task.type === 'stage';
-
-  // デバッグ: 工程の状況を確認
-  console.log('[TaskEditModal] task.projectId:', task.projectId, 'task.type:', task.type, 'stages:', stages.length, stages);
 
   // マイルストーンチェックボックスが有効かどうか
   const isMilestoneCheckboxEnabled =
@@ -178,6 +176,21 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     t.id !== task.id && t.projectId === task.projectId
   );
 
+  const assignableMembers = useMemo(() => {
+    return projectMembers.filter((member) => member.status === 'active');
+  }, [projectMembers]);
+
+  const assigneeOptions = useMemo(
+    () =>
+      assignableMembers.map((member) => ({
+        key: member.userId || member.displayName,
+        value: member.displayName,
+        label: `${member.displayName} (${PROJECT_ROLE_LABELS[member.role] ?? member.role})`,
+      })),
+    [assignableMembers]
+  );
+
+
   // 工程の場合は編集不可メッセージを表示
   if (isStage) {
     return (
@@ -225,32 +238,32 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
           {/* 担当者 */}
           <div>
             <label className="mb-1 block text-xs text-slate-500">担当者</label>
-            {projectMembers.length > 0 ? (
+            {assigneeOptions.length > 0 ? (
               <select
                 value={editedTask.assignee}
                 onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
                 className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">選択</option>
-                {projectMembers.map((member) => (
-                  <option key={member.userId} value={member.displayName}>
-                    {member.displayName} ({member.role})
+                {assigneeOptions.map((option) => (
+                  <option key={option.key} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
             ) : (
-              <select
-                value={editedTask.assignee}
-                onChange={(e) => setEditedTask({ ...editedTask, assignee: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">未割り当て</option>
-                {people.map((person) => (
-                  <option key={person.id} value={person.氏名}>
-                    {person.氏名}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <select
+                  value=""
+                  disabled
+                  className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400 bg-slate-50"
+                >
+                  <option value="">担当者候補がありません</option>
+                </select>
+                <p className="mt-1 text-xs text-amber-600">
+                  プロジェクトにメンバーを追加すると、担当者として選択できます
+                </p>
+              </div>
             )}
           </div>
 
@@ -275,7 +288,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                   console.log('[TaskEditModal] Stage selected:', e.target.value);
                   setStageId(e.target.value);
                 }}
-                className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400 bg-slate-50 cursor-not-allowed"
+                disabled
               >
                 <option value="">未割り当て</option>
                 {stages.map((stage) => (
@@ -491,6 +505,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
               )}
             </div>
           </div>
+
         </div>
 
         {/* フッター */}

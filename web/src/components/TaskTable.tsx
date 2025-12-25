@@ -18,6 +18,19 @@ export interface TaskTableRow {
   progress?: number;
 }
 
+export type TaskTableSortKey =
+  | 'completed'
+  | 'name'
+  | 'project'
+  | 'assignee'
+  | 'schedule'
+  | 'effort'
+  | 'progress'
+  | 'priority'
+  | 'status';
+
+export type TaskTableSortDirection = 'asc' | 'desc';
+
 interface TaskTableProps {
   rows: TaskTableRow[];
   onToggle(id: string, checked: boolean): void;
@@ -27,25 +40,56 @@ interface TaskTableProps {
   onCalendarSync?(id: string): Promise<void> | void;
   seedBusyIds?: ReadonlySet<string>;
   calendarBusyIds?: ReadonlySet<string>;
+  sortKey?: TaskTableSortKey;
+  sortDirection?: TaskTableSortDirection;
+  onSortChange?(key: TaskTableSortKey, direction: TaskTableSortDirection): void;
 }
 
-export function TaskTable({ rows, onToggle, onRowClick, onDelete, onSeedReminders, onCalendarSync, seedBusyIds, calendarBusyIds }: TaskTableProps) {
+export function TaskTable({
+  rows,
+  onToggle,
+  onRowClick,
+  onDelete,
+  onSeedReminders,
+  onCalendarSync,
+  seedBusyIds,
+  calendarBusyIds,
+  sortKey = 'status',
+  sortDirection = 'asc',
+  onSortChange,
+}: TaskTableProps) {
   const holidaySet = useJapaneseHolidaySet();
   const showActions = Boolean(onSeedReminders || onCalendarSync || onDelete);
+  const renderSortButton = (key: TaskTableSortKey, label: string) => {
+    const active = sortKey === key;
+    const nextDirection = active && sortDirection === 'asc' ? 'desc' : 'asc';
+    return (
+      <button
+        type="button"
+        onClick={() => onSortChange?.(key, nextDirection)}
+        className={`inline-flex items-center gap-1 text-left text-xs font-semibold transition ${
+          active ? 'text-slate-900' : 'text-slate-600 hover:text-slate-800'
+        }`}
+      >
+        <span>{label}</span>
+        {active ? <span>{sortDirection === 'asc' ? '▲' : '▼'}</span> : <span className="text-slate-300">▲</span>}
+      </button>
+    );
+  };
   return (
     <div className="overflow-auto rounded-2xl border border-slate-200">
       <table className="min-w-full text-sm">
         <thead className="bg-slate-50 text-slate-600">
           <tr>
-            <th className="p-3 text-left">完了</th>
-            <th className="p-3 text-left">タスク名</th>
-            <th className="p-3 text-left">プロジェクト</th>
-            <th className="p-3 text-left">担当者</th>
-            <th className="p-3 text-left">予定</th>
-            <th className="p-3 text-left">工数(h)</th>
-            <th className="p-3 text-left">進捗</th>
-            <th className="p-3 text-left">優先度</th>
-            <th className="p-3 text-left">ステータス</th>
+            <th className="p-3 text-left">{renderSortButton('completed', '完了')}</th>
+            <th className="p-3 text-left">{renderSortButton('name', 'タスク名')}</th>
+            <th className="p-3 text-left">{renderSortButton('project', 'プロジェクト')}</th>
+            <th className="p-3 text-left">{renderSortButton('assignee', '担当者')}</th>
+            <th className="p-3 text-left">{renderSortButton('schedule', '予定')}</th>
+            <th className="p-3 text-left">{renderSortButton('effort', '工数(h)')}</th>
+            <th className="p-3 text-left">{renderSortButton('progress', '進捗')}</th>
+            <th className="p-3 text-left">{renderSortButton('priority', '優先度')}</th>
+            <th className="p-3 text-left">{renderSortButton('status', 'ステータス')}</th>
             {showActions ? <th className="p-3 text-left">操作</th> : null}
           </tr>
         </thead>
