@@ -456,7 +456,23 @@ export function evaluateBillingAccess(user: User, billingDoc: OrgBillingDoc | nu
 
   const status = billingDoc.subscriptionStatus ?? 'unknown';
   const entitled = billingDoc.entitled ?? false;
-  if (entitled || status === 'active' || status === 'trialing') {
+
+  // キャンセル済み・未払い・延滞の場合は明示的に拒否
+  if (status === 'canceled' || status === 'unpaid' || status === 'past_due') {
+    return {
+      allowed: false,
+      reason: 'stripe_inactive',
+      planType,
+      details: {
+        subscriptionStatus: status,
+        currentPeriodEnd: billingDoc.subscriptionCurrentPeriodEnd ?? null,
+        cancelAtPeriodEnd: billingDoc.subscriptionCancelAtPeriodEnd ?? null,
+      },
+    };
+  }
+
+  // entitled が明示的に true、または active/trialing の場合のみ許可
+  if (entitled === true || status === 'active' || status === 'trialing') {
     return {
       allowed: true,
       reason: 'stripe_active',

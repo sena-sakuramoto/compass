@@ -4,6 +4,7 @@ import type { User } from 'firebase/auth';
 import {
   listOrgBilling,
   updateOrgBilling,
+  syncOrgBilling,
   searchStripeCustomer,
   ApiError,
   sendStripeWelcomeEmails,
@@ -13,7 +14,10 @@ import {
   type StripeLiveSubscription,
   type StripeWelcomeBulkResult,
   listStripeLiveSubscriptions,
+  listUsers,
+  updateUser,
 } from '../lib/api';
+import { ROLE_LABELS, type Role } from '../lib/auth-types';
 import { resolveApiBase } from '../lib/apiBase';
 
 interface AdminPageProps {
@@ -42,7 +46,7 @@ interface Organization {
 }
 
 export function AdminPage({ user, currentUserRole }: AdminPageProps) {
-  const [activeTab, setActiveTab] = useState<'invitations' | 'organizations' | 'billing' | 'migration'>('invitations');
+  const [activeTab, setActiveTab] = useState<'invitations' | 'organizations' | 'billing' | 'migration' | 'members'>('invitations');
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(false);
@@ -72,6 +76,9 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const [welcomeSending, setWelcomeSending] = useState(false);
   const [welcomeResult, setWelcomeResult] = useState<StripeWelcomeBulkResult | null>(null);
   const [welcomeError, setWelcomeError] = useState<string | null>(null);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>('');
+  const [orgUsers, setOrgUsers] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   // 招待フォームの状態
   const [inviteForm, setInviteForm] = useState({
@@ -278,6 +285,75 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     } finally {
       setWelcomeSending(false);
     }
+  };
+
+  const loadOrgUsers = async (orgId: string) => {
+    if (!orgId) return;
+    setLoadingUsers(true);
+    try {
+      const data = await listUsers({ orgId });
+      setOrgUsers(data);
+    } catch (error) {
+      console.error('[AdminPage] メンバー読み込みエラー:', error);
+      alert('メンバーの読み込みに失敗しました');
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    try {
+      await updateUser(userId, { role: newRole as Role });
+      await loadOrgUsers(selectedOrgId);
+      alert('ロールを更新しました');
+    } catch (error) {
+      console.error('[AdminPage] ロール変更エラー:', error);
+      alert('ロールの更新に失敗しました');
+    }
+  };
+
+  const handleSyncStripe = async (orgId: string) => {
+    try {
+      const result = await syncOrgBilling(orgId);
+      alert(result.message || 'Stripe情報を同期しました');
+      await loadBillingRecords();
+    } catch (error) {
+      console.error('[AdminPage] Stripe同期エラー:', error);
+      if (error instanceof ApiError) {
+        alert(error.message);
+      } else {
+        alert('Stripe情報の同期に失敗しました');
+      }
+    }
+  };
+
+  const handleBulkSyncStripe = async () => {
+    const orgsWithCustomerId = billingRecords.filter(r => r.stripeCustomerId && r.planType === 'stripe');
+    if (orgsWithCustomerId.length === 0) {
+      alert('同期対象の組織がありません（Customer IDが設定されているStripeプラン組織）');
+      return;
+    }
+
+    const confirmed = confirm(`${orgsWithCustomerId.length}件の組織を一斉同期しますか？`);
+    if (!confirmed) return;
+
+    setBillingLoading(true);
+    let success = 0;
+    let failed = 0;
+
+    for (const record of orgsWithCustomerId) {
+      try {
+        await syncOrgBilling(record.orgId);
+        success++;
+      } catch (error) {
+        console.error(`[AdminPage] ${record.orgId} の同期失敗:`, error);
+        failed++;
+      }
+    }
+
+    await loadBillingRecords();
+    setBillingLoading(false);
+    alert(`同期完了: 成功 ${success}件 / 失敗 ${failed}件`);
   };
 
   const handleUseStripeEmailForInvite = (emailParam?: string) => {
@@ -688,6 +764,18 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
               課金プラン
             </button>
           )}
+          {isSuperAdmin && (
+            <button
+              onClick={() => setActiveTab('members')}
+              className={`px-4 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'members'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+                }`}
+            >
+              <Users className="inline-block h-4 w-4 mr-2" />
+              メンバー管理
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('migration')}
             className={`px-4 py-3 text-sm font-medium border-b-2 transition ${activeTab === 'migration'
@@ -940,14 +1028,32 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
         {activeTab === 'billing' && isSuperAdmin && (
           <div className="space-y-4">
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900 mb-2">課金プラン管理</h2>
-                <p className="text-sm text-slate-600">
-                  Stripeサブスクと法人プランの設定を管理します。planTypeが「stripe」の場合は Customer ID が必須です。
-                </p>
-                <p className="text-xs text-slate-500 mt-1">
-                  org_billing が未設定の組織は初期値として planType=Stripe で一覧表示されます。実際の運用プランに合わせて保存してください。
-                </p>
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold text-slate-900 mb-2">課金プラン管理</h2>
+                  <p className="text-sm text-slate-600">
+                    Stripeサブスクと法人プランの設定を管理します。planTypeが「stripe」の場合は Customer ID が必須です。
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    org_billing が未設定の組織は初期値として planType=Stripe で一覧表示されます。実際の運用プランに合わせて保存してください。
+                  </p>
+                </div>
+                <div className="ml-4 flex gap-2">
+                  <button
+                    onClick={loadBillingRecords}
+                    disabled={billingLoading}
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {billingLoading ? '読み込み中...' : '最新情報を再読み込み'}
+                  </button>
+                  <button
+                    onClick={handleBulkSyncStripe}
+                    disabled={billingLoading}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                  >
+                    全組織を一斉同期
+                  </button>
+                </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <p className="text-xs text-slate-500">
@@ -1479,6 +1585,13 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                             >
                               コピー
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSyncStripe(record.orgId)}
+                              className="inline-flex items-center rounded bg-blue-600 px-2 py-1 text-[11px] text-white hover:bg-blue-700"
+                            >
+                              Stripeから同期
+                            </button>
                           </div>
                           <p className="mt-1 text-slate-500">
                             同期結果: {record.subscriptionStatus || '未取得'} / entitled:{' '}
@@ -1602,6 +1715,96 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'members' && isSuperAdmin && (
+          <div className="space-y-6">
+            {/* 組織選択 */}
+            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">組織選択</h2>
+              <select
+                value={selectedOrgId}
+                onChange={(e) => {
+                  setSelectedOrgId(e.target.value);
+                  if (e.target.value) loadOrgUsers(e.target.value);
+                }}
+                className="w-full max-w-md rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">組織を選択してください</option>
+                {organizations.map((org) => (
+                  <option key={org.id} value={org.id}>
+                    {org.name} ({org.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* ユーザー一覧テーブル */}
+            {selectedOrgId && (
+              <div className="bg-white rounded-lg shadow-sm border border-slate-200">
+                <div className="px-6 py-4 border-b border-slate-200">
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    メンバー一覧 ({orgUsers.length}名)
+                  </h2>
+                </div>
+                {loadingUsers ? (
+                  <div className="p-6 text-center text-slate-500">読み込み中...</div>
+                ) : orgUsers.length === 0 ? (
+                  <div className="p-6 text-center text-slate-500">メンバーがいません</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">名前</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メール</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">ロール</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">部署</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">職種</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">ステータス</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {orgUsers.map((user) => (
+                          <tr key={user.id} className="hover:bg-slate-50">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                {user.photoURL && (
+                                  <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full" />
+                                )}
+                                <span className="text-sm font-medium text-slate-900">{user.displayName}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{user.email}</td>
+                            <td className="px-4 py-3">
+                              <select
+                                value={user.role}
+                                onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                                className="text-sm px-2 py-1 border border-slate-300 rounded focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              >
+                                {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                                  <option key={value} value={value}>{label}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{user.department || '-'}</td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{user.jobTitle || '-'}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                user.isActive ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                              }`}>
+                                {user.isActive ? 'アクティブ' : '非アクティブ'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

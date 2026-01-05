@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import type { Timestamp } from 'firebase-admin/firestore';
+import Stripe from 'stripe';
 import { authMiddleware } from '../lib/auth';
 import { getUser } from '../lib/users';
 import type { BillingPlanType } from '../lib/billing';
@@ -19,6 +20,9 @@ import {
 } from '../lib/billing';
 import { db } from '../lib/firestore';
 import { sendEmail } from '../lib/gmail';
+
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey, { apiVersion: '2025-12-15.clover' }) : null;
 
 const router = Router();
 
@@ -688,6 +692,113 @@ router.post('/billing/portal-session', async (req: any, res) => {
   } catch (error) {
     console.error('[billing] Stripe portal request failed', error);
     res.status(502).json({ error: 'Stripeポータルへの接続に失敗しました。' });
+  }
+});
+
+router.post('/billing/:orgId/sync', async (req: any, res) => {
+  const user = await getUser(req.uid);
+  if (!user || user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const { orgId } = req.params;
+  try {
+    const billingDoc = await getOrgBilling(orgId);
+    if (!billingDoc?.stripeCustomerId) {
+      return res.status(400).json({ error: 'Stripe Customer ID が設定されていません' });
+    }
+
+    const customerId = billingDoc.stripeCustomerId;
+
+    // Stripe API から直接取得
+    if (!stripe) {
+      return res.status(500).json({ error: 'Stripe API キーが設定されていません' });
+    }
+
+    const customer = await stripe.customers.retrieve(customerId, {
+      expand: ['subscriptions'],
+    });
+
+    if (customer.deleted) {
+      return res.status(404).json({ error: 'Stripe顧客が削除されています' });
+    }
+
+    // サブスクリプション情報を取得
+    const subscriptions = (customer as any).subscriptions?.data || [];
+    const activeSubscription = subscriptions.find((sub: any) =>
+      sub.status === 'active' || sub.status === 'trialing'
+    ) || subscriptions[0];
+
+    let subscriptionStatus = 'inactive';
+    let entitled = false;
+    let currentPeriodEnd: number | null = null;
+    let cancelAtPeriodEnd = false;
+    const productNames: string[] = [];
+    const priceIds: string[] = [];
+
+    if (activeSubscription) {
+      subscriptionStatus = activeSubscription.status;
+      currentPeriodEnd = activeSubscription.current_period_end;
+      cancelAtPeriodEnd = activeSubscription.cancel_at_period_end || false;
+      entitled = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
+
+      // 商品情報を取得
+      for (const item of activeSubscription.items.data) {
+        if (item.price?.product) {
+          const productId = typeof item.price.product === 'string'
+            ? item.price.product
+            : item.price.product.id;
+          try {
+            const product = await stripe.products.retrieve(productId);
+            productNames.push(product.name);
+          } catch (err) {
+            console.error('[billing] Failed to retrieve product', err);
+          }
+        }
+        if (item.price?.id) {
+          priceIds.push(item.price.id);
+        }
+      }
+    }
+
+    const updates = {
+      subscriptionStatus,
+      subscriptionCurrentPeriodEnd: currentPeriodEnd,
+      subscriptionCancelAtPeriodEnd: cancelAtPeriodEnd,
+      entitled,
+      lastStripeSyncAt: Date.now(),
+      stripeSnapshot: {
+        productNames,
+        priceIds,
+      },
+    };
+
+    // org_billing を更新
+    await db.collection('org_billing').doc(orgId).set(updates, { merge: true });
+
+    // stripe_customers も更新（将来の同期用）
+    await db.collection('stripe_customers').doc(customerId).set({
+      status: subscriptionStatus,
+      currentPeriodEnd,
+      cancelAtPeriodEnd,
+      entitled,
+      productNames,
+      priceIds,
+      updatedAt: Date.now(),
+    }, { merge: true });
+
+    res.json({
+      success: true,
+      message: 'Stripe APIから最新情報を取得しました',
+      updates,
+      source: 'stripe_api'
+    });
+  } catch (error: any) {
+    console.error('[billing] Stripe API sync failed', error);
+    res.status(500).json({
+      error: error.message || '同期に失敗しました',
+      code: error.code
+    });
   }
 });
 

@@ -653,6 +653,12 @@ export async function updateOrgBilling(orgId: string, payload: { planType?: stri
   });
 }
 
+export async function syncOrgBilling(orgId: string) {
+  return request<{ success: boolean; message: string; updates: any }>(`/billing/${orgId}/sync`, {
+    method: 'POST',
+  });
+}
+
 export async function searchStripeCustomer(params: { customerId?: string; discordId?: string; email?: string }) {
   const query = new URLSearchParams();
   if (params.customerId) query.set('customerId', params.customerId);

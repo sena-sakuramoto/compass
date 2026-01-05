@@ -70,6 +70,17 @@ export async function verifyToken(token?: string) {
       return decoded;
     }
 
+    // 既存ユーザーの組織プランをチェック（special_admin, enterprise_manual の場合は許可）
+    const existingUser = await fetchUserDoc(decoded.uid);
+    if (existingUser) {
+      const billingDoc = await getOrgBilling(existingUser.orgId);
+      const planType = billingDoc?.planType ?? 'stripe';
+      if (planType === 'special_admin' || planType === 'enterprise_manual') {
+        console.log('[Auth] Allowed: existing user with special plan -', planType, decoded.email);
+        return decoded;
+      }
+    }
+
     // Stripeサブスク利用者であれば認証は通し、後続で組織作成を促す
     const stripeEligibility = await getStripeEligibilityByEmail(decoded.email);
     if (stripeEligibility.eligible) {
