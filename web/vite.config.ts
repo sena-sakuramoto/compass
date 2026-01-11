@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   server: {
     port: 5173,
@@ -11,6 +11,10 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  // 本番ビルド時にconsole.log/debugを削除（パフォーマンス・セキュリティ向上）
+  esbuild: {
+    drop: mode === 'production' ? ['console', 'debugger'] : [],
   },
   build: {
     rollupOptions: {
@@ -25,4 +29,4 @@ export default defineConfig({
     },
     chunkSizeWarningLimit: 600,
   },
-});
+}));

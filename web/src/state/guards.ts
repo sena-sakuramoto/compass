@@ -1,8 +1,8 @@
 // サーバー更新のガード関数
-// 楽観的更新中のタスクに対するサーバー更新の適用を制御
+// 楽観的更新中のタスク・プロジェクトに対するサーバー更新の適用を制御
 
-import type { Task } from '../lib/types';
-import type { PendingChange } from './pendingOverlay';
+import type { Task, Project } from '../lib/types';
+import type { PendingChange, PendingProjectChange } from './pendingOverlay';
 
 /**
  * サーバーからの更新を適用すべきかどうかを判定
@@ -122,4 +122,47 @@ export function checkDateRegression(
   }
 
   return false;
+}
+
+/**
+ * プロジェクトのサーバー更新を適用すべきかどうかを判定
+ */
+export function shouldApplyServerProjectUpdate(
+  local: Project | undefined,
+  incoming: Project,
+  pending?: PendingProjectChange
+): boolean {
+  // ローカルプロジェクトがない場合は常に適用
+  if (!local) return true;
+
+  // 1. updatedAt で後勝ち判定
+  if (local.updatedAt && incoming.updatedAt) {
+    const localTime = new Date(local.updatedAt).getTime();
+    const incomingTime = new Date(incoming.updatedAt).getTime();
+
+    // サーバーの更新が古い場合は破棄
+    if (incomingTime < localTime) {
+      return false;
+    }
+  }
+
+  // 2. pending が生きている間は、同一フィールドが"編集前に戻る"回帰を禁止
+  if (pending && Date.now() < pending.lockUntil) {
+    const regressingFields: string[] = [];
+
+    Object.entries(pending.fields).forEach(([key, pendingValue]) => {
+      const incomingValue = (incoming as any)[key];
+      const localValue = (local as any)[key];
+
+      if (incomingValue !== pendingValue && incomingValue === localValue) {
+        regressingFields.push(key);
+      }
+    });
+
+    if (regressingFields.length > 0) {
+      return false;
+    }
+  }
+
+  return true;
 }

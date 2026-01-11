@@ -1,0 +1,200 @@
+/* React DatePicker styles */
+@import 'react-datepicker/dist/react-datepicker.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Full-height layout */
+html, body, #root {
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* カスタムDatePickerスタイル */
+.react-datepicker {
+  @apply border-0 shadow-lg;
+  font-size: 1rem;
+}
+
+.react-datepicker__month-container {
+  @apply float-left;
+}
+
+.react-datepicker__header {
+  @apply bg-blue-50 border-b-0 pt-3;
+}
+
+.react-datepicker__current-month {
+  @apply text-base font-semibold text-slate-800 mb-2;
+}
+
+.react-datepicker__day-name {
+  @apply text-slate-600 font-medium w-10 leading-10;
+}
+
+.react-datepicker__day {
+  @apply w-10 leading-10 text-sm hover:bg-blue-100 rounded-lg;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--in-range,
+.react-datepicker__day--in-selecting-range {
+  @apply bg-blue-500 text-white hover:bg-blue-600 rounded-lg;
+}
+
+.react-datepicker__day--keyboard-selected {
+  @apply bg-blue-200;
+}
+
+.react-datepicker__day--range-start,
+.react-datepicker__day--range-end {
+  @apply bg-blue-600 text-white font-bold;
+}
+
+.react-datepicker__day--today {
+  @apply font-bold border-2 border-blue-400;
+}
+
+body {
+  @apply bg-white text-slate-900;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+}
+
+button {
+  @apply transition;
+}
+
+/* Recharts tooltip z-index fix */
+.recharts-tooltip-wrapper {
+  z-index: 9999 !important;
+}
+
+/* Hide scrollbar but keep scroll functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari, Opera */
+}
+
+/* Print styles for construction-style Gantt PDF */
+.print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+
+  /* 全体を白背景に */
+  html, body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body {
+    color: #111827;
+    font-family: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+  }
+
+  /* 印刷時 - print-only以外を非表示 */
+  body.printing #root {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body.printing #root > *:not(:has(.print-only)) {
+    display: none !important;
+  }
+
+  body.printing .app-root,
+  body.printing .app-content,
+  body.printing main,
+  body.printing main > div {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  /* 非印刷要素を非表示 */
+  body.printing aside,
+  body.printing header:not(.print-header),
+  body.printing nav,
+  body.printing .no-print:not(:has(.print-only)),
+  body.printing [data-sidebar] {
+    display: none !important;
+  }
+
+  /* print-onlyを表示 */
+  body.printing .print-only {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    background: #fff !important;
+  }
+/* print-only内の全要素を確実に表示 */  body.printing .print-only * {    visibility: visible !important;  }  body.printing .print-header {    display: flex !important;  }  body.printing .print-milestone-labels {    display: grid !important;  }
+
+  body[data-print-size='a3'] .gantt-print-root {
+    font-size: 11px;
+  }
+
+  body[data-print-size='a3'] .print-title-main {
+    font-size: 26px;
+  }
+}
+
+.gantt-print-root {
+  color: #111827;
+  font-size: 10px;
+  line-height: 1.4;
+  width: 100%;
+  height: 100%;
+}
+
+.gantt-print-sheet {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  padding: 8px;
+  margin-bottom: 0;
+  page-break-after: always;
+  page-break-inside: avoid;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 12mm);
+}
+
+.gantt-print-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 2px solid #1e293b;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.gantt-print-header-top {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.gantt-print-stamps {
+  display: flex;
+  gap: 6px;
+}
+

@@ -40,7 +40,6 @@ const STATUS_OPTIONS = [
   '確認待ち',
   '保留',
   '完了',
-  '完了（引渡し済）',
   '計画中',
   '見積',
   '実施中',
@@ -1517,8 +1516,7 @@ const loadCollaborators = async (force = false): Promise<void> => {
                         <select
                           value={newTaskStageId}
                           onChange={(e) => setNewTaskStageId(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400 bg-slate-50 cursor-not-allowed"
-                          disabled
+                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm"
                         >
                           <option value="">未割り当て</option>
                           {stages.map((stage) => (

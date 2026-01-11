@@ -175,7 +175,8 @@ export async function runDailyTaskReminders() {
           continue;
         }
 
-        if (category !== 'startingToday' && isTaskCompleted(task.ステータス)) {
+        // 完了済みタスクは全カテゴリでスキップ
+        if (isTaskCompleted(task.ステータス)) {
           continue;
         }
 

@@ -108,6 +108,13 @@ function normalizeTask(raw: any, index: number): Task {
   };
 }
 
+function normalizeProjectStatus(status: string | undefined | null): string {
+  if (!status) return '';
+  // 「完了（引渡し済）」は「完了」に統一
+  if (status === '完了（引渡し済）') return '完了';
+  return status;
+}
+
 function normalizeProject(raw: any): Project {
   const location = raw['所在地/現地'] ?? raw['所在地_現地'] ?? '';
   const sanitizedLocation = raw['所在地_現地'];
@@ -118,7 +125,7 @@ function normalizeProject(raw: any): Project {
     クライアント: raw['クライアント'] ?? '',
     LS担当者: raw['LS担当者'] ?? '',
     自社PM: raw['自社PM'] ?? '',
-    ステータス: raw['ステータス'] ?? '',
+    ステータス: normalizeProjectStatus(raw['ステータス']),
     優先度: raw['優先度'] ?? '',
     開始日: formatDate(raw['開始日']),
     予定完了日: formatDate(raw['予定完了日']),

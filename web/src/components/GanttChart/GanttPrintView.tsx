@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { addDays, differenceInDays, format, startOfDay } from 'date-fns';
+import { addDays, differenceInDays, format, startOfDay, getDay } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import type { GanttTask, ViewMode } from './types';
 import type { Project } from '../../lib/types';
@@ -12,12 +12,13 @@ type PrintProject = {
   tasks: GanttTask[];
 };
 
-const PRINT_STATUS_COLORS: Record<string, string> = {
-  not_started: '#94a3b8',
-  in_progress: '#4b5563',
-  on_hold: '#6b7280',
-  completed: '#1f2937',
-  overdue: '#111827',
+// 印刷用のモノクロ対応カラー
+const PRINT_BAR_COLORS = {
+  in_progress: '#3b82f6',    // 青
+  completed: '#22c55e',      // 緑
+  not_started: '#94a3b8',    // グレー
+  on_hold: '#f59e0b',        // 黄
+  overdue: '#ef4444',        // 赤
 };
 
 interface GanttPrintViewProps {
@@ -30,9 +31,15 @@ interface GanttPrintViewProps {
   rangeMode?: 'tasks' | 'construction';
 }
 
-function formatDate(value: Date) {
+function formatDateShort(value: Date) {
   return format(value, 'yyyy/MM/dd', { locale: ja });
 }
+
+function formatDateCompact(value: Date) {
+  return format(value, 'M/d', { locale: ja });
+}
+
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
 function getTaskPercent(task: GanttTask, range: { start: Date; end: Date }) {
   const rangeStart = startOfDay(range.start);
@@ -49,6 +56,7 @@ function getTaskPercent(task: GanttTask, range: { start: Date; end: Date }) {
   return { left, width, durationDays };
 }
 
+
 function resolveTaskRange(tasks: GanttTask[]) {
   const dates = tasks.flatMap((task) => [task.startDate, task.endDate]).filter((d) => d instanceof Date);
   const min = dates.length ? new Date(Math.min(...dates.map((d) => d.getTime()))) : new Date();
@@ -56,61 +64,34 @@ function resolveTaskRange(tasks: GanttTask[]) {
   return { start: startOfDay(min), end: startOfDay(max) };
 }
 
-function buildMonthSpans(ticks: { date: Date }[]) {
-  if (ticks.length === 0) return [];
-  const spans: { label: string; span: number }[] = [];
-  let currentLabel = format(ticks[0].date, 'yyyy/MM', { locale: ja });
+function buildMonthGroups(dayTicks: { date: Date }[]) {
+  if (dayTicks.length === 0) return [];
+  const groups: { label: string; span: number; year: number; month: number }[] = [];
+  let currentKey = '';
   let count = 0;
-  ticks.forEach((tick) => {
-    const label = format(tick.date, 'yyyy/MM', { locale: ja });
-    if (label !== currentLabel) {
-      spans.push({ label: currentLabel, span: count });
-      currentLabel = label;
+  let currentYear = 0;
+  let currentMonth = 0;
+
+  dayTicks.forEach((tick) => {
+    const year = tick.date.getFullYear();
+    const month = tick.date.getMonth() + 1;
+    const key = `${year}-${month}`;
+    if (key !== currentKey) {
+      if (currentKey) {
+        groups.push({ label: `${currentYear}年${currentMonth}月`, span: count, year: currentYear, month: currentMonth });
+      }
+      currentKey = key;
+      currentYear = year;
+      currentMonth = month;
       count = 1;
     } else {
       count += 1;
     }
   });
-  spans.push({ label: currentLabel, span: count });
-  return spans;
-}
-
-function alignRangeToWeek(range: { start: Date; end: Date }) {
-  const start = startOfDay(range.start);
-  const end = startOfDay(range.end);
-  const startOffset = (start.getDay() + 6) % 7;
-  const endOffset = (7 - end.getDay()) % 7;
-  return {
-    start: addDays(start, -startOffset),
-    end: addDays(end, endOffset),
-  };
-}
-
-function buildWeekSpans(ticks: { date: Date }[]) {
-  if (ticks.length === 0) return [];
-  const spans: { label: string; span: number }[] = [];
-  let currentLabel = '';
-  let count = 0;
-  ticks.forEach((tick, index) => {
-    const weekStart = tick.date;
-    const month = weekStart.getMonth() + 1;
-    const weekIndex = Math.floor((weekStart.getDate() - 1) / 7) + 1;
-    const label = `${month}月${weekIndex}週`;
-    if (index === 0) {
-      currentLabel = label;
-      count = 1;
-      return;
-    }
-    if (label !== currentLabel) {
-      spans.push({ label: currentLabel, span: count });
-      currentLabel = label;
-      count = 1;
-    } else {
-      count += 1;
-    }
-  });
-  spans.push({ label: currentLabel, span: count });
-  return spans;
+  if (currentKey) {
+    groups.push({ label: `${currentYear}年${currentMonth}月`, span: count, year: currentYear, month: currentMonth });
+  }
+  return groups;
 }
 
 export const GanttPrintView: React.FC<GanttPrintViewProps> = ({
@@ -158,167 +139,151 @@ export const GanttPrintView: React.FC<GanttPrintViewProps> = ({
         const maxEnd = plannedEndDate && plannedEndDate > baseRange.end
           ? plannedEndDate
           : baseRange.end;
-        const baseTotalDays = differenceInDays(maxEnd, minStart) + 1;
-        const effectiveViewMode: ViewMode =
-          baseTotalDays <= 14 ? 'day' : 'week';
-        const bufferDays = effectiveViewMode === 'day' ? 2 : 14;
-        const rawRange = rangeMode === 'construction'
-          ? {
-              start: addDays(startOfDay(minStart), -bufferDays),
-              end: addDays(startOfDay(maxEnd), bufferDays),
-            }
-          : {
-              start: addDays(startOfDay(baseRange.start), -bufferDays),
-              end: addDays(startOfDay(baseRange.end), bufferDays),
-            };
-        const range = alignRangeToWeek(rawRange);
+
+        // バッファを追加して範囲を計算
+        const bufferDays = 3;
+        const range = {
+          start: addDays(startOfDay(rangeMode === 'construction' ? minStart : baseRange.start), -bufferDays),
+          end: addDays(startOfDay(rangeMode === 'construction' ? maxEnd : baseRange.end), bufferDays),
+        };
+
         const totalDays = differenceInDays(range.end, range.start) + 1;
         const dayTicks = calculateDateTicks(range.start, range.end, 'day', holidaySet ?? undefined);
-        const weekTicks = calculateDateTicks(range.start, range.end, 'week', holidaySet ?? undefined);
-        const ticks = weekTicks;
-        const monthSpans = buildMonthSpans(ticks);
-        const weekSpans = buildWeekSpans(ticks);
-        const displayRangeLabel = `${formatDate(range.start)} 〜 ${formatDate(range.end)}`;
-        const today = startOfDay(new Date());
-        const todayOffset = differenceInDays(today, range.start);
-        const showTodayLine = todayOffset >= 0 && todayOffset <= totalDays;
-        const todayLeft = showTodayLine ? Math.max((todayOffset / totalDays) * 100, 0) : 0;
+        const monthGroups = buildMonthGroups(dayTicks);
+
+        const displayRangeLabel = `${formatDateShort(range.start)} 〜 ${formatDateShort(range.end)}`;
         const periodLabel = plannedStart || plannedEnd
-          ? `${plannedStart || formatDate(range.start)} 〜 ${plannedEnd || formatDate(range.end)}`
+          ? `${plannedStart || '-'} 〜 ${plannedEnd || '-'}`
           : '-';
+
+        // プロジェクトマイルストーンを計算
+        const projectMilestones: { date: Date; label: string; color: string }[] = [];
+        const chakkoDate = parseDate(info?.着工日 ?? null);
+        const shunkoDate = parseDate(info?.竣工予定日 ?? null);
+        const hikiwatashiDate = parseDate(info?.引渡し予定日 ?? null);
+
+        if (chakkoDate && chakkoDate >= range.start && chakkoDate <= range.end) {
+          projectMilestones.push({ date: chakkoDate, label: '着工', color: '#059669' });
+        }
+        if (shunkoDate && shunkoDate >= range.start && shunkoDate <= range.end) {
+          projectMilestones.push({ date: shunkoDate, label: '竣工', color: '#2563eb' });
+        }
+        if (hikiwatashiDate && hikiwatashiDate >= range.start && hikiwatashiDate <= range.end) {
+          projectMilestones.push({ date: hikiwatashiDate, label: '引渡', color: '#dc2626' });
+        }
+
+        // マイルストーンの位置を計算
+        const getMilestonePercent = (date: Date) => {
+          const offset = differenceInDays(startOfDay(date), range.start);
+          return (offset / totalDays) * 100;
+        };
+
         return (
-          <section key={project.id} className="gantt-print-sheet">
-            <header className="gantt-print-header">
-              <div className="gantt-print-header-top">
-                <div className="gantt-print-title">
-                  <div className="gantt-print-title-main">工程表</div>
-                  <div className="gantt-print-title-sub">Construction Schedule</div>
+          <section key={project.id} className="print-sheet">
+            {/* ヘッダー */}
+            <header className="print-header">
+              <div className="print-header-left">
+                <div className="print-title">
+                  <span className="print-title-main">工 程 表</span>
+                  <span className="print-title-sub">CONSTRUCTION SCHEDULE</span>
                 </div>
-                <div className="gantt-print-stamps">
-                  <div className="gantt-print-stamp-box">
-                    <div className="gantt-print-stamp-label">作成</div>
-                    <div className="gantt-print-stamp-circle"></div>
-                  </div>
-                  <div className="gantt-print-stamp-box">
-                    <div className="gantt-print-stamp-label">確認</div>
-                    <div className="gantt-print-stamp-circle"></div>
-                  </div>
-                  <div className="gantt-print-stamp-box">
-                    <div className="gantt-print-stamp-label">承認</div>
-                    <div className="gantt-print-stamp-circle"></div>
-                  </div>
-                </div>
+                <div className="print-project-name">{project.name}</div>
               </div>
-              <div className="gantt-print-meta">
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">工事名</span>
-                  <span className="gantt-print-meta-value">{project.name}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">工事場所</span>
-                  <span className="gantt-print-meta-value">{location || '-'}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">発注者</span>
-                  <span className="gantt-print-meta-value">{info?.クライアント || '-'}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">施工者</span>
-                  <span className="gantt-print-meta-value">{(info as any)?.組織名 || (info as any)?.会社名 || '-'}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">工事工期</span>
-                  <span className="gantt-print-meta-value">{periodLabel}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">表示期間</span>
-                  <span className="gantt-print-meta-value">{displayRangeLabel}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">施工管理</span>
-                  <span className="gantt-print-meta-value">{info?.施工管理 || '-'}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">PM</span>
-                  <span className="gantt-print-meta-value">{info?.PM || info?.自社PM || '-'}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">設計</span>
-                  <span className="gantt-print-meta-value">{info?.設計 || '-'}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">営業</span>
-                  <span className="gantt-print-meta-value">{info?.営業 || '-'}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">作成日</span>
-                  <span className="gantt-print-meta-value">{format(new Date(), 'yyyy/MM/dd')}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">作成者</span>
-                  <span className="gantt-print-meta-value">{generatedBy || '-'}</span>
-                </div>
-                <div className="gantt-print-meta-row">
-                  <span className="gantt-print-meta-label">版数</span>
-                  <span className="gantt-print-meta-value">1.0</span>
+              <div className="print-header-right">
+                <div className="print-stamps">
+                  <div className="print-stamp">
+                    <span className="print-stamp-label">承認</span>
+                    <div className="print-stamp-circle" />
+                  </div>
+                  <div className="print-stamp">
+                    <span className="print-stamp-label">確認</span>
+                    <div className="print-stamp-circle" />
+                  </div>
+                  <div className="print-stamp">
+                    <span className="print-stamp-label">作成</span>
+                    <div className="print-stamp-circle" />
+                  </div>
                 </div>
               </div>
             </header>
 
-            <div className="gantt-print-table">
-              <div className="gantt-print-table-head">
-                <div className="gantt-print-col gantt-print-col-task">工種/作業</div>
-                <div className="gantt-print-col gantt-print-col-assignee">担当</div>
-                <div className="gantt-print-col gantt-print-col-date">開始</div>
-                <div className="gantt-print-col gantt-print-col-date">終了</div>
-                <div className="gantt-print-col gantt-print-col-days">日数</div>
-                <div className="gantt-print-col gantt-print-col-progress">進捗</div>
-                <div className="gantt-print-col gantt-print-col-timeline">
-                  <div
-                    className="gantt-print-months"
-                    style={{ gridTemplateColumns: `repeat(${ticks.length}, minmax(12px, 1fr))` }}
-                  >
-                    {monthSpans.map((span, idx) => (
+            {/* メタ情報 */}
+            <div className="print-meta">
+              <div className="print-meta-grid">
+                <div className="print-meta-item">
+                  <span className="print-meta-label">工事場所</span>
+                  <span className="print-meta-value">{location || '-'}</span>
+                </div>
+                <div className="print-meta-item">
+                  <span className="print-meta-label">発注者</span>
+                  <span className="print-meta-value">{info?.クライアント || '-'}</span>
+                </div>
+                <div className="print-meta-item">
+                  <span className="print-meta-label">工事工期</span>
+                  <span className="print-meta-value">{periodLabel}</span>
+                </div>
+                <div className="print-meta-item">
+                  <span className="print-meta-label">表示期間</span>
+                  <span className="print-meta-value">{displayRangeLabel}</span>
+                </div>
+                <div className="print-meta-item">
+                  <span className="print-meta-label">作成日</span>
+                  <span className="print-meta-value">{format(new Date(), 'yyyy年MM月dd日')}</span>
+                </div>
+                <div className="print-meta-item">
+                  <span className="print-meta-label">作成者</span>
+                  <span className="print-meta-value">{generatedBy || '-'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* メインテーブル */}
+            <div className="print-table">
+              {/* テーブルヘッダー */}
+              <div className="print-table-header">
+                <div className="print-col print-col-task">作業項目</div>
+                <div className="print-col print-col-assignee">担当</div>
+                <div className="print-col print-col-period">期間</div>
+                <div className="print-col print-col-days">日数</div>
+                <div className="print-col print-col-progress">進捗</div>
+                <div className="print-col print-col-timeline">
+                  {/* 月ヘッダー */}
+                  <div className="print-timeline-months" style={{ gridTemplateColumns: `repeat(${dayTicks.length}, 1fr)` }}>
+                    {monthGroups.map((group, idx) => (
                       <div
-                        key={`${span.label}-${idx}`}
-                        className="gantt-print-month"
-                        style={{ gridColumn: `span ${span.span}` }}
+                        key={`month-${idx}`}
+                        className="print-timeline-month"
+                        style={{ gridColumn: `span ${group.span}` }}
                       >
-                        {span.label}
+                        {group.label}
                       </div>
                     ))}
                   </div>
-                  <div
-                    className="gantt-print-weeks"
-                    style={{ gridTemplateColumns: `repeat(${ticks.length}, minmax(12px, 1fr))` }}
-                  >
-                    {weekSpans.map((span, idx) => (
-                      <div
-                        key={`${span.label}-${idx}`}
-                        className="gantt-print-week"
-                        style={{ gridColumn: `span ${span.span}` }}
-                      >
-                        {span.label}
-                      </div>
-                    ))}
-                  </div>
-                  <div
-                    className="gantt-print-ticks"
-                    style={{ gridTemplateColumns: `repeat(${ticks.length}, minmax(12px, 1fr))` }}
-                  >
-                    {ticks.map((tick, index) => {
-                      const prev = ticks[index - 1];
-                      const isMonthBoundary = !prev || tick.date.getMonth() !== prev.date.getMonth();
-                      const isWeekBoundary =
-                        effectiveViewMode === 'day'
-                          ? tick.date.getDay() === 1
-                          : true;
+                  {/* 日付ヘッダー */}
+                  <div className="print-timeline-days" style={{ gridTemplateColumns: `repeat(${dayTicks.length}, 1fr)` }}>
+                    {dayTicks.map((tick, idx) => {
+                      const day = tick.date.getDate();
+                      const isMonthStart = day === 1;
                       return (
                         <div
-                          key={tick.date.toISOString()}
-                          className={`gantt-print-tick${tick.isWeekend ? ' is-weekend' : ''}${tick.isHoliday ? ' is-holiday' : ''}${isMonthBoundary ? ' is-month-boundary' : ''}${isWeekBoundary ? ' is-week-boundary' : ''}`}
+                          key={`day-${idx}`}
+                          className={`print-timeline-day ${isMonthStart ? 'is-month-start' : ''} ${tick.isWeekend ? 'is-weekend' : ''} ${tick.isHoliday ? 'is-holiday' : ''}`}
                         >
-                          {' '}
+                          {day}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* 曜日ヘッダー */}
+                  <div className="print-timeline-weekdays" style={{ gridTemplateColumns: `repeat(${dayTicks.length}, 1fr)` }}>
+                    {dayTicks.map((tick, idx) => {
+                      const weekday = getDay(tick.date);
+                      return (
+                        <div
+                          key={`wd-${idx}`}
+                          className={`print-timeline-weekday ${tick.isWeekend ? 'is-weekend' : ''} ${tick.isHoliday ? 'is-holiday' : ''}`}
+                        >
+                          {WEEKDAY_LABELS[weekday]}
                         </div>
                       );
                     })}
@@ -326,141 +291,194 @@ export const GanttPrintView: React.FC<GanttPrintViewProps> = ({
                 </div>
               </div>
 
-              <div className="gantt-print-table-body">
-                {project.tasks.map((task) => {
-                  const safeStart = task.startDate instanceof Date && !Number.isNaN(task.startDate.getTime());
-                  const safeEnd = task.endDate instanceof Date && !Number.isNaN(task.endDate.getTime());
-                  const { left, width, durationDays } = safeStart && safeEnd
-                    ? getTaskPercent(task, range)
-                    : { left: 0, width: 0, durationDays: 0 };
-                  const statusColor = PRINT_STATUS_COLORS[task.status] || STATUS_COLORS[task.status] || '#64748b';
-                  const isStage = task.type === 'stage';
-                  const isChild = Boolean(task.parentId) && !isStage;
-                  return (
-                    <div key={task.id} className={`gantt-print-row${isStage ? ' is-stage' : ''}${isChild ? ' is-child' : ''}`}>
-                      <div className="gantt-print-col gantt-print-col-task">
-                        <div
-                          className="gantt-print-task-name"
-                          style={{ paddingLeft: isChild ? '12px' : '0' }}
-                        >
-                          {task.name || '無題'}
+              {/* テーブルボディ */}
+              <div className="print-table-body">
+                {project.tasks.map((task, rowIdx) => {
+                    const safeStart = task.startDate instanceof Date && !Number.isNaN(task.startDate.getTime());
+                    const safeEnd = task.endDate instanceof Date && !Number.isNaN(task.endDate.getTime());
+                    const { left, width, durationDays } = safeStart && safeEnd
+                      ? getTaskPercent(task, range)
+                      : { left: 0, width: 0, durationDays: 0 };
+                    const barColor = PRINT_BAR_COLORS[task.status as keyof typeof PRINT_BAR_COLORS] || PRINT_BAR_COLORS.in_progress;
+                    const isStage = task.type === 'stage';
+                    const isChild = Boolean(task.parentId) && !isStage;
+                    const isMilestone = task.milestone;
+                    const progressPct = Math.round(task.progress || 0);
+                    const periodStr = safeStart && safeEnd
+                      ? `${formatDateCompact(task.startDate)} - ${formatDateCompact(task.endDate)}`
+                      : '-';
+                    const isEven = rowIdx % 2 === 0;
+
+                    return (
+                      <div key={task.id} className={`print-row ${isStage ? 'is-stage' : ''} ${isChild ? 'is-child' : ''} ${isEven ? 'is-even' : 'is-odd'}`}>
+                        <div className="print-col print-col-task">
+                          <span className={`print-task-name ${isChild ? 'is-child' : ''}`}>
+                            {isChild && <span className="print-task-indent">└ </span>}
+                            {task.name || '無題'}
+                          </span>
                         </div>
-                        {task.description ? <div className="gantt-print-task-note">{task.description}</div> : null}
-                      </div>
-                      <div className="gantt-print-col gantt-print-col-assignee">{task.assignee || '-'}</div>
-                      <div className="gantt-print-col gantt-print-col-date">{safeStart ? formatDate(task.startDate) : '-'}</div>
-                      <div className="gantt-print-col gantt-print-col-date">{safeEnd ? formatDate(task.endDate) : '-'}</div>
-                      <div className="gantt-print-col gantt-print-col-days">{durationDays ? `${durationDays}日` : '-'}</div>
-                      <div className="gantt-print-col gantt-print-col-progress">{Math.round(task.progress || 0)}%</div>
-                      <div className="gantt-print-col gantt-print-col-timeline">
-                        <div
-                          className="gantt-print-grid"
-                          style={{ gridTemplateColumns: `repeat(${ticks.length}, minmax(12px, 1fr))` }}
-                        >
-                          {ticks.map((tick, index) => {
-                            const prev = ticks[index - 1];
-                            const isMonthBoundary = !prev || tick.date.getMonth() !== prev.date.getMonth();
-                            const isWeekBoundary =
-                              effectiveViewMode === 'day'
-                                ? tick.date.getDay() === 1
-                                : true;
-                            return (
-                              <div
-                                key={`${task.id}-${tick.date.toISOString()}`}
-                                className={`gantt-print-grid-cell${tick.isWeekend ? ' is-weekend' : ''}${tick.isHoliday ? ' is-holiday' : ''}${isMonthBoundary ? ' is-month-boundary' : ''}${isWeekBoundary ? ' is-week-boundary' : ''}`}
-                              />
-                            );
-                          })}
-                        </div>
-                        {dayTicks.map((tick) => {
-                          if (!tick.isWeekend) return null;
-                          const offset = differenceInDays(tick.date, range.start);
-                          const left = Math.max((offset / totalDays) * 100, 0);
-                          const width = Math.max((1 / totalDays) * 100, 0.2);
-                          return (
-                            <div
-                              key={`${task.id}-weekend-${tick.date.toISOString()}`}
-                              className="gantt-print-weekend-band"
-                              style={{ left: `${left}%`, width: `${width}%` }}
-                            />
-                          );
-                        })}
-                        {showTodayLine ? (
-                          <div
-                            className="gantt-print-today-line"
-                            style={{ left: `${todayLeft}%` }}
-                          />
-                        ) : null}
-                        {safeStart && safeEnd ? (
-                          <div
-                            className="gantt-print-bar"
-                            style={{
-                              left: `${left}%`,
-                              width: `${width}%`,
-                              backgroundColor: statusColor,
-                            }}
-                            data-status={task.status}
-                          >
-                            <div
-                              className="gantt-print-bar-progress"
-                              style={{ width: `${Math.max(0, Math.min(100, Math.round(task.progress || 0)))}%` }}
-                            />
+                        <div className="print-col print-col-assignee">{task.assignee || '-'}</div>
+                        <div className="print-col print-col-period">{periodStr}</div>
+                        <div className="print-col print-col-days">{durationDays ? `${durationDays}日` : '-'}</div>
+                        <div className="print-col print-col-progress">{progressPct}%</div>
+                        <div className="print-col print-col-timeline">
+                          {/* グリッド背景 */}
+                          <div className="print-timeline-grid" style={{ gridTemplateColumns: `repeat(${dayTicks.length}, 1fr)` }}>
+                            {dayTicks.map((tick, idx) => {
+                              const day = tick.date.getDate();
+                              const isMonthStart = day === 1;
+                              return (
+                                <div
+                                  key={`grid-${idx}`}
+                                  className={`print-grid-cell ${isMonthStart ? 'is-month-start' : ''} ${tick.isWeekend ? 'is-weekend' : ''} ${tick.isHoliday ? 'is-holiday' : ''}`}
+                                />
+                              );
+                            })}
                           </div>
-                        ) : (
-                          <div className="gantt-print-bar gantt-print-bar-empty">日付未設定</div>
-                        )}
-                        {task.milestone ? (
-                          <>
-                            <div className="gantt-print-milestone-line" style={{ left: `${left}%` }} />
-                            <div className="gantt-print-milestone" style={{ left: `${left}%` }} />
-                          </>
-                        ) : null}
+
+                          {/* タスクバー or マイルストーン */}
+                          {safeStart && safeEnd && !isMilestone && (
+                            <div
+                              className="print-bar"
+                              style={{
+                                left: `${left}%`,
+                                width: `${width}%`,
+                                backgroundColor: barColor,
+                              }}
+                            >
+                              {/* 進捗バー */}
+                              {progressPct > 0 && (
+                                <div
+                                  className="print-bar-progress"
+                                  style={{ width: `${progressPct}%` }}
+                                />
+                              )}
+                            </div>
+                          )}
+
+                          {/* マイルストーン */}
+                          {isMilestone && safeStart && (
+                            <div
+                              className="print-milestone"
+                              style={{ left: `${left}%` }}
+                            >
+                              <span className="print-milestone-label">{task.name}</span>
+                            </div>
+                          )}
+
+                          {/* プロジェクトマイルストーン（着工・竣工・引渡）の縦線 */}
+                          {projectMilestones.map((ms, msIdx) => (
+                            <div
+                              key={`pms-${msIdx}`}
+                              className="print-project-milestone"
+                              style={{
+                                left: `${getMilestonePercent(ms.date)}%`,
+                                borderColor: ms.color,
+                              }}
+                            />
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+              </div>
+
+              {/* プロジェクトマイルストーンのラベル行 */}
+              {projectMilestones.length > 0 && (
+                <div className="print-milestone-labels">
+                  <div className="print-col print-col-task">
+                    <span className="print-task-name" style={{ fontWeight: 700, color: '#475569' }}>
+                      ▼ マイルストーン
+                    </span>
+                  </div>
+                  <div className="print-col print-col-assignee" />
+                  <div className="print-col print-col-period" />
+                  <div className="print-col print-col-days" />
+                  <div className="print-col print-col-progress" />
+                  <div className="print-col print-col-timeline">
+                    {projectMilestones.map((ms, msIdx) => (
+                      <div
+                        key={`pms-label-${msIdx}`}
+                        className="print-project-milestone-marker"
+                        style={{ left: `${getMilestonePercent(ms.date)}%` }}
+                      >
+                        <div
+                          className="print-project-milestone-diamond"
+                          style={{ backgroundColor: ms.color }}
+                        />
+                        <span className="print-project-milestone-text" style={{ color: ms.color }}>
+                          {ms.label}
+                          <br />
+                          <span style={{ fontSize: '7px', color: '#64748b' }}>
+                            {format(ms.date, 'M/d')}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 備考欄 */}
+            <div className="print-remarks">
+              <div className="print-remarks-header">備考</div>
+              <div className="print-remarks-lines">
+                <div className="print-remarks-line" />
+                <div className="print-remarks-line" />
               </div>
             </div>
 
-            <footer className="gantt-print-footer">
-              <div className="gantt-print-footer-section">
-                <div className="gantt-print-footer-label">備考</div>
-                <div className="gantt-print-footer-remarks">
-                  <div className="gantt-print-footer-remark-line"></div>
-                  <div className="gantt-print-footer-remark-line"></div>
+            {/* フッター */}
+            <footer className="print-footer">
+              <div className="print-footer-left">
+                <div className="print-legend">
+                  <span className="print-legend-title">凡例:</span>
+                  <div className="print-legend-item">
+                    <span className="print-legend-bar" style={{ backgroundColor: PRINT_BAR_COLORS.in_progress }} />
+                    <span>進行中</span>
+                  </div>
+                  <div className="print-legend-item">
+                    <span className="print-legend-bar" style={{ backgroundColor: PRINT_BAR_COLORS.completed }} />
+                    <span>完了</span>
+                  </div>
+                  <div className="print-legend-item">
+                    <span className="print-legend-bar" style={{ backgroundColor: PRINT_BAR_COLORS.not_started }} />
+                    <span>未着手</span>
+                  </div>
+                  <div className="print-legend-item">
+                    <span className="print-legend-bar" style={{ backgroundColor: PRINT_BAR_COLORS.on_hold }} />
+                    <span>保留</span>
+                  </div>
+                  <div className="print-legend-item">
+                    <span className="print-legend-bar" style={{ backgroundColor: PRINT_BAR_COLORS.overdue }} />
+                    <span>遅延</span>
+                  </div>
+                  <div className="print-legend-item">
+                    <span className="print-legend-diamond" />
+                    <span>マイルストーン</span>
+                  </div>
+                  <span className="print-legend-divider">|</span>
+                  <div className="print-legend-item">
+                    <span className="print-legend-milestone-line" style={{ borderColor: '#059669' }} />
+                    <span>着工</span>
+                  </div>
+                  <div className="print-legend-item">
+                    <span className="print-legend-milestone-line" style={{ borderColor: '#2563eb' }} />
+                    <span>竣工</span>
+                  </div>
+                  <div className="print-legend-item">
+                    <span className="print-legend-milestone-line" style={{ borderColor: '#dc2626' }} />
+                    <span>引渡</span>
+                  </div>
                 </div>
               </div>
-              <div className="gantt-print-footer-info">
-                <div className="gantt-print-footer-note">
-                  ※ 本工程表はCompassから出力された内容です。最新の契約条件・進捗は担当者へご確認ください。
-                </div>
-                <div className="gantt-print-footer-page">
-                  ページ: 1 / 1
+              <div className="print-footer-right">
+                <div className="print-footer-note">
+                  ※ 本工程表は Project Compass により出力されました
                 </div>
               </div>
             </footer>
-            <div className="gantt-print-legend">
-              <div className="gantt-print-legend-item">
-                <span className="gantt-print-legend-swatch" style={{ backgroundColor: STATUS_COLORS.in_progress }} />
-                進行中
-              </div>
-              <div className="gantt-print-legend-item">
-                <span className="gantt-print-legend-swatch" style={{ backgroundColor: STATUS_COLORS.completed }} />
-                完了
-              </div>
-              <div className="gantt-print-legend-item">
-                <span className="gantt-print-legend-swatch" style={{ backgroundColor: STATUS_COLORS.on_hold }} />
-                保留
-              </div>
-              <div className="gantt-print-legend-item">
-                <span className="gantt-print-legend-swatch" style={{ backgroundColor: STATUS_COLORS.overdue }} />
-                遅延
-              </div>
-              <div className="gantt-print-legend-item">
-                <span className="gantt-print-legend-diamond" />
-                マイルストーン
-              </div>
-            </div>
           </section>
         );
       })}

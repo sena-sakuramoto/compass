@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
   CalendarDays,
   Home,
@@ -98,7 +98,7 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, 
         { id: 'schedule', label: '工程表', path: '/', icon: 'CalendarDays', visible: true, order: 0 },
         { id: 'summary', label: 'プロジェクト', path: '/summary', icon: 'BarChart3', visible: true, order: 1 },
         { id: 'tasks', label: 'タスク', path: '/tasks', icon: 'ListChecks', visible: true, order: 2 },
-        { id: 'workload', label: '稼働状況', path: '/workload', icon: 'Users', visible: true, order: 3 },
+        { id: 'workload', label: 'リソース分析', path: '/workload', icon: 'Users', visible: true, order: 3 },
         { id: 'users', label: '人員管理', path: '/users', icon: 'Users', visible: true, order: 4 },
         { id: 'help', label: 'ヘルプ', path: '/help', icon: 'HelpCircle', visible: true, order: 5 },
       ],
@@ -237,6 +237,11 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, 
               </button>
             )}
             <div className="text-xs text-slate-500">Project Compass v1.0</div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">
+              <Link to="/terms" className="hover:text-slate-600 hover:underline">利用規約</Link>
+              <Link to="/privacy" className="hover:text-slate-600 hover:underline">プライバシー</Link>
+              <Link to="/legal" className="hover:text-slate-600 hover:underline">特商法</Link>
+            </div>
           </div>
         </div>
       </aside>

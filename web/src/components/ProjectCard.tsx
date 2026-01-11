@@ -25,7 +25,6 @@ interface ProjectCardProps {
 
 const statusTone: Record<string, string> = {
   完了: 'bg-slate-200 text-slate-700',
-  '完了（引渡し済）': 'bg-slate-200 text-slate-700',
   失注: 'bg-rose-100 text-rose-700',
   進行中: 'bg-slate-200 text-slate-700',
   未着手: 'bg-slate-100 text-slate-600',

@@ -1,6 +1,7 @@
 // ヘルプページ - Compassの最新仕様ガイド
 
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   HelpCircle,
   Users,
@@ -15,6 +16,8 @@ import {
   CalendarDays,
   BarChart3,
   AlertTriangle,
+  FileText,
+  Mail,
 } from 'lucide-react';
 
 export function HelpPage() {
@@ -83,7 +86,7 @@ export function HelpPage() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
-                  <span><strong>稼働状況:</strong> 期間別の稼働/稼ぎを可視化し、人員の負荷も確認。</span>
+                  <span><strong>リソース分析:</strong> 期間別の稼働/稼ぎを可視化し、人員やプロジェクトの負荷を確認。</span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-teal-600 mt-1">•</span>
@@ -127,7 +130,7 @@ export function HelpPage() {
                 <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>プロジェクト/担当者/ステータスは複数選択できます。</span></li>
                 <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>担当者候補は人員管理で登録した人＋プロジェクトの参加メンバーが基準です。</span></li>
                 <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>検索はタスク名・担当者・ステータス・プロジェクト名を横断して絞り込みます。</span></li>
-                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>失注・引渡し済の表示切替はダッシュボードの案内帯から行えます。</span></li>
+                <li className="flex items-start gap-2"><span className="text-teal-600 mt-1">•</span><span>完了・失注の表示切替はダッシュボードの案内帯から行えます。</span></li>
               </ul>
             </div>
           </div>
@@ -150,10 +153,10 @@ export function HelpPage() {
           </div>
         </Section>
 
-        <Section id="workload" title="稼働状況 / 稼ぎビュー" icon={BarChart3}>
+        <Section id="workload" title="リソース分析" icon={BarChart3}>
           <div className="space-y-4 text-slate-700">
             <p className="text-sm">
-              稼働状況は、担当者の負荷とプロジェクトの稼ぎを同じ期間で見られるページです。
+              リソース分析は、担当者別・プロジェクト別の工数と稼ぎを同じ期間で見られるページです。
             </p>
             <div>
               <h3 className="font-semibold text-slate-900 mb-2">集計ルール</h3>
@@ -339,7 +342,7 @@ export function HelpPage() {
         <Section id="faq" title="よくある質問" icon={HelpCircle}>
           <div className="space-y-4 text-sm text-slate-700">
             <FAQItem
-              question="Q: 失注や引渡し済のプロジェクトはどこで確認できますか？"
+              question="Q: 完了や失注のプロジェクトはどこで確認できますか？"
               answer="A: ダッシュボードの案内帯にあるボタンで表示/非表示を切り替えられます。" />
             <FAQItem
               question="Q: 稼働時間や稼ぎの数値が以前と違うのはなぜ？"
@@ -355,6 +358,62 @@ export function HelpPage() {
               answer="A: 日本の祝日データセットを起動時に読み込み、日曜と同じ赤文字で表示します。特別な設定は不要です。" />
           </div>
         </Section>
+
+        {/* 法務情報・お問い合わせ */}
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="rounded-lg bg-slate-100 p-2">
+              <FileText className="h-5 w-5 text-slate-600" />
+            </div>
+            <h2 className="text-lg font-semibold text-slate-900">法務情報・お問い合わせ</h2>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <div>
+              <h3 className="font-medium text-slate-900 mb-3">規約・ポリシー</h3>
+              <ul className="space-y-2">
+                <li>
+                  <Link to="/terms" className="text-teal-600 hover:text-teal-700 hover:underline text-sm flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    利用規約
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/privacy" className="text-teal-600 hover:text-teal-700 hover:underline text-sm flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    プライバシーポリシー
+                  </Link>
+                </li>
+                <li>
+                  <Link to="/legal" className="text-teal-600 hover:text-teal-700 hover:underline text-sm flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    特定商取引法に基づく表示
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="font-medium text-slate-900 mb-3">お問い合わせ</h3>
+              <div className="space-y-2 text-sm text-slate-600">
+                <p className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-slate-400" />
+                  <a href="mailto:compass@archi-prisma.co.jp" className="text-teal-600 hover:text-teal-700 hover:underline">
+                    compass@archi-prisma.co.jp
+                  </a>
+                </p>
+                <p className="text-xs text-slate-500">
+                  平日 10:00〜18:00（土日祝・年末年始を除く）
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* コピーライト */}
+        <div className="text-center text-xs text-slate-400 pb-4">
+          &copy; {new Date().getFullYear()} Archi-Prisma Design works株式会社 All Rights Reserved.
+        </div>
       </div>
     </div>
   );

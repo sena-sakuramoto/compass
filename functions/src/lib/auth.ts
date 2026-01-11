@@ -252,26 +252,27 @@ async function findStripeCustomerViaApi(email: string): Promise<{ customerId: st
 export async function getStripeEligibilityByEmail(email?: string | null): Promise<{ eligible: boolean; customerId?: string | null; status?: string }> {
   if (!email) return { eligible: false };
   try {
+    // 常にStripe APIで実際のサブスク状態を確認（キャッシュより信頼性が高い）
+    const live = await findStripeCustomerViaApi(email);
+    const eligibleLive = live.entitled || live.status === 'active' || live.status === 'trialing';
+    if (eligibleLive) {
+      return { eligible: true, customerId: live.customerId, status: live.status };
+    }
+
+    // Stripe APIで見つからなかった場合のみFirestoreをフォールバックとして確認
     const customer = await findStripeCustomer({ email });
     if (customer) {
+      // サブスクリプションのstatusのみを確認（customer.statusは使わない）
       const subscription = (customer.raw?.subscription as Record<string, unknown> | undefined) ?? {};
-      const status = String(
-        subscription.status ??
-          subscription.subscriptionStatus ??
-          customer.status ??
-          ''
-      ).toLowerCase();
-      const entitled = subscription.entitled === true || customer.entitled === true;
+      const status = String(subscription.status ?? subscription.subscriptionStatus ?? '').toLowerCase();
+      const entitled = subscription.entitled === true;
       const eligible = entitled || status === 'active' || status === 'trialing';
       if (eligible) {
         return { eligible, customerId: customer.id, status };
       }
     }
 
-    // Firestoreにない場合はStripe APIを直接参照
-    const live = await findStripeCustomerViaApi(email);
-    const eligibleLive = live.entitled || live.status === 'active' || live.status === 'trialing';
-    return { eligible: eligibleLive, customerId: live.customerId, status: live.status };
+    return { eligible: false };
   } catch (error) {
     console.error('[Auth] Error checking Stripe eligibility:', error);
     return { eligible: false };

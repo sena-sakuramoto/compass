@@ -63,15 +63,11 @@ router.get('/org-setup/org-id-check', async (req, res) => {
   }
 });
 
+// サブスクリプションのstatusのみを確認（customer.statusは信頼しない）
 function isStripeEligible(customer: any): { eligible: boolean; status: string } {
   const subscription = (customer?.raw?.subscription as Record<string, unknown> | undefined) ?? {};
-  const status = String(
-    subscription.status ??
-      subscription.subscriptionStatus ??
-      customer?.status ??
-      ''
-  ).toLowerCase();
-  const entitled = subscription.entitled === true || customer?.entitled === true;
+  const status = String(subscription.status ?? subscription.subscriptionStatus ?? '').toLowerCase();
+  const entitled = subscription.entitled === true;
   const eligible = entitled || status === 'active' || status === 'trialing';
   return { eligible, status };
 }

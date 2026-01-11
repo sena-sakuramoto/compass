@@ -278,6 +278,7 @@ export async function listProjectMembers(
     if (resolvedOrgId !== orgId) return;
 
     if (!member.projectOrgId && resolvedOrgId) {
+      // バックフィル処理は非同期で実行（APIレスポンスをブロックしない）
       updates.push(
         db.collection('project_members').doc(docId).update({
           projectOrgId: resolvedOrgId,
@@ -290,12 +291,14 @@ export async function listProjectMembers(
     scopedMembers.push(member);
   });
 
+  // バックフィル処理はfire-and-forget（待たない）
   if (updates.length > 0) {
-    const results = await Promise.allSettled(updates);
-    const failed = results.filter(result => result.status === 'rejected');
-    if (failed.length > 0) {
-      console.warn('[listProjectMembers] Failed to backfill projectOrgId:', failed.length);
-    }
+    Promise.allSettled(updates).then(results => {
+      const failed = results.filter(result => result.status === 'rejected');
+      if (failed.length > 0) {
+        console.warn('[listProjectMembers] Failed to backfill projectOrgId:', failed.length);
+      }
+    }).catch(() => {});
   }
 
   return scopedMembers;
@@ -565,12 +568,14 @@ export async function listUserProjects(
     }
   });
 
+  // バックフィル処理はfire-and-forget（待たない）
   if (updates.length > 0) {
-    const results = await Promise.allSettled(updates);
-    const failed = results.filter((result) => result.status === 'rejected');
-    if (failed.length > 0) {
-      console.warn('[listUserProjects] Failed to backfill projectOrgId:', failed.length);
-    }
+    Promise.allSettled(updates).then(results => {
+      const failed = results.filter((result) => result.status === 'rejected');
+      if (failed.length > 0) {
+        console.warn('[listUserProjects] Failed to backfill projectOrgId:', failed.length);
+      }
+    }).catch(() => {});
   }
 
   // 同組織のメンバーの場合、全プロジェクトへのアクセスを追加

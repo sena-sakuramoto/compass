@@ -6,7 +6,7 @@ export const STATUS_PROGRESS: Record<string, number> = {
   完了: 1,
 };
 
-export const ARCHIVED_PROJECT_STATUSES: readonly string[] = ['完了', '失注', '完了（引渡し済）'];
+export const ARCHIVED_PROJECT_STATUSES: readonly string[] = ['完了', '失注'];
 export const CLOSED_PROJECT_STATUSES: readonly string[] = ARCHIVED_PROJECT_STATUSES;
 
 export const isArchivedProjectStatus = (status?: string | null): boolean =>

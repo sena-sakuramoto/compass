@@ -20,6 +20,7 @@ import {
   Building2,
   Rocket,
   Wand2,
+  Search,
 } from 'lucide-react';
 import {
   listProjects,
@@ -2423,6 +2424,9 @@ function SchedulePage({
   printPaperSize,
   printRangeMode,
   printProjectOptions,
+  filteredPrintProjectOptions,
+  printProjectSearch,
+  setPrintProjectSearch,
   openPrintPanel,
   togglePrintProject,
   handlePrintSubmit,
@@ -2460,7 +2464,10 @@ function SchedulePage({
   printProjectIds: string[];
   printPaperSize: 'a3' | 'a4';
   printRangeMode: 'tasks' | 'construction';
-  printProjectOptions: { id: string; name: string }[];
+  printProjectOptions: { id: string; name: string; client?: string; location?: string }[];
+  filteredPrintProjectOptions: { id: string; name: string; client?: string; location?: string }[];
+  printProjectSearch: string;
+  setPrintProjectSearch: (search: string) => void;
   openPrintPanel: () => void;
   togglePrintProject: (id: string) => void;
   handlePrintSubmit: () => void;
@@ -3254,7 +3261,7 @@ function SchedulePage({
                 </label>
                 <button
                   type="button"
-                  onClick={() => setPrintProjectIds(printProjectOptions.map((option) => option.id))}
+                  onClick={() => setPrintProjectIds(filteredPrintProjectOptions.map((option) => option.id))}
                   className="rounded-full border border-slate-200 px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50"
                 >
                   全選択
@@ -3269,11 +3276,36 @@ function SchedulePage({
               </div>
             </div>
 
+            {/* プロジェクト検索 */}
+            <div className="mt-3 relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="プロジェクトを検索..."
+                value={printProjectSearch}
+                onChange={(e) => setPrintProjectSearch(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {printProjectSearch && (
+                <button
+                  type="button"
+                  onClick={() => setPrintProjectSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
             <div className="mt-3 max-h-64 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
-              {printProjectOptions.length === 0 ? (
-                <div className="text-sm text-slate-500">出力できるプロジェクトがありません。</div>
+              {filteredPrintProjectOptions.length === 0 ? (
+                <div className="text-sm text-slate-500">
+                  {printProjectSearch
+                    ? `「${printProjectSearch}」に一致するプロジェクトがありません。`
+                    : '出力できるプロジェクトがありません。'}
+                </div>
               ) : (
-                printProjectOptions.map((option) => (
+                filteredPrintProjectOptions.map((option) => (
                   <label key={option.id} className="flex items-center gap-2 text-sm text-slate-700">
                     <input
                       type="checkbox"
@@ -4714,6 +4746,7 @@ function App() {
   const [printProjectIds, setPrintProjectIds] = useState<string[]>([]);
   const [printPaperSize, setPrintPaperSize] = useState<'a3' | 'a4'>('a3');
   const [printRangeMode, setPrintRangeMode] = useState<'tasks' | 'construction'>('tasks');
+  const [printProjectSearch, setPrintProjectSearch] = useState('');
   const { user, authReady, authSupported, authError, signIn, signUpWithEmail, signOut } = useFirebaseAuth();
   const holidaySet = useJapaneseHolidaySet(authReady && Boolean(user));
   const [emailAuthInput, setEmailAuthInput] = useState({ email: '', password: '' });
@@ -5299,18 +5332,29 @@ function App() {
       return {
         id,
         name: project?.物件名 || id,
+        client: project?.クライアント || '',
+        location: project?.['所在地/現地'] ?? project?.['所在地_現地'] ?? '',
       };
     });
     return options.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
   }, [state.tasks, state.projects]);
 
+  const filteredPrintProjectOptions = useMemo(() => {
+    const query = printProjectSearch.trim().toLowerCase();
+    if (!query) return printProjectOptions;
+    return printProjectOptions.filter((opt) => {
+      const haystack = [opt.name, opt.client, opt.location].filter(Boolean).join(' ').toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [printProjectOptions, printProjectSearch]);
+
   const openPrintPanel = useCallback(() => {
-    const defaults = projectFilter.length > 0
-      ? projectFilter
-      : Array.from(new Set(state.tasks.map((task) => task.projectId)));
+    // プロジェクトフィルターがある場合のみそれを使用、なければ空
+    const defaults = projectFilter.length > 0 ? projectFilter : [];
     setPrintProjectIds(defaults);
+    setPrintProjectSearch('');
     setPrintPanelOpen(true);
-  }, [projectFilter, state.tasks]);
+  }, [projectFilter]);
 
   const handlePrintSubmit = useCallback(() => {
     if (printProjectIds.length === 0) {
@@ -6994,6 +7038,9 @@ function App() {
                 printPaperSize={printPaperSize}
                 printRangeMode={printRangeMode}
                 printProjectOptions={printProjectOptions}
+                filteredPrintProjectOptions={filteredPrintProjectOptions}
+                printProjectSearch={printProjectSearch}
+                setPrintProjectSearch={setPrintProjectSearch}
                 openPrintPanel={openPrintPanel}
                 togglePrintProject={togglePrintProject}
                 handlePrintSubmit={handlePrintSubmit}
@@ -7102,6 +7149,9 @@ function App() {
                 printPaperSize={printPaperSize}
                 printRangeMode={printRangeMode}
                 printProjectOptions={printProjectOptions}
+                filteredPrintProjectOptions={filteredPrintProjectOptions}
+                printProjectSearch={printProjectSearch}
+                setPrintProjectSearch={setPrintProjectSearch}
                 openPrintPanel={openPrintPanel}
                 togglePrintProject={togglePrintProject}
                 handlePrintSubmit={handlePrintSubmit}

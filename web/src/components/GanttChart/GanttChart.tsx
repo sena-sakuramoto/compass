@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { GanttToolbar } from './GanttToolbar';
 import { GanttTaskList } from './GanttTaskList';
 import { GanttTimeline, ProjectMilestone } from './GanttTimeline';
+import { GanttTimeAxis } from './GanttTimeAxis';
 import { TaskEditModal } from './TaskEditModal';
 import type { GanttTask, ViewMode } from './types';
 import { calculateDateRange, calculateDateTicks, calculateTodayPosition } from './utils';
@@ -35,6 +36,7 @@ interface GanttChartProps {
   onRequestProjectMembers?: (projectId: string) => void;
   onStageAddTask?: (stage: GanttTask) => void;
   showMilestonesWithoutTasks?: boolean;
+  jumpToTodayRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -55,11 +57,14 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onRequestProjectMembers,
   onStageAddTask,
   showMilestonesWithoutTasks = false,
+  jumpToTodayRef,
 }) => {
   const holidaySet = useJapaneseHolidaySet();
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scrollLeft, setScrollLeft] = useState(0);
+  const scrollLeftRef = useRef(0); // 比較用のref（横スクロール）
   const [scrollTop, setScrollTop] = useState(0);
+  const scrollTopRef = useRef(0); // 比較用のref（縦スクロール）
   const [containerWidth, setContainerWidth] = useState(1200);
   const [zoomLevel, setZoomLevel] = useState(1.0); // ズームレベル（0.5～3.0）
   const [selectedTask, setSelectedTask] = useState<GanttTask | null>(null);
@@ -68,6 +73,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const headerTimelineRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -241,14 +247,18 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
   const handleTaskListScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
-    setScrollTop(top);
 
-    // タイムラインの縦スクロールを同期
-    if (timelineRef.current) {
-      timelineRef.current.scrollTop = top;
+    // scrollTopRefと比較して変更があった場合のみ更新（ループ防止）
+    if (scrollTopRef.current !== top) {
+      scrollTopRef.current = top;
+      setScrollTop(top);
+
+      // タイムラインの縦スクロールを同期
+      if (timelineRef.current) {
+        timelineRef.current.scrollTop = top;
+      }
     }
   };
-
 
   const handleZoomIn = () => {
     // ズームイン処理：現在表示されている範囲を縮小
@@ -375,15 +385,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     handleClearSelection();
   };
 
-  if (tasks.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-sm text-slate-500">
-        表示できるタスクがありません
-      </div>
-    );
-  }
-
+  // フックは早期リターンの前に配置する（Reactのルール）
   const handleJumpToToday = useCallback(() => {
+    if (tasks.length === 0) return;
     const baseRange = calculateDateRange(tasks);
     setDateRange(baseRange);
     setZoomLevel(1);
@@ -393,12 +397,33 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         if (!timelineEl) return;
         const todayPx = calculateTodayPosition(baseRange, timelineEl.scrollWidth);
         if (todayPx == null) return;
-        const target = Math.max(todayPx - timelineEl.clientWidth / 2, 0);
+        // 今日を左から1/4の位置に表示（初期スクロールと統一）
+        const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
         timelineEl.scrollLeft = target;
         setScrollLeft(target);
+        // 日付ヘッダーも同期
+        if (headerTimelineRef.current) {
+          headerTimelineRef.current.style.transform = `translateX(-${target}px)`;
+        }
       });
     });
   }, [tasks]);
+
+  // 外部からjumpToTodayを呼び出せるようにする
+  useEffect(() => {
+    if (jumpToTodayRef) {
+      jumpToTodayRef.current = handleJumpToToday;
+    }
+  }, [jumpToTodayRef, handleJumpToToday]);
+
+  // タスクがない場合の表示（すべてのフックの後で判定）
+  if (tasks.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-sm text-slate-500">
+        表示できるタスクがありません
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="relative h-full flex flex-col bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
@@ -459,12 +484,27 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           onScroll={(e) => {
             const left = e.currentTarget.scrollLeft;
             const top = e.currentTarget.scrollTop;
-            setScrollLeft(left);
-            setScrollTop(top);
 
-            // タスクリストの縦スクロールを同期
-            if (taskListRef.current) {
-              taskListRef.current.scrollTop = top;
+            // scrollLeftRefと比較して変更があった場合のみ更新（ループ防止）
+            if (scrollLeftRef.current !== left) {
+              scrollLeftRef.current = left;
+              setScrollLeft(left);
+
+              // 日付ヘッダーも同期
+              if (headerTimelineRef.current) {
+                headerTimelineRef.current.style.transform = `translateX(-${left}px)`;
+              }
+            }
+
+            // scrollTopRefと比較して変更があった場合のみ更新（ループ防止）
+            if (scrollTopRef.current !== top) {
+              scrollTopRef.current = top;
+              setScrollTop(top);
+
+              // タスクリストの縦スクロールを同期
+              if (taskListRef.current) {
+                taskListRef.current.scrollTop = top;
+              }
             }
           }}
         >
