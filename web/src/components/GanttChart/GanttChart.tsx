@@ -479,7 +479,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           {/* タスク一覧（左側固定 - sticky） */}
           <div
             ref={taskListRef}
-            className="sticky left-0 z-30 bg-white flex-shrink-0"
+            className="sticky left-0 z-40 bg-white flex-shrink-0"
             style={{ width: `${taskListWidth}px` }}
           >
             <GanttTaskList
