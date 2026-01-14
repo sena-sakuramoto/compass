@@ -7526,8 +7526,8 @@ function App() {
         defaultProjectId={taskModalDefaults?.projectId}
         defaultStageId={taskModalDefaults?.stageId}
         allowContinuousCreate
-        preloadedProjectMembers={taskModalDefaults?.projectId === editingProjectId ? memoizedProjectMembers : undefined}
-        preloadedStages={taskModalDefaults?.projectId === editingProjectId ? memoizedProjectStages : undefined}
+        preloadedProjectMembers={taskModalDefaults?.projectId ? allProjectMembers.get(taskModalDefaults.projectId) : undefined}
+        preloadedStages={taskModalDefaults?.projectId ? state.tasks.filter(t => t.projectId === taskModalDefaults.projectId && t.type === 'stage') : undefined}
         lockProject={Boolean(taskModalDefaults?.projectId)}
       />
       <TaskModal
