@@ -770,7 +770,7 @@ interface ModalProps {
 function Modal({ open, onOpenChange, children, title }: ModalProps & { title: string; children: React.ReactNode }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/30 p-4 overflow-y-auto">
       <div className="w-full max-w-lg rounded-2xl bg-white shadow-lg my-8 flex flex-col max-h-[calc(100vh-4rem)]">
         <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-slate-200 flex-shrink-0">
           <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
