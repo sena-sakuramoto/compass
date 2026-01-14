@@ -1274,10 +1274,9 @@ function TaskModal({
         <div>
           <label className="mb-1 block text-xs text-slate-500">工程</label>
           <select
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-400 bg-slate-50 cursor-not-allowed"
+            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             value={stageId}
             onChange={(e) => setStageId(e.target.value)}
-            disabled
           >
             <option value="">未割り当て</option>
             {stages.map((stage) => (
