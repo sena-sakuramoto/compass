@@ -400,32 +400,25 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
   // フックは早期リターンの前に配置する（Reactのルール）
   const handleJumpToToday = useCallback(() => {
-    console.log('[GanttChart] handleJumpToToday called, tasks.length:', tasks.length);
     if (tasks.length === 0) return;
     const baseRange = calculateDateRange(tasks);
-    console.log('[GanttChart] baseRange:', { start: baseRange.start.toISOString(), end: baseRange.end.toISOString() });
     setDateRange(baseRange);
     setZoomLevel(1);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const timelineEl = timelineRef.current;
-        console.log('[GanttChart] timelineEl:', !!timelineEl, 'scrollWidth:', timelineEl?.scrollWidth);
         if (!timelineEl) return;
         const todayPx = calculateTodayPosition(baseRange, timelineEl.scrollWidth);
-        console.log('[GanttChart] todayPx:', todayPx, 'today:', new Date().toISOString());
         if (todayPx == null) {
-          console.warn('[GanttChart] Today is outside date range, cannot scroll');
+          // 今日が範囲外の場合は左端にスクロール
+          timelineEl.scrollLeft = 0;
+          setScrollLeft(0);
           return;
         }
-        // 今日を左から1/4の位置に表示（初期スクロールと統一）
+        // 今日を左から1/4の位置に表示
         const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
-        console.log('[GanttChart] Scrolling to:', target);
         timelineEl.scrollLeft = target;
         setScrollLeft(target);
-        // 日付ヘッダーも同期
-        if (headerTimelineRef.current) {
-          headerTimelineRef.current.style.transform = `translateX(-${target}px)`;
-        }
       });
     });
   }, [tasks]);
@@ -438,21 +431,23 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   }, [jumpToTodayRef, handleJumpToToday]);
 
   // 初回マウント時に今日の日付にスクロール
+  // tasksが読み込まれたタイミングで1回だけ実行
   useEffect(() => {
-    console.log('[GanttChart] Auto-scroll check:', {
-      initialScrollDone: initialScrollDoneRef.current,
-      tasksLength: tasks.length
-    });
     if (initialScrollDoneRef.current) return;
     if (tasks.length === 0) return;
 
     // タスクがあれば今日にスクロール
     initialScrollDoneRef.current = true;
-    console.log('[GanttChart] Triggering auto-scroll to today');
-    // 少し遅延を入れてDOMが完全にレンダリングされるのを待つ
-    setTimeout(() => {
-      handleJumpToToday();
-    }, 200);
+
+    // DOMが完全にレンダリングされるのを待ってからスクロール
+    // requestAnimationFrameを使用してレイアウト計算後に実行
+    const timer = setTimeout(() => {
+      requestAnimationFrame(() => {
+        handleJumpToToday();
+      });
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [tasks.length, handleJumpToToday]);
 
   // タスクがない場合の表示（すべてのフックの後で判定）

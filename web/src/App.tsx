@@ -2490,15 +2490,8 @@ function SchedulePage({
   const today = new Date();
   const todayLabel = formatDate(today);
 
-  // 初回マウント時に今日の位置にスクロール
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (jumpToTodayRef.current) {
-        jumpToTodayRef.current();
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
+  // 初回スクロールはGanttChart内で処理するため、ここでは不要
+  // jumpToTodayRefは「今日」ボタン用に保持
 
   const tasksStartingToday = useMemo(
     () =>
