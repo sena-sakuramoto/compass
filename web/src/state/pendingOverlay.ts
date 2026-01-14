@@ -29,11 +29,21 @@ export interface PendingDeletion {
 }
 export type PendingDeletionMap = Record<string, PendingDeletion | undefined>;
 
+// 新規作成中のアイテム追跡（tempIdとrealIdのマッピング）
+export interface PendingCreation {
+  tempId: string;
+  realId?: string;  // APIから返ってきた実際のID
+  createdAt: number;
+  lockUntil: number;
+}
+export type PendingCreationMap = Record<string, PendingCreation | undefined>;
+
 interface PendingOverlayState {
   pending: PendingMap;
   pendingProjects: PendingProjectMap;
   deletedTasks: PendingDeletionMap;
   deletedProjects: PendingDeletionMap;
+  creatingTasks: PendingCreationMap;  // 作成中のタスク
 
   // タスクにpending変更を追加
   addPending: (taskId: string, fields: Partial<Task>, lockDuration?: number) => string;
@@ -83,6 +93,21 @@ interface PendingOverlayState {
   // プロジェクトが削除済みかチェック
   isProjectDeleted: (projectId: string) => boolean;
 
+  // 作成中タスクを追加（tempIdで登録）
+  addCreatingTask: (tempId: string, lockDuration?: number) => void;
+
+  // 作成中タスクにrealIdを設定（API成功時）
+  setCreatingTaskRealId: (tempId: string, realId: string) => void;
+
+  // 作成中タスクを完了（ACK）
+  ackCreatingTask: (tempId: string) => void;
+
+  // 作成中タスクをロールバック
+  rollbackCreatingTask: (tempId: string) => void;
+
+  // タスクが作成中かチェック（tempIdまたはrealIdで）
+  isTaskCreating: (taskId: string) => boolean;
+
   // 期限切れのpendingをクリーンアップ
   cleanupExpired: () => void;
 }
@@ -92,6 +117,7 @@ export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
   pendingProjects: {},
   deletedTasks: {},
   deletedProjects: {},
+  creatingTasks: {},
 
   addPending: (taskId: string, fields: Partial<Task>, lockDuration = 120000) => {
     const opId = crypto.randomUUID();
@@ -267,6 +293,64 @@ export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
     return deletion !== undefined && Date.now() < deletion.lockUntil;
   },
 
+  // 作成中タスクの追跡
+  addCreatingTask: (tempId: string, lockDuration = 120000) => {
+    const now = Date.now();
+    set((state) => ({
+      creatingTasks: {
+        ...state.creatingTasks,
+        [tempId]: {
+          tempId,
+          createdAt: now,
+          lockUntil: now + lockDuration,
+        },
+      },
+    }));
+  },
+
+  setCreatingTaskRealId: (tempId: string, realId: string) => {
+    set((state) => {
+      const existing = state.creatingTasks[tempId];
+      if (!existing) return state;
+      return {
+        creatingTasks: {
+          ...state.creatingTasks,
+          [tempId]: { ...existing, realId },
+        },
+      };
+    });
+  },
+
+  ackCreatingTask: (tempId: string) => {
+    set((state) => {
+      const newCreating = { ...state.creatingTasks };
+      delete newCreating[tempId];
+      return { creatingTasks: newCreating };
+    });
+  },
+
+  rollbackCreatingTask: (tempId: string) => {
+    set((state) => {
+      const newCreating = { ...state.creatingTasks };
+      delete newCreating[tempId];
+      return { creatingTasks: newCreating };
+    });
+  },
+
+  isTaskCreating: (taskId: string) => {
+    const state = get();
+    const now = Date.now();
+    // tempIdまたはrealIdでチェック
+    for (const creating of Object.values(state.creatingTasks)) {
+      if (!creating) continue;
+      if (now >= creating.lockUntil) continue;
+      if (creating.tempId === taskId || creating.realId === taskId) {
+        return true;
+      }
+    }
+    return false;
+  },
+
   cleanupExpired: () => {
     const now = Date.now();
 
@@ -275,6 +359,7 @@ export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
       const newPendingProjects: PendingProjectMap = {};
       const newDeletedTasks: PendingDeletionMap = {};
       const newDeletedProjects: PendingDeletionMap = {};
+      const newCreatingTasks: PendingCreationMap = {};
       let hasChanges = false;
 
       Object.entries(state.pending).forEach(([taskId, change]) => {
@@ -309,12 +394,21 @@ export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
         }
       });
 
+      Object.entries(state.creatingTasks).forEach(([tempId, creating]) => {
+        if (creating && now < creating.lockUntil) {
+          newCreatingTasks[tempId] = creating;
+        } else if (creating) {
+          hasChanges = true;
+        }
+      });
+
       return hasChanges
         ? {
             pending: newPending,
             pendingProjects: newPendingProjects,
             deletedTasks: newDeletedTasks,
             deletedProjects: newDeletedProjects,
+            creatingTasks: newCreatingTasks,
           }
         : state;
     });

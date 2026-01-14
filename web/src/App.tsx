@@ -121,6 +121,7 @@ import {
 } from 'recharts';
 import { useFirebaseAuth } from './lib/firebaseClient';
 import { useJapaneseHolidaySet } from './lib/japaneseHolidays';
+import { getCachedSnapshot, cacheSnapshot } from './lib/idbCache';
 import type { User } from 'firebase/auth';
 import { usePendingOverlay, applyPendingToTasks } from './state/pendingOverlay';
 
@@ -4675,12 +4676,38 @@ function WorkloadTimelineChart({ data }: { data: { label: string; hours: number;
 
 function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassState>>, enabled: boolean) {
   const [loading, setLoading] = useState(false);
+  const initialLoadDoneRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) {
       setLoading(false);
       return;
     }
+
+    // Stale-While-Revalidate: まずキャッシュから読み込み
+    const loadFromCache = async () => {
+      if (initialLoadDoneRef.current) return; // 初回のみ
+      try {
+        const cached = await getCachedSnapshot();
+        if (cached.projects?.length || cached.tasks?.length) {
+          console.log('[useRemoteData] Loading from cache:', {
+            projects: cached.projects?.length || 0,
+            tasks: cached.tasks?.length || 0,
+          });
+          setState((prev) => ({
+            projects: cached.projects?.length ? cached.projects : prev.projects,
+            tasks: cached.tasks?.length ? cached.tasks : prev.tasks,
+            people: cached.people?.length ? cached.people : prev.people,
+          }));
+        }
+      } catch (err) {
+        console.warn('[useRemoteData] Failed to load from cache:', err);
+      }
+    };
+
+    // キャッシュから即座に表示
+    loadFromCache();
+
     const load = async () => {
       setLoading(true);
       try {
@@ -4690,8 +4717,18 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
         const pendingState = usePendingOverlay.getState();
         const pendingTasks = pendingState.pending;
         const deletedTasks = pendingState.deletedTasks;
+        const creatingTasks = pendingState.creatingTasks;
 
-        // タスクをマージする関数（pending中のタスクは上書きしない、削除済みタスクは除外）
+        // 作成中のタスクIDセットを構築（tempIdとrealId両方）
+        const creatingTaskIds = new Set<string>();
+        Object.values(creatingTasks).forEach((creating) => {
+          if (!creating) return;
+          if (Date.now() >= creating.lockUntil) return;
+          creatingTaskIds.add(creating.tempId);
+          if (creating.realId) creatingTaskIds.add(creating.realId);
+        });
+
+        // タスクをマージする関数（pending中のタスクは上書きしない、削除済みタスクは除外、作成中タスクは保護）
         const mergeTasks = (prevTasks: Task[], serverTasks: Task[]): Task[] => {
           const taskMap = new Map<string, Task>();
           const now = Date.now();
@@ -4712,6 +4749,12 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
             const deletion = deletedTasks[serverTask.id];
             if (deletion && now < deletion.lockUntil) {
               console.log('[useRemoteData] Skipping deleted task:', serverTask.id);
+              return;
+            }
+
+            // 作成中タスクはローカルの状態を優先（上書きしない）
+            if (creatingTaskIds.has(serverTask.id)) {
+              console.log('[useRemoteData] Skipping creating task:', serverTask.id);
               return;
             }
 
@@ -4754,58 +4797,66 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
         };
 
         if (p.status === 'fulfilled' && t.status === 'fulfilled') {
+          const normalized = normalizeSnapshot({
+            projects: p.value.projects,
+            tasks: t.value.tasks,
+            people: [],
+          });
+
           setState((prev) => {
-            const normalized = normalizeSnapshot({
-              projects: p.value.projects,
-              tasks: t.value.tasks,
-              people: prev.people,
-            });
             // タスクはマージして上書きを防ぐ
             const mergedTasks = mergeTasks(prev.tasks, normalized.tasks);
             return {
               projects: normalized.projects,
               tasks: mergedTasks,
-              people: normalized.people,
+              people: prev.people,
             };
           });
+
+          // キャッシュに保存（バックグラウンド）
+          initialLoadDoneRef.current = true;
+          cacheSnapshot({ projects: normalized.projects, tasks: normalized.tasks }).catch(() => {});
           return;
         }
 
         if (p.status === 'fulfilled') {
-          setState((prev) => {
-            const normalized = normalizeSnapshot({
-              projects: p.value.projects,
-              tasks: prev.tasks,
-              people: prev.people,
-            });
-            return {
-              projects: normalized.projects,
-              tasks: prev.tasks,
-              people: normalized.people,
-            };
+          const normalized = normalizeSnapshot({
+            projects: p.value.projects,
+            tasks: [],
+            people: [],
           });
+          setState((prev) => ({
+            projects: normalized.projects,
+            tasks: prev.tasks,
+            people: prev.people,
+          }));
+          // キャッシュに保存
+          cacheSnapshot({ projects: normalized.projects }).catch(() => {});
         }
 
         if (t.status === 'fulfilled') {
+          const normalized = normalizeSnapshot({
+            projects: [],
+            tasks: t.value.tasks,
+            people: [],
+          });
           setState((prev) => {
-            const normalized = normalizeSnapshot({
-              projects: prev.projects,
-              tasks: t.value.tasks,
-              people: prev.people,
-            });
             // タスクはマージして上書きを防ぐ
             const mergedTasks = mergeTasks(prev.tasks, normalized.tasks);
             return {
               projects: prev.projects,
               tasks: mergedTasks,
-              people: normalized.people,
+              people: prev.people,
             };
           });
+          // キャッシュに保存
+          cacheSnapshot({ tasks: normalized.tasks }).catch(() => {});
         }
       } catch (err) {
         console.warn('Failed to load remote snapshot', err);
       } finally {
         setLoading(false);
+        initialLoadDoneRef.current = true;
       }
     };
     load();
@@ -6077,23 +6128,35 @@ function App() {
         updatedAt: now,
       };
 
+    // 1. 楽観的更新：UIに即座に追加
     setState((prev) => ({
       ...prev,
       tasks: [...prev.tasks, optimisticTask],
     }));
 
+    // 2. 作成中として追跡（サーバーリロードで消えないように）
+    usePendingOverlay.getState().addCreatingTask(tempId);
+
     try {
       const result = await createTask(payloadForApi);
-      // 成功: 一時タスクを実際のタスクで置き換え
+
+      // 3. 成功: realIdを設定してから一時タスクを置き換え
+      usePendingOverlay.getState().setCreatingTaskRealId(tempId, result.id);
+
       setState((prev) => ({
         ...prev,
         tasks: prev.tasks.map((t) => (t.id === tempId ? { ...optimisticTask, id: result.id } : t)),
       }));
+
+      // 4. ACK - 作成完了
+      usePendingOverlay.getState().ackCreatingTask(tempId);
+
       toast.success('タスクを追加しました');
-      requestSnapshotReload('task:create');
+      // リロードは不要（タスクは既にstateにある）
     } catch (error) {
       console.error(error);
-      // 失敗: 一時タスクを削除
+      // 5. 失敗: ロールバック
+      usePendingOverlay.getState().rollbackCreatingTask(tempId);
       setState((prev) => ({
         ...prev,
         tasks: prev.tasks.filter((t) => t.id !== tempId),
