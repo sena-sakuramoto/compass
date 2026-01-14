@@ -3,7 +3,6 @@ import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import toast from 'react-hot-toast';
-import { motion } from 'framer-motion';
 import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
 import type { Project, Task, ManageableUserSummary, Stage } from '../lib/types';
 import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType, ProjectPermissions } from '../lib/auth-types';
@@ -1329,21 +1328,14 @@ const loadCollaborators = async (force = false): Promise<void> => {
                   <Plus className="inline h-4 w-4 mr-1" />
                   タスク追加
                 </label>
-                <motion.button
+                <button
                   type="button"
                   onClick={() => onOpenTaskModal({ projectId: project.id })}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-slate-900 rounded-xl active:bg-slate-800"
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  whileTap={{ scale: 0.98 }}
-                  transition={{
-                    duration: 0.3,
-                    ease: [0.25, 0.1, 0.25, 1]
-                  }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-slate-900 rounded-xl hover:bg-slate-800 active:scale-[0.98] transition-all"
                 >
                   <Plus className="h-4 w-4" />
                   新しいタスクを作成
-                </motion.button>
+                </button>
               </div>
             )}
 
