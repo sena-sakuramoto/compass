@@ -4,7 +4,7 @@ import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
-import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check, ExternalLink } from 'lucide-react';
+import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
 import type { Project, Task, ManageableUserSummary, Stage } from '../lib/types';
 import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType, ProjectPermissions } from '../lib/auth-types';
 import { listProjectMembers, addProjectMember, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage, updateProject, listUsers, getCurrentUser } from '../lib/api';
@@ -1332,39 +1332,17 @@ const loadCollaborators = async (force = false): Promise<void> => {
                 <motion.button
                   type="button"
                   onClick={() => onOpenTaskModal({ projectId: project.id })}
-                  className="group w-full flex items-center justify-center gap-2 px-4 py-3.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-2xl shadow-lg hover:shadow-xl hover:shadow-indigo-500/25 transition-all duration-300 relative overflow-hidden"
-                  whileHover={{
-                    scale: 1.03,
-                    background: "linear-gradient(to right, #3b82f6, #6366f1, #8b5cf6)"
-                  }}
-                  whileTap={{ scale: 0.97 }}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-slate-900 rounded-xl active:bg-slate-800"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  whileTap={{ scale: 0.98 }}
                   transition={{
-                    type: "spring",
-                    stiffness: 400,
-                    damping: 25
+                    duration: 0.3,
+                    ease: [0.25, 0.1, 0.25, 1]
                   }}
                 >
-                  <motion.span
-                    className="absolute inset-0 bg-white/20"
-                    initial={{ x: "-100%", opacity: 0 }}
-                    whileHover={{ x: "100%", opacity: 1 }}
-                    transition={{ duration: 0.5, ease: "easeInOut" }}
-                  />
-                  <motion.span
-                    whileHover={{ rotate: 90 }}
-                    transition={{ type: "spring", stiffness: 300 }}
-                  >
-                    <Plus className="h-5 w-5" />
-                  </motion.span>
-                  <span>新しいタスクを作成</span>
-                  <motion.span
-                    whileHover={{ x: 3 }}
-                    transition={{ type: "spring", stiffness: 400 }}
-                  >
-                    <ExternalLink className="h-4 w-4 opacity-80" />
-                  </motion.span>
+                  <Plus className="h-4 w-4" />
+                  新しいタスクを作成
                 </motion.button>
               </div>
             )}
