@@ -431,24 +431,27 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   }, [jumpToTodayRef, handleJumpToToday]);
 
   // 初回マウント時に今日の日付にスクロール
-  // tasksが読み込まれたタイミングで1回だけ実行
+  // tasksとcontainerWidthが準備できたタイミングで1回だけ実行
   useEffect(() => {
     if (initialScrollDoneRef.current) return;
     if (tasks.length === 0) return;
+    if (containerWidth < 100) return; // コンテナ幅が計算されるまで待つ
 
-    // タスクがあれば今日にスクロール
+    const timelineEl = timelineRef.current;
+    if (!timelineEl) return;
+    if (timelineEl.scrollWidth < 100) return; // スクロール幅が計算されるまで待つ
+
+    // 準備完了、スクロール実行
     initialScrollDoneRef.current = true;
 
-    // DOMが完全にレンダリングされるのを待ってからスクロール
-    // requestAnimationFrameを使用してレイアウト計算後に実行
-    const timer = setTimeout(() => {
-      requestAnimationFrame(() => {
-        handleJumpToToday();
-      });
-    }, 100);
-
-    return () => clearTimeout(timer);
-  }, [tasks.length, handleJumpToToday]);
+    // 今日の位置を計算してスクロール
+    const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
+    if (todayPx != null) {
+      const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
+      timelineEl.scrollLeft = target;
+      setScrollLeft(target);
+    }
+  }, [tasks.length, containerWidth, dateRange]);
 
   // タスクがない場合の表示（すべてのフックの後で判定）
   if (tasks.length === 0) {
