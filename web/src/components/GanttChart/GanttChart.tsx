@@ -431,15 +431,20 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
   // 初回マウント時に今日の日付にスクロール
   useEffect(() => {
+    console.log('[GanttChart] Auto-scroll check:', {
+      initialScrollDone: initialScrollDoneRef.current,
+      tasksLength: tasks.length
+    });
     if (initialScrollDoneRef.current) return;
     if (tasks.length === 0) return;
 
     // タスクがあれば今日にスクロール
     initialScrollDoneRef.current = true;
+    console.log('[GanttChart] Triggering auto-scroll to today');
     // 少し遅延を入れてDOMが完全にレンダリングされるのを待つ
     setTimeout(() => {
       handleJumpToToday();
-    }, 100);
+    }, 200);
   }, [tasks.length, handleJumpToToday]);
 
   // タスクがない場合の表示（すべてのフックの後で判定）
