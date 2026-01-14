@@ -75,10 +75,25 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const [showBatchEditModal, setShowBatchEditModal] = useState(false);
   const [expandedStageIds, setExpandedStageIds] = useState<Set<string>>(new Set());
   const taskListRef = useRef<HTMLDivElement>(null);
-  const timelineRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const headerTimelineRef = useRef<HTMLDivElement>(null);
   const initialScrollDoneRef = useRef(false);
+  const dateRangeRef = useRef<{ start: Date; end: Date } | null>(null);
+
+  // DOM要素が作成された瞬間に今日の位置にスクロール
+  const timelineRefCallback = useCallback((node: HTMLDivElement | null) => {
+    timelineRef.current = node;
+    if (node && !initialScrollDoneRef.current && dateRangeRef.current) {
+      const todayPx = calculateTodayPosition(dateRangeRef.current, node.scrollWidth);
+      if (todayPx != null) {
+        const target = Math.max(todayPx - node.clientWidth / 4, 0);
+        node.scrollLeft = target;
+        setScrollLeft(target);
+      }
+      initialScrollDoneRef.current = true;
+    }
+  }, []);
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -126,6 +141,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       newRange.end.getTime() !== dateRange.end.getTime()) {
       setDateRange(newRange);
     }
+    // ref callbackで使用するために最新のdateRangeを保持
+    dateRangeRef.current = newRange;
 
     // 工程を初期状態で全て展開
     const stageIds = new Set<string>();
@@ -430,24 +447,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     }
   }, [jumpToTodayRef, handleJumpToToday]);
 
-  // 初回マウント時に今日の日付にスクロール（useEffectでDOM確定後に実行）
-  useEffect(() => {
-    if (initialScrollDoneRef.current) return;
-    if (tasks.length === 0) return;
-
-    const timelineEl = timelineRef.current;
-    if (!timelineEl) return;
-
-    initialScrollDoneRef.current = true;
-
-    const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
-    if (todayPx != null) {
-      const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
-      timelineEl.scrollLeft = target;
-      setScrollLeft(target);
-    }
-  }, [tasks, dateRange, containerWidth]);
-
   // タスクがない場合の表示（すべてのフックの後で判定）
   if (tasks.length === 0) {
     return (
@@ -472,7 +471,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
       {/* メインコンテンツ - 単一スクロールコンテナ */}
       <div
-        ref={timelineRef}
+        ref={timelineRefCallback}
         className="flex-1 overflow-auto"
         onScroll={(e) => {
           const left = e.currentTarget.scrollLeft;
