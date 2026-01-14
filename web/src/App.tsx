@@ -4685,6 +4685,58 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
       setLoading(true);
       try {
         const [p, t] = await Promise.allSettled([listProjects(), listTasks({})]);
+
+        // pending状態を取得（サーバーデータのマージ時にガードとして使用）
+        const pendingState = usePendingOverlay.getState();
+        const pendingTasks = pendingState.pending;
+
+        // タスクをマージする関数（pending中のタスクは上書きしない）
+        const mergeTasks = (prevTasks: Task[], serverTasks: Task[]): Task[] => {
+          const taskMap = new Map<string, Task>();
+
+          // まず既存のタスクをマップに追加
+          prevTasks.forEach((task) => taskMap.set(task.id, task));
+
+          // サーバーからのタスクをマージ
+          serverTasks.forEach((serverTask) => {
+            const existingTask = taskMap.get(serverTask.id);
+            const pending = pendingTasks[serverTask.id];
+
+            // pendingがある場合、updatedAtを比較してサーバーデータが古ければスキップ
+            if (pending && Date.now() < pending.lockUntil) {
+              // pendingで変更されたフィールドがサーバーデータで元に戻ろうとしている場合はスキップ
+              let shouldSkip = false;
+              if (existingTask) {
+                Object.entries(pending.fields).forEach(([key, pendingValue]) => {
+                  const serverValue = (serverTask as any)[key];
+                  // pendingの値とサーバーの値が異なる場合、サーバーデータを採用しない
+                  if (serverValue !== pendingValue) {
+                    shouldSkip = true;
+                  }
+                });
+              }
+              if (shouldSkip) {
+                console.log('[useRemoteData] Skipping server task due to pending:', serverTask.id);
+                return; // このサーバータスクをスキップ
+              }
+            }
+
+            // updatedAt比較：サーバーの方が古い場合はスキップ
+            if (existingTask?.updatedAt && serverTask.updatedAt) {
+              const existingTime = new Date(existingTask.updatedAt).getTime();
+              const serverTime = new Date(serverTask.updatedAt).getTime();
+              if (serverTime < existingTime) {
+                console.log('[useRemoteData] Skipping older server task:', serverTask.id);
+                return; // 古いサーバーデータをスキップ
+              }
+            }
+
+            taskMap.set(serverTask.id, serverTask);
+          });
+
+          return Array.from(taskMap.values());
+        };
+
         if (p.status === 'fulfilled' && t.status === 'fulfilled') {
           setState((prev) => {
             const normalized = normalizeSnapshot({
@@ -4692,9 +4744,11 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
               tasks: t.value.tasks,
               people: prev.people,
             });
+            // タスクはマージして上書きを防ぐ
+            const mergedTasks = mergeTasks(prev.tasks, normalized.tasks);
             return {
               projects: normalized.projects,
-              tasks: normalized.tasks,
+              tasks: mergedTasks,
               people: normalized.people,
             };
           });
@@ -4723,9 +4777,11 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
               tasks: t.value.tasks,
               people: prev.people,
             });
+            // タスクはマージして上書きを防ぐ
+            const mergedTasks = mergeTasks(prev.tasks, normalized.tasks);
             return {
               projects: prev.projects,
-              tasks: normalized.tasks,
+              tasks: mergedTasks,
               people: normalized.people,
             };
           });
