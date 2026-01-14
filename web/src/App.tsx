@@ -834,6 +834,7 @@ interface TaskModalProps extends ModalProps {
   defaultStageId?: string;
   allowContinuousCreate?: boolean;
   preloadedProjectMembers?: ProjectMember[];
+  preloadedStages?: Task[];
   lockProject?: boolean;
   onSubmit(payload: {
     projectId: string;
@@ -867,6 +868,7 @@ function TaskModal({
   defaultStageId,
   allowContinuousCreate,
   preloadedProjectMembers,
+  preloadedStages,
   lockProject,
 }: TaskModalProps) {
   const [project, setProject] = useState('');
@@ -980,6 +982,13 @@ function TaskModal({
       return;
     }
 
+    // preloadedStagesがあり、プロジェクトがdefaultProjectIdと一致する場合はそれを使用
+    if (preloadedStages && preloadedStages.length > 0 && project === defaultProjectId) {
+      // Task型をStage型としてキャスト（type === 'stage' でフィルタ済み）
+      setStages(preloadedStages as Stage[]);
+      return;
+    }
+
     listStages(project)
       .then(({ stages: stageList }) => {
         setStages(stageList);
@@ -988,7 +997,7 @@ function TaskModal({
         console.error('[TaskModal] Failed to load stages:', error);
         setStages([]);
       });
-  }, [project]);
+  }, [project, preloadedStages, defaultProjectId]);
 
   // プロジェクトメンバーを取得
   useEffect(() => {
@@ -7518,6 +7527,7 @@ function App() {
         defaultStageId={taskModalDefaults?.stageId}
         allowContinuousCreate
         preloadedProjectMembers={taskModalDefaults?.projectId === editingProjectId ? memoizedProjectMembers : undefined}
+        preloadedStages={taskModalDefaults?.projectId === editingProjectId ? memoizedProjectStages : undefined}
         lockProject={Boolean(taskModalDefaults?.projectId)}
       />
       <TaskModal
