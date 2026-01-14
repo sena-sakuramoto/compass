@@ -955,11 +955,11 @@ function TaskModal({
       resetFormFields(false);
       if (defaultProjectId) {
         setProject(defaultProjectId);
-        // preloadedデータがあれば即座に設定（APIコールを回避）
-        if (preloadedStages !== undefined) {
+        // preloadedデータがあれば即座に設定
+        if (preloadedStages && preloadedStages.length > 0) {
           setStages(preloadedStages as Stage[]);
         }
-        if (preloadedProjectMembers !== undefined) {
+        if (preloadedProjectMembers && preloadedProjectMembers.length > 0) {
           setProjectMembers(preloadedProjectMembers);
           setMembersLoading(false);
         }
@@ -968,7 +968,8 @@ function TaskModal({
         setStageId(defaultStageId);
       }
     }
-  }, [open, editingTask, defaultProjectId, defaultStageId, resetFormFields, preloadedStages, preloadedProjectMembers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingTask, defaultProjectId, defaultStageId, resetFormFields]);
 
   useEffect(() => {
     if (!open) {
@@ -990,12 +991,13 @@ function TaskModal({
       return;
     }
 
-    // preloadedStagesがあり、プロジェクトがdefaultProjectIdと一致する場合はそれを使用（空配列でもOK）
-    if (preloadedStages !== undefined && project === defaultProjectId) {
+    // preloadedStagesに工程がある場合のみ使用、空配列の場合はAPIを呼ぶ
+    if (preloadedStages && preloadedStages.length > 0 && project === defaultProjectId) {
       setStages(preloadedStages as Stage[]);
       return;
     }
 
+    // APIから工程を取得
     listStages(project)
       .then(({ stages: stageList }) => {
         setStages(stageList);
@@ -1013,8 +1015,8 @@ function TaskModal({
       return;
     }
 
-    // preloadedProjectMembersがあり、プロジェクトがdefaultProjectIdと一致する場合はそれを使用（空配列でもOK）
-    if (preloadedProjectMembers !== undefined && project === defaultProjectId) {
+    // preloadedProjectMembersにメンバーがある場合のみ使用、空配列の場合はAPIを呼ぶ
+    if (preloadedProjectMembers && preloadedProjectMembers.length > 0 && project === defaultProjectId) {
       setProjectMembers(preloadedProjectMembers);
       setMembersLoading(false);
       return;
@@ -7559,7 +7561,7 @@ function App() {
         defaultStageId={taskModalDefaults?.stageId}
         allowContinuousCreate
         preloadedProjectMembers={taskModalDefaults?.projectId ? allProjectMembers.get(taskModalDefaults.projectId) : undefined}
-        preloadedStages={taskModalDefaults?.projectId ? state.tasks.filter(t => t.projectId === taskModalDefaults.projectId && t.type === 'stage') : undefined}
+        preloadedStages={taskModalDefaults?.projectId === editingProjectId ? memoizedProjectStages : (taskModalDefaults?.projectId ? state.tasks.filter(t => t.projectId === taskModalDefaults.projectId && t.type === 'stage') : undefined)}
         lockProject={Boolean(taskModalDefaults?.projectId)}
       />
       <TaskModal
