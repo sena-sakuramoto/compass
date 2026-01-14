@@ -793,6 +793,8 @@ interface TaskModalProps extends ModalProps {
   defaultProjectId?: string;
   defaultStageId?: string;
   allowContinuousCreate?: boolean;
+  preloadedProjectMembers?: ProjectMember[];
+  lockProject?: boolean;
   onSubmit(payload: {
     projectId: string;
     タスク名: string;
@@ -824,6 +826,8 @@ function TaskModal({
   defaultProjectId,
   defaultStageId,
   allowContinuousCreate,
+  preloadedProjectMembers,
+  lockProject,
 }: TaskModalProps) {
   const [project, setProject] = useState('');
   const [assignee, setAssignee] = useState('');
@@ -953,6 +957,13 @@ function TaskModal({
       return;
     }
 
+    // preloadedProjectMembersがあり、プロジェクトがdefaultProjectIdと一致する場合はそれを使用
+    if (preloadedProjectMembers && preloadedProjectMembers.length > 0 && project === defaultProjectId) {
+      setProjectMembers(preloadedProjectMembers);
+      setMembersLoading(false);
+      return;
+    }
+
     console.log('[TaskModal] Loading project members for:', project);
     setMembersLoading(true);
     listProjectMembers(project, { status: 'active' })
@@ -967,7 +978,7 @@ function TaskModal({
       .finally(() => {
         setMembersLoading(false);
       });
-  }, [project]);
+  }, [project, preloadedProjectMembers, defaultProjectId]);
 
   // 担当者選択時にメールアドレスを自動入力（プロジェクトメンバーから検索）
   useEffect(() => {
@@ -1147,19 +1158,25 @@ function TaskModal({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs text-slate-500">プロジェクト</label>
-            <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
-              required
-            >
-              <option value="">選択</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.物件名 || p.id}
-                </option>
-              ))}
-            </select>
+            {lockProject && project ? (
+              <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {projects.find(p => p.id === project)?.物件名 || project}
+              </div>
+            ) : (
+              <select
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={project}
+                onChange={(e) => setProject(e.target.value)}
+                required
+              >
+                <option value="">選択</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.物件名 || p.id}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-500">担当者</label>
@@ -7460,6 +7477,8 @@ function App() {
         defaultProjectId={taskModalDefaults?.projectId}
         defaultStageId={taskModalDefaults?.stageId}
         allowContinuousCreate
+        preloadedProjectMembers={taskModalDefaults?.projectId === editingProjectId ? memoizedProjectMembers : undefined}
+        lockProject={Boolean(taskModalDefaults?.projectId)}
       />
       <TaskModal
         open={Boolean(editingTask)}
