@@ -78,6 +78,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const timelineRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const headerTimelineRef = useRef<HTMLDivElement>(null);
+  const initialScrollDoneRef = useRef(false); // 初期スクロール済みフラグ
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -427,6 +428,19 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       jumpToTodayRef.current = handleJumpToToday;
     }
   }, [jumpToTodayRef, handleJumpToToday]);
+
+  // 初回マウント時に今日の日付にスクロール
+  useEffect(() => {
+    if (initialScrollDoneRef.current) return;
+    if (tasks.length === 0) return;
+
+    // タスクがあれば今日にスクロール
+    initialScrollDoneRef.current = true;
+    // 少し遅延を入れてDOMが完全にレンダリングされるのを待つ
+    setTimeout(() => {
+      handleJumpToToday();
+    }, 100);
+  }, [tasks.length, handleJumpToToday]);
 
   // タスクがない場合の表示（すべてのフックの後で判定）
   if (tasks.length === 0) {
