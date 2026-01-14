@@ -2409,6 +2409,7 @@ function SchedulePage({
   onTaskDateChange,
   onTaskAssigneeChange,
   onTaskUpdate,
+  onTaskDelete,
   onOpenTask,
   onOpenProject,
   onOpenPerson,
@@ -2450,6 +2451,7 @@ function SchedulePage({
   onTaskDateChange?: (taskId: string, payload: { start: string; end: string; kind: 'move' | 'resize-start' | 'resize-end' }) => void;
   onTaskAssigneeChange?: (taskId: string, assignee: string) => void;
   onTaskUpdate?: (taskId: string, updates: Partial<Task>) => void;
+  onTaskDelete?: (taskId: string) => Promise<void>;
   onOpenTask(): void;
   onOpenProject(): void;
   onOpenPerson(): void;
@@ -3276,12 +3278,9 @@ function SchedulePage({
             pushToast({ title: `${taskIds.length}個のアイテムを更新しました`, tone: 'success' });
           }}
           onTaskDelete={async (task) => {
-            try {
-              await deleteTask(task.id);
-              pushToast({ title: `タスク「${task.name}」を削除しました`, tone: 'success' });
-            } catch (error) {
-              console.error('タスクの削除に失敗しました:', error);
-              pushToast({ title: 'タスクの削除に失敗しました', tone: 'error' });
+            // handleDeleteTaskを使用（temp IDガード付き、確認ダイアログはGanttChart側で表示済み）
+            if (onTaskDelete) {
+              await onTaskDelete(task.id);
             }
           }}
           jumpToTodayRef={jumpToTodayRef}
@@ -7277,6 +7276,7 @@ function App() {
                 onTaskDateChange={handleTaskDateChange}
                 onTaskAssigneeChange={handleTaskAssigneeChange}
                 onTaskUpdate={handleTaskUpdate}
+                onTaskDelete={handleDeleteTask}
                 onOpenTask={() => openTaskModal()}
                 onOpenProject={() => {
                   setProjectDialogMode('create');
@@ -7390,6 +7390,7 @@ function App() {
                 onTaskDateChange={handleTaskDateChange}
                 onTaskAssigneeChange={handleTaskAssigneeChange}
                 onTaskUpdate={handleTaskUpdate}
+                onTaskDelete={handleDeleteTask}
                 onOpenTask={() => openTaskModal()}
                 onOpenProject={() => {
                   setProjectDialogMode('create');
