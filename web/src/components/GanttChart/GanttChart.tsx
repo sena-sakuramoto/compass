@@ -400,18 +400,26 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
   // フックは早期リターンの前に配置する（Reactのルール）
   const handleJumpToToday = useCallback(() => {
+    console.log('[GanttChart] handleJumpToToday called, tasks.length:', tasks.length);
     if (tasks.length === 0) return;
     const baseRange = calculateDateRange(tasks);
+    console.log('[GanttChart] baseRange:', { start: baseRange.start.toISOString(), end: baseRange.end.toISOString() });
     setDateRange(baseRange);
     setZoomLevel(1);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         const timelineEl = timelineRef.current;
+        console.log('[GanttChart] timelineEl:', !!timelineEl, 'scrollWidth:', timelineEl?.scrollWidth);
         if (!timelineEl) return;
         const todayPx = calculateTodayPosition(baseRange, timelineEl.scrollWidth);
-        if (todayPx == null) return;
+        console.log('[GanttChart] todayPx:', todayPx, 'today:', new Date().toISOString());
+        if (todayPx == null) {
+          console.warn('[GanttChart] Today is outside date range, cannot scroll');
+          return;
+        }
         // 今日を左から1/4の位置に表示（初期スクロールと統一）
         const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
+        console.log('[GanttChart] Scrolling to:', target);
         timelineEl.scrollLeft = target;
         setScrollLeft(target);
         // 日付ヘッダーも同期
