@@ -430,17 +430,17 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     }
   }, [jumpToTodayRef, handleJumpToToday]);
 
-  // 初回マウント時に今日の日付にスクロール（描画前に実行）
+  // 初回マウント時に今日の日付にスクロール
   useLayoutEffect(() => {
     if (initialScrollDoneRef.current) return;
     if (tasks.length === 0) return;
 
-    const timelineEl = timelineRef.current;
-    if (!timelineEl || timelineEl.scrollWidth < 100) return;
-
     initialScrollDoneRef.current = true;
 
-    const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
+    const timelineEl = timelineRef.current;
+    if (!timelineEl) return;
+
+    const todayPx = calculateTodayPosition(dateRange, containerWidth);
     if (todayPx != null) {
       const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
       timelineEl.scrollLeft = target;
