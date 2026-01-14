@@ -79,13 +79,13 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const headerTimelineRef = useRef<HTMLDivElement>(null);
   const initialScrollDoneRef = useRef(false);
-  const dateRangeRef = useRef<{ start: Date; end: Date } | null>(null);
 
-  // DOM要素が作成された瞬間に今日の位置にスクロール
+  // 画面が表示された瞬間に今日の位置にスクロール
   const timelineRefCallback = useCallback((node: HTMLDivElement | null) => {
     timelineRef.current = node;
-    if (node && !initialScrollDoneRef.current && dateRangeRef.current) {
-      const todayPx = calculateTodayPosition(dateRangeRef.current, node.scrollWidth);
+    if (node && !initialScrollDoneRef.current && tasks.length > 0) {
+      const range = calculateDateRange(tasks);
+      const todayPx = calculateTodayPosition(range, node.scrollWidth);
       if (todayPx != null) {
         const target = Math.max(todayPx - node.clientWidth / 4, 0);
         node.scrollLeft = target;
@@ -93,7 +93,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       }
       initialScrollDoneRef.current = true;
     }
-  }, []);
+  }, [tasks]);
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -141,8 +141,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
       newRange.end.getTime() !== dateRange.end.getTime()) {
       setDateRange(newRange);
     }
-    // ref callbackで使用するために最新のdateRangeを保持
-    dateRangeRef.current = newRange;
 
     // 工程を初期状態で全て展開
     const stageIds = new Set<string>();
