@@ -253,6 +253,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   }, [taskListWidth, viewMode, ticks.length, zoomLevel]);
 
   // containerWidth計算後に今日の位置にスクロール（初回のみ）
+  // レイアウト変更が完了してからスクロール位置を設定
   useEffect(() => {
     if (initialScrollDoneRef.current) return;
     if (!containerWidthCalculatedRef.current) return;
@@ -263,12 +264,17 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
     initialScrollDoneRef.current = true;
 
-    const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
-    if (todayPx != null) {
-      const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
-      timelineEl.scrollLeft = target;
-      setScrollLeft(target);
-    }
+    // レイアウト変更が完了するまで待ってからスクロール
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
+        if (todayPx != null) {
+          const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
+          timelineEl.scrollLeft = target;
+          setScrollLeft(target);
+        }
+      });
+    });
   }, [containerWidth, tasks.length, dateRange]);
 
   // スクロール同期用のRAFフラグ
