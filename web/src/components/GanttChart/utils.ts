@@ -177,7 +177,15 @@ export function calculateTodayPosition(
   const rangeStart = startOfDay(dateRange.start);
   const rangeEnd = startOfDay(dateRange.end);
 
+  // #region agent log
+  const calcData = {today:today.toISOString(),rangeStart:rangeStart.toISOString(),rangeEnd:rangeEnd.toISOString(),containerWidth,todayBeforeRange:today < rangeStart,todayAfterRange:today > rangeEnd};
+  console.log('[calculateTodayPosition] called', calcData);
+  // #endregion
+
   if (today < rangeStart || today > rangeEnd) {
+    // #region agent log
+    console.log('[calculateTodayPosition] Today is outside range');
+    // #endregion
     return null;
   }
 
@@ -185,6 +193,11 @@ export function calculateTodayPosition(
   const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
   const daysFromStart = differenceInDays(today, rangeStart);
   const dayWidth = containerWidth / totalDaysInclusive;
+
+  // #region agent log
+  const resultData = {totalDaysInclusive,daysFromStart,dayWidth,result:daysFromStart * dayWidth};
+  console.log('[calculateTodayPosition] Today position calculated', resultData);
+  // #endregion
 
   // 本日の日付の左端（始まり）に配置
   return daysFromStart * dayWidth;

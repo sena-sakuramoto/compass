@@ -1,6 +1,6 @@
 // メインのガントチャートコンポーネント
 
-import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { GanttToolbar } from './GanttToolbar';
 import { GanttTaskList } from './GanttTaskList';
 import { GanttTimeline, ProjectMilestone } from './GanttTimeline';
@@ -65,11 +65,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const holidaySet = useJapaneseHolidaySet();
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scrollLeft, setScrollLeft] = useState(0);
-  const scrollLeftRef = useRef(0); // 比較用のref（横スクロール）
+  const scrollLeftRef = useRef(0);
   const [scrollTop, setScrollTop] = useState(0);
-  const scrollTopRef = useRef(0); // 比較用のref（縦スクロール）
+  const scrollTopRef = useRef(0);
   const [containerWidth, setContainerWidth] = useState(1200);
-  const [zoomLevel, setZoomLevel] = useState(1.0); // ズームレベル（0.5～3.0）
+  const [zoomLevel, setZoomLevel] = useState(1.0);
   const [selectedTask, setSelectedTask] = useState<GanttTask | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBatchEditModal, setShowBatchEditModal] = useState(false);
@@ -78,7 +78,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const timelineRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const headerTimelineRef = useRef<HTMLDivElement>(null);
-  const initialScrollDoneRef = useRef(false); // 初期スクロール済みフラグ
+  const initialScrollDoneRef = useRef(false);
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -430,18 +430,17 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     }
   }, [jumpToTodayRef, handleJumpToToday]);
 
-  // 初回マウント時に今日の日付にスクロール
-  useLayoutEffect(() => {
+  // 初回マウント時に今日の日付にスクロール（useEffectでDOM確定後に実行）
+  useEffect(() => {
     if (initialScrollDoneRef.current) return;
     if (tasks.length === 0) return;
 
     const timelineEl = timelineRef.current;
-    if (!timelineEl) return;  // まだDOMがないなら再試行を待つ
+    if (!timelineEl) return;
 
-    // ここまで来たら成功、フラグを立てる
     initialScrollDoneRef.current = true;
 
-    const todayPx = calculateTodayPosition(dateRange, containerWidth);
+    const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
     if (todayPx != null) {
       const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
       timelineEl.scrollLeft = target;

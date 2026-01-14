@@ -3077,6 +3077,10 @@ function SchedulePage({
         className="flex-1 min-h-0 bg-white"
       >
         {/* 工程・タスク統合ガントチャート */}
+        {(() => {
+          console.error('[SchedulePage] ⚠️ Rendering NewGanttChart', { tasksCount: newGanttTasks.length });
+          return null;
+        })()}
         <NewGanttChart
             tasks={newGanttTasks}
             interactive={true}
