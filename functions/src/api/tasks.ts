@@ -190,9 +190,15 @@ router.post('/', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // プロジェクトメンバーシップをチェック
-    const userProjectMemberships = await listUserProjects(user.orgId, req.uid);
+    // プロジェクトメンバーシップをチェック（クロスオーガナイゼーション対応：nullで全組織を検索）
+    const userProjectMemberships = await listUserProjects(null, req.uid);
     const membership = userProjectMemberships.find(m => m.projectId === payload.projectId);
+    console.log('[POST /tasks] Found membership:', membership ? {
+      projectId: membership.projectId,
+      projectOrgId: membership.member.projectOrgId,
+      memberOrgId: membership.member.orgId,
+      ownerOrgId: membership.project?.ownerOrgId,
+    } : 'none');
 
     if (!membership) {
       return res.status(403).json({ error: 'Forbidden: Not a member of this project' });
@@ -204,14 +210,23 @@ router.post('/', async (req: any, res, next) => {
       membership.project?.ownerOrgId ||
       membership.member.projectOrgId ||
       membership.member.orgId;
+
+    console.log('[POST /tasks] projectOrgId determination:', {
+      'membership.project?.ownerOrgId': membership.project?.ownerOrgId,
+      'membership.member.projectOrgId': membership.member.projectOrgId,
+      'membership.member.orgId': membership.member.orgId,
+      'resolved projectOrgId': projectOrgId,
+    });
+
     const permissions = await getProjectMemberPermissions(projectOrgId, payload.projectId, req.uid);
 
     if (!permissions || !permissions.canCreateTasks) {
       return res.status(403).json({ error: 'Forbidden: You do not have permission to create tasks' });
     }
 
+    console.log('[POST /tasks] Creating task in org:', projectOrgId, 'for project:', payload.projectId);
     const id = await createTask(payload, projectOrgId);
-    console.log('[POST /tasks] Task created with ID:', id);
+    console.log('[POST /tasks] Task created with ID:', id, 'in org:', projectOrgId);
 
     // タスク作成者を記録
     await recordTaskCreator(id, user.id, projectOrgId);
