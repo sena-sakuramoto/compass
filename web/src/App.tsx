@@ -121,7 +121,7 @@ import {
 } from 'recharts';
 import { useFirebaseAuth } from './lib/firebaseClient';
 import { useJapaneseHolidaySet } from './lib/japaneseHolidays';
-import { getCachedSnapshot, cacheSnapshot } from './lib/idbCache';
+import { getCachedSnapshot, cacheSnapshot, cacheProjectMembers, getAllCachedProjectMembers } from './lib/idbCache';
 import type { User } from 'firebase/auth';
 import { usePendingOverlay, applyPendingToTasks } from './state/pendingOverlay';
 
@@ -955,12 +955,20 @@ function TaskModal({
       resetFormFields(false);
       if (defaultProjectId) {
         setProject(defaultProjectId);
+        // preloadedデータがあれば即座に設定（APIコールを回避）
+        if (preloadedStages !== undefined) {
+          setStages(preloadedStages as Stage[]);
+        }
+        if (preloadedProjectMembers !== undefined) {
+          setProjectMembers(preloadedProjectMembers);
+          setMembersLoading(false);
+        }
       }
       if (defaultStageId) {
         setStageId(defaultStageId);
       }
     }
-  }, [open, editingTask, defaultProjectId, defaultStageId, resetFormFields]);
+  }, [open, editingTask, defaultProjectId, defaultStageId, resetFormFields, preloadedStages, preloadedProjectMembers]);
 
   useEffect(() => {
     if (!open) {
@@ -982,9 +990,8 @@ function TaskModal({
       return;
     }
 
-    // preloadedStagesがあり、プロジェクトがdefaultProjectIdと一致する場合はそれを使用
-    if (preloadedStages && preloadedStages.length > 0 && project === defaultProjectId) {
-      // Task型をStage型としてキャスト（type === 'stage' でフィルタ済み）
+    // preloadedStagesがあり、プロジェクトがdefaultProjectIdと一致する場合はそれを使用（空配列でもOK）
+    if (preloadedStages !== undefined && project === defaultProjectId) {
       setStages(preloadedStages as Stage[]);
       return;
     }
@@ -1006,18 +1013,16 @@ function TaskModal({
       return;
     }
 
-    // preloadedProjectMembersがあり、プロジェクトがdefaultProjectIdと一致する場合はそれを使用
-    if (preloadedProjectMembers && preloadedProjectMembers.length > 0 && project === defaultProjectId) {
+    // preloadedProjectMembersがあり、プロジェクトがdefaultProjectIdと一致する場合はそれを使用（空配列でもOK）
+    if (preloadedProjectMembers !== undefined && project === defaultProjectId) {
       setProjectMembers(preloadedProjectMembers);
       setMembersLoading(false);
       return;
     }
 
-    console.log('[TaskModal] Loading project members for:', project);
     setMembersLoading(true);
     listProjectMembers(project, { status: 'active' })
       .then(members => {
-        console.log('[TaskModal] Loaded project members:', members);
         setProjectMembers(members);
       })
       .catch(error => {
@@ -5087,6 +5092,27 @@ function App() {
 
   const canSync = authSupported && Boolean(user);
 
+  // 起動時にIndexedDBキャッシュからProject Membersを読み込む
+  useEffect(() => {
+    const loadCachedMembers = async () => {
+      try {
+        const cached = await getAllCachedProjectMembers();
+        if (cached && Object.keys(cached).length > 0) {
+          console.log('[App] Loading project members from cache:', Object.keys(cached).length, 'projects');
+          const newMap = new Map<string, ProjectMember[]>();
+          Object.entries(cached).forEach(([projectId, members]) => {
+            newMap.set(projectId, members);
+            loadedProjectMembersRef.current.add(projectId);
+          });
+          setAllProjectMembers(newMap);
+        }
+      } catch (err) {
+        console.warn('[App] Failed to load cached project members:', err);
+      }
+    };
+    loadCachedMembers();
+  }, []);
+
   const requestSnapshotReload = useCallback(
     (reason: string, delayMs = 120000) => {
       if (!canSync) return;
@@ -5299,6 +5325,8 @@ function App() {
       try {
         const members = await listProjectMembers(projectId, { status: 'active' });
         setAllProjectMembers(prev => new Map(prev).set(projectId, members));
+        // IndexedDBキャッシュに保存
+        cacheProjectMembers(projectId, members).catch(() => {});
       } catch (error: any) {
         if (error?.status === 404) {
           console.debug(`Project ${projectId} not found in Firestore, skipping member load`);
@@ -5455,6 +5483,8 @@ function App() {
           const members = await listProjectMembers(project.id, { status: 'active' });
           const memberNames = buildMemberNamesFromMembers(members);
           setAllProjectMembers(prev => new Map(prev).set(project.id, members));
+          // IndexedDBキャッシュに保存
+          cacheProjectMembers(project.id, members).catch(() => {});
           setState((prev) => ({
             ...prev,
             projects: prev.projects.map((item) =>
@@ -5487,6 +5517,8 @@ function App() {
       if (!projectId || !Array.isArray(members)) return;
       setAllProjectMembers((prev) => new Map(prev).set(projectId, members));
       loadedProjectMembersRef.current.add(projectId);
+      // IndexedDBキャッシュに保存
+      cacheProjectMembers(projectId, members).catch(() => {});
     };
 
     window.addEventListener('project-members:updated', handleMembersUpdated as EventListener);
