@@ -435,10 +435,11 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     if (initialScrollDoneRef.current) return;
     if (tasks.length === 0) return;
 
-    initialScrollDoneRef.current = true;
-
     const timelineEl = timelineRef.current;
-    if (!timelineEl) return;
+    if (!timelineEl) return;  // まだDOMがないなら再試行を待つ
+
+    // ここまで来たら成功、フラグを立てる
+    initialScrollDoneRef.current = true;
 
     const todayPx = calculateTodayPosition(dateRange, containerWidth);
     if (todayPx != null) {
