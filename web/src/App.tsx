@@ -6378,9 +6378,20 @@ function App() {
       usePendingOverlay.getState().ackDeletedTask(taskId, opId);
       pushToast({ tone: 'success', title: `タスク「${task.タスク名}」を削除しました` });
       // リロードは不要（サーバー側で削除済み）
-    } catch (error) {
+    } catch (error: any) {
       console.error('[Task] Failed to delete task:', error);
-      // 4. エラー時はロールバック
+
+      // 503（サーバー一時的利用不可）の場合はロールバックしない
+      // UIからは削除されたままにして、後でリトライ可能にする
+      const is503 = error?.status === 503 || error?.message?.includes('503');
+      if (is503) {
+        console.warn('[Task] Server unavailable (503), keeping task deleted in UI');
+        pushToast({ tone: 'info', title: 'サーバーが一時的に利用不可です', description: '削除はサーバー復旧後に反映されます' });
+        // deletedTasksは維持してUIから消えたままにする
+        return;
+      }
+
+      // 4. その他のエラー時はロールバック
       usePendingOverlay.getState().rollbackDeletedTask(taskId);
       setState((current) => {
         const exists = current.tasks.some((t) => t.id === removedTask.id);
