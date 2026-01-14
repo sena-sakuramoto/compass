@@ -97,7 +97,8 @@
       "Bash(pnpm lint:*)",
       "Bash(npx firebase deploy:*)",
       "Bash(grep:*)",
-      "Bash(npx firebase:*)"
+      "Bash(npx firebase:*)",
+      "Bash(npm run dev:*)"
     ],
     "deny": [],
     "ask": []

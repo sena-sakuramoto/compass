@@ -6,6 +6,7 @@ import { GanttTaskList } from './GanttTaskList';
 import { GanttTimeline, ProjectMilestone } from './GanttTimeline';
 import { GanttTimeAxis } from './GanttTimeAxis';
 import { TaskEditModal } from './TaskEditModal';
+import { BatchEditModal, BatchUpdate } from './BatchEditModal';
 import type { GanttTask, ViewMode } from './types';
 import { calculateDateRange, calculateDateTicks, calculateTodayPosition } from './utils';
 import type { ProjectMember } from '../../lib/auth-types';
@@ -25,6 +26,7 @@ interface GanttChartProps {
   onTaskUpdate?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onTaskCopy?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onTaskSave?: (task: GanttTask & { assigneeEmail?: string }) => void;
+  onTaskBatchUpdate?: (taskIds: string[], updates: BatchUpdate) => void;
   onTaskDelete?: (task: GanttTask) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
   onProjectClick?: (projectId: string) => void;
@@ -46,6 +48,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onTaskUpdate,
   onTaskCopy,
   onTaskSave,
+  onTaskBatchUpdate,
   onTaskDelete,
   onTaskToggleComplete,
   onProjectClick,
@@ -69,6 +72,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const [zoomLevel, setZoomLevel] = useState(1.0); // ズームレベル（0.5～3.0）
   const [selectedTask, setSelectedTask] = useState<GanttTask | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [showBatchEditModal, setShowBatchEditModal] = useState(false);
   const [expandedStageIds, setExpandedStageIds] = useState<Set<string>>(new Set());
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -245,20 +249,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     return () => window.removeEventListener('resize', updateWidth);
   }, [taskListWidth, viewMode, ticks.length, zoomLevel]);
 
-  const handleTaskListScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const top = e.currentTarget.scrollTop;
-
-    // scrollTopRefと比較して変更があった場合のみ更新（ループ防止）
-    if (scrollTopRef.current !== top) {
-      scrollTopRef.current = top;
-      setScrollTop(top);
-
-      // タイムラインの縦スクロールを同期
-      if (timelineRef.current) {
-        timelineRef.current.scrollTop = top;
-      }
-    }
-  };
+  // スクロール同期用のRAFフラグ
+  const scrollRAFRef = useRef<number | null>(null);
 
   const handleZoomIn = () => {
     // ズームイン処理：現在表示されている範囲を縮小
@@ -385,6 +377,26 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     handleClearSelection();
   };
 
+  // 一括編集ハンドラ
+  const handleBatchEdit = () => {
+    if (selectedTaskIds.size === 0) return;
+    setShowBatchEditModal(true);
+  };
+
+  // 一括編集保存ハンドラ
+  const handleBatchEditSave = (updates: BatchUpdate) => {
+    if (!onTaskBatchUpdate || selectedTaskIds.size === 0) return;
+    onTaskBatchUpdate(Array.from(selectedTaskIds), updates);
+    handleClearSelection();
+  };
+
+  // ドラッグで工程に割り当てるハンドラ
+  const handleBatchAssignToStage = (taskIds: string[], stageId: string | null) => {
+    if (!onTaskBatchUpdate || taskIds.length === 0) return;
+    onTaskBatchUpdate(taskIds, { parentId: stageId });
+    handleClearSelection();
+  };
+
   // フックは早期リターンの前に配置する（Reactのルール）
   const handleJumpToToday = useCallback(() => {
     if (tasks.length === 0) return;
@@ -438,82 +450,66 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         />
       </div>
 
-      {/* メインコンテンツ */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* タスク一覧（左側固定） */}
-        <div
-          ref={taskListRef}
-          className="flex-shrink-0 overflow-y-auto overflow-x-hidden"
-          style={{ width: `${taskListWidth}px` }}
-          onScroll={handleTaskListScroll}
-        >
-          <GanttTaskList
-            tasks={tasks}
-            rowHeight={rowHeight}
-            stageRowHeight={stageRowHeight}
-            taskRowHeight={taskRowHeight}
-            onTaskClick={handleTaskClickInternal}
-            onTaskToggleComplete={onTaskToggleComplete}
-            onProjectClick={onProjectClick}
-            scrollTop={scrollTop}
-            projectMap={projectMap}
-            projectMilestones={projectMilestones}
-            expandedStageIds={expandedStageIds}
-            onToggleStage={(stageId) => {
-              setExpandedStageIds(prev => {
-                const newSet = new Set(prev);
-                if (newSet.has(stageId)) {
-                  newSet.delete(stageId);
-                } else {
-                  newSet.add(stageId);
-                }
-                return newSet;
-              });
-            }}
-          />
-        </div>
+      {/* メインコンテンツ - 単一スクロールコンテナ */}
+      <div
+        ref={timelineRef}
+        className="flex-1 overflow-auto"
+        onScroll={(e) => {
+          const left = e.currentTarget.scrollLeft;
+          const top = e.currentTarget.scrollTop;
 
-        {/* タイムライン（右側、横スクロール） */}
-        <div
-          ref={timelineRef}
-          className="flex-1 overflow-y-auto overflow-x-auto"
-          style={{
-            scrollbarWidth: 'none',
-            msOverflowStyle: 'none',
-          }}
-          onScroll={(e) => {
-            const left = e.currentTarget.scrollLeft;
-            const top = e.currentTarget.scrollTop;
+          // 状態更新はRAFでバッチ処理
+          if (scrollLeftRef.current !== left || scrollTopRef.current !== top) {
+            scrollLeftRef.current = left;
+            scrollTopRef.current = top;
 
-            // scrollLeftRefと比較して変更があった場合のみ更新（ループ防止）
-            if (scrollLeftRef.current !== left) {
-              scrollLeftRef.current = left;
-              setScrollLeft(left);
-
-              // 日付ヘッダーも同期
-              if (headerTimelineRef.current) {
-                headerTimelineRef.current.style.transform = `translateX(-${left}px)`;
-              }
+            if (scrollRAFRef.current) {
+              cancelAnimationFrame(scrollRAFRef.current);
             }
+            scrollRAFRef.current = requestAnimationFrame(() => {
+              setScrollLeft(scrollLeftRef.current);
+              setScrollTop(scrollTopRef.current);
+              scrollRAFRef.current = null;
+            });
+          }
+        }}
+      >
+        {/* 横並びコンテナ（全体の幅 = タスクリスト + タイムライン） */}
+        <div className="flex" style={{ width: `${taskListWidth + containerWidth}px` }}>
+          {/* タスク一覧（左側固定 - sticky） */}
+          <div
+            ref={taskListRef}
+            className="sticky left-0 z-30 bg-white flex-shrink-0"
+            style={{ width: `${taskListWidth}px` }}
+          >
+            <GanttTaskList
+              tasks={tasks}
+              rowHeight={rowHeight}
+              stageRowHeight={stageRowHeight}
+              taskRowHeight={taskRowHeight}
+              onTaskClick={handleTaskClickInternal}
+              onTaskToggleComplete={onTaskToggleComplete}
+              onProjectClick={onProjectClick}
+              scrollTop={scrollTop}
+              projectMap={projectMap}
+              projectMilestones={projectMilestones}
+              expandedStageIds={expandedStageIds}
+              onToggleStage={(stageId) => {
+                setExpandedStageIds(prev => {
+                  const newSet = new Set(prev);
+                  if (newSet.has(stageId)) {
+                    newSet.delete(stageId);
+                  } else {
+                    newSet.add(stageId);
+                  }
+                  return newSet;
+                });
+              }}
+            />
+          </div>
 
-            // scrollTopRefと比較して変更があった場合のみ更新（ループ防止）
-            if (scrollTopRef.current !== top) {
-              scrollTopRef.current = top;
-              setScrollTop(top);
-
-              // タスクリストの縦スクロールを同期
-              if (taskListRef.current) {
-                taskListRef.current.scrollTop = top;
-              }
-            }
-          }}
-        >
-          <style>{`
-            div[style*="overflow-y-auto overflow-x-auto"]::-webkit-scrollbar {
-              width: 0;
-              height: 0;
-            }
-          `}</style>
+          {/* タイムライン（右側） */}
+          <div style={{ width: `${containerWidth}px` }}>
           <GanttTimeline
             tasks={tasks}
             ticks={ticks}
@@ -532,7 +528,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             selectedTaskIds={selectedTaskIds}
             onTaskSelection={handleTaskSelection}
             onBatchMove={handleBatchMove}
+            onBatchAssignToStage={onTaskBatchUpdate ? handleBatchAssignToStage : undefined}
             onClearSelection={handleClearSelection}
+            onBatchEdit={onTaskBatchUpdate ? handleBatchEdit : undefined}
             onViewModeToggle={handleViewModeToggle}
             projectMilestones={projectMilestones}
             projectMap={projectMap}
@@ -545,6 +543,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
               }
             }}
           />
+          </div>
         </div>
       </div>
 
@@ -554,10 +553,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         const projectMembers = selectedTask.projectId && allProjectMembers
           ? allProjectMembers.get(selectedTask.projectId) || []
           : [];
-        console.log('[GanttChart] selectedTask:', selectedTask.name, 'projectId:', selectedTask.projectId);
-        console.log('[GanttChart] all tasks with type=stage:', tasks.filter(t => t.type === 'stage').map(t => ({ name: t.name, projectId: t.projectId, type: t.type })));
-        console.log('[GanttChart] filtered projectStages:', projectStages.map(t => ({ name: t.name, id: t.id, type: t.type })));
-        console.log('[GanttChart] Passing stages to TaskEditModal:', projectStages);
         return (
           <TaskEditModal
             task={selectedTask}
@@ -571,6 +566,36 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           />
         );
       })()}
+
+      {/* 一括編集モーダル */}
+      {showBatchEditModal && selectedTaskIds.size > 0 && (
+        <BatchEditModal
+          selectedTasks={tasks.filter(t => selectedTaskIds.has(t.id))}
+          projectMembers={(() => {
+            // 選択されたタスクのプロジェクトからメンバーを取得
+            const selectedTasks = tasks.filter(t => selectedTaskIds.has(t.id));
+            const projectIds = new Set(selectedTasks.map(t => t.projectId));
+            const members: ProjectMember[] = [];
+            projectIds.forEach(pid => {
+              const pm = allProjectMembers?.get(pid) || [];
+              pm.forEach(m => {
+                if (!members.find(existing => existing.userId === m.userId)) {
+                  members.push(m);
+                }
+              });
+            });
+            return members;
+          })()}
+          stages={(() => {
+            // 選択されたタスクのプロジェクトに属する工程を取得
+            const selectedTasks = tasks.filter(t => selectedTaskIds.has(t.id));
+            const projectIds = new Set(selectedTasks.map(t => t.projectId));
+            return tasks.filter(t => t.type === 'stage' && projectIds.has(t.projectId));
+          })()}
+          onClose={() => setShowBatchEditModal(false)}
+          onSave={handleBatchEditSave}
+        />
+      )}
     </div>
   );
 };

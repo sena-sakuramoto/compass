@@ -141,6 +141,10 @@ type ToastInput = {
 
 function useSnapshot() {
   const [state, setState] = useState<CompassState>(() => {
+    // 一時的にローカルストレージをクリアしてサンプルデータを使用
+    // TODO: 本番では以下の2行を削除
+    localStorage.removeItem(LOCAL_KEY);
+
     if (typeof window === 'undefined') {
       const normalized = normalizeSnapshot(SAMPLE_SNAPSHOT);
       return {
@@ -397,7 +401,7 @@ function AppLayout({
             <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
           </div>
         ) : null}
-        <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-1 md:pt-2 lg:px-8">
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 lg:px-8">
           {children}
         </main>
         <BottomBar
@@ -2479,8 +2483,19 @@ function SchedulePage({
   user: User | null;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
+  const jumpToTodayRef = useRef<(() => void) | null>(null);
   const today = new Date();
   const todayLabel = formatDate(today);
+
+  // 初回マウント時に今日の位置にスクロール
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (jumpToTodayRef.current) {
+        jumpToTodayRef.current();
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
 
   const tasksStartingToday = useMemo(
     () =>
@@ -3009,7 +3024,7 @@ function SchedulePage({
       {/* ヘッダー & フィルター */}
       <section className="sticky top-0 z-[45] border-b border-slate-200 bg-white px-3 py-1.5 shadow-sm sm:px-4 lg:px-6 flex-shrink-0">
         <div className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-start gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <div className="min-w-[160px]">
               <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-500">
                 <span>工程表</span>
@@ -3029,6 +3044,16 @@ function SchedulePage({
               </div>
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => jumpToTodayRef.current?.()}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                今日
+              </button>
               <button
                 type="button"
                 onClick={openPrintPanel}
@@ -3186,6 +3211,69 @@ function SchedulePage({
               onEditProject(project);
             }
           }}
+          onTaskBatchUpdate={(taskIds, updates) => {
+            // 一括編集処理
+            if (!onTaskUpdate) return;
+
+            taskIds.forEach(taskId => {
+              const taskUpdates: Partial<Task> = {};
+
+              // 担当者
+              if (updates.assignee !== undefined) {
+                taskUpdates.担当者 = updates.assignee;
+                if (updates.assigneeEmail) {
+                  taskUpdates.担当者メール = updates.assigneeEmail;
+                }
+              }
+
+              // ステータス
+              if (updates.status !== undefined) {
+                let statusJa = '未着手';
+                if (updates.status === 'completed') statusJa = '完了';
+                else if (updates.status === 'in_progress') statusJa = '進行中';
+                else if (updates.status === 'on_hold') statusJa = '保留';
+                taskUpdates.ステータス = statusJa;
+              }
+
+              // 優先度
+              if (updates.priority !== undefined) {
+                taskUpdates.優先度 = updates.priority;
+              }
+
+              // 日付シフト
+              if (updates.shiftDays !== undefined && updates.shiftDays !== 0) {
+                // 工程も含めて検索（filteredTasksWithStagesを使用）
+                const task = filteredTasksWithStages.find(t => t.id === taskId);
+                if (task) {
+                  const startDate = task.予定開始日 ? new Date(task.予定開始日) : new Date();
+                  const endDate = task.期限 ? new Date(task.期限) : new Date();
+
+                  startDate.setDate(startDate.getDate() + updates.shiftDays);
+                  endDate.setDate(endDate.getDate() + updates.shiftDays);
+
+                  const newStart = formatDate(startDate);
+                  const newEnd = formatDate(endDate);
+                  if (newStart && newEnd) {
+                    taskUpdates.予定開始日 = newStart;
+                    taskUpdates.期限 = newEnd;
+                    taskUpdates.start = newStart;
+                    taskUpdates.end = newEnd;
+                  }
+                }
+              }
+
+              // 所属工程の変更
+              if (updates.parentId !== undefined) {
+                taskUpdates.parentId = updates.parentId;
+              }
+
+              if (Object.keys(taskUpdates).length > 0) {
+                onTaskUpdate(taskId, taskUpdates);
+              }
+            });
+
+            pushToast({ title: `${taskIds.length}個のアイテムを更新しました`, tone: 'success' });
+          }}
           onTaskDelete={async (task) => {
             try {
               await deleteTask(task.id);
@@ -3195,6 +3283,7 @@ function SchedulePage({
               pushToast({ title: 'タスクの削除に失敗しました', tone: 'error' });
             }
           }}
+          jumpToTodayRef={jumpToTodayRef}
         />
       </section>
     </div>

@@ -15,7 +15,10 @@ interface GanttTaskBarProps {
   onUpdate?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onCopy?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onClick?: (task: GanttTask) => void;
+  onSelect?: (taskId: string, isCtrlPressed: boolean) => void;
   interactive?: boolean;
+  isSelected?: boolean;
+  selectedCount?: number;
 }
 
 const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
@@ -26,7 +29,10 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   onUpdate,
   onCopy,
   onClick,
-  interactive = false
+  onSelect,
+  interactive = false,
+  isSelected = false,
+  selectedCount = 0
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -71,16 +77,13 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
   // ドラッグ開始
   const handleMouseDown = (e: React.MouseEvent, mode: DragMode) => {
-    console.log('[GanttTaskBar] handleMouseDown', {
-      interactive,
-      hasOnUpdate: !!onUpdate,
-      hasOnCopy: !!onCopy,
-      mode,
-      taskName: task.name
-    });
+    // 複数選択時は親（GanttTimeline）のドラッグ処理に委譲
+    if (isSelected && selectedCount > 1 && mode === 'move') {
+      // 親にイベントを伝播させる（stopPropagationしない）
+      return;
+    }
 
     if (!interactive || (!onUpdate && !onCopy)) {
-      console.log('[GanttTaskBar] Drag disabled - interactive:', interactive, 'onUpdate:', !!onUpdate, 'onCopy:', !!onCopy);
       return;
     }
     e.stopPropagation();
@@ -95,8 +98,6 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     dragStartX.current = e.clientX;
     originalStartDate.current = task.startDate;
     originalEndDate.current = task.endDate;
-
-    console.log('[GanttTaskBar] Drag started', { mode, taskName: task.name });
   };
 
   // ドラッグ中 - プレビューのみ更新、保存はしない
@@ -191,24 +192,12 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         pendingStartDate.current.getTime() !== originalStartDate.current.getTime() ||
         pendingEndDate.current.getTime() !== originalEndDate.current.getTime();
 
-      console.log('[GanttTaskBar] handleMouseUp', {
-        taskName: task.name,
-        hasChanged,
-        isCopyMode,
-        originalStart: originalStartDate.current.toISOString().split('T')[0],
-        originalEnd: originalEndDate.current.toISOString().split('T')[0],
-        newStart: pendingStartDate.current.toISOString().split('T')[0],
-        newEnd: pendingEndDate.current.toISOString().split('T')[0],
-      });
-
       if (hasChanged) {
         if (isCopyMode && onCopy) {
           // コピーモード：新しいタスクを作成
-          console.log('[GanttTaskBar] Calling onCopy');
           onCopy(task, pendingStartDate.current, pendingEndDate.current);
         } else if (onUpdate) {
           // 通常モード：既存のタスクを更新
-          console.log('[GanttTaskBar] Calling onUpdate');
           onUpdate(task, pendingStartDate.current, pendingEndDate.current);
         }
       }
@@ -242,6 +231,19 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   const handleClick = (e: React.MouseEvent) => {
     // ドラッグした場合はクリックイベントを無視
     if (hasDragged.current) {
+      e.stopPropagation();
+      return;
+    }
+
+    // Ctrl+クリックで選択に追加（工程もタスクも）
+    if (e.ctrlKey && onSelect) {
+      e.stopPropagation();
+      onSelect(task.id, true);
+      return;
+    }
+
+    // 複数選択時はクリックで編集画面を開かない（一括操作用）
+    if (isSelected && selectedCount > 1) {
       e.stopPropagation();
       return;
     }
@@ -367,6 +369,8 @@ export const GanttTaskBar = React.memo(GanttTaskBarComponent, (prevProps, nextPr
     prevProps.position.left === nextProps.position.left &&
     prevProps.position.width === nextProps.position.width &&
     prevProps.position.top === nextProps.position.top &&
-    prevProps.interactive === nextProps.interactive
+    prevProps.interactive === nextProps.interactive &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.selectedCount === nextProps.selectedCount
   );
 });
