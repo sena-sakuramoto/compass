@@ -6315,9 +6315,8 @@ function App() {
     const task = state.tasks.find(t => t.id === taskId);
     if (!task) return;
 
-    if (!confirm(`タスク「${task.タスク名}」を削除しますか？この操作は取り消せません。`)) {
-      return;
-    }
+    // 注：確認ダイアログは呼び出し元（TaskModal, TaskEditModal等）で表示するため、
+    // ここでは確認なしで即座に削除処理を実行する
 
     if (!canSync) {
       setState((current) => ({

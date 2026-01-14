@@ -179,7 +179,11 @@ export function TaskTable({
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 rounded-full border border-rose-200 px-2.5 py-1 text-xs text-rose-600 transition hover:bg-rose-50"
-                          onClick={() => onDelete(row.id)}
+                          onClick={() => {
+                            if (confirm(`タスク「${row.name}」を削除しますか？この操作は取り消せません。`)) {
+                              onDelete(row.id);
+                            }
+                          }}
                           title="タスクを削除"
                         >
                           <Trash2 className="h-3.5 w-3.5" /> 削除
