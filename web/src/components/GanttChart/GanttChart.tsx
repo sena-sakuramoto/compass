@@ -431,27 +431,45 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   }, [jumpToTodayRef, handleJumpToToday]);
 
   // 初回マウント時に今日の日付にスクロール
-  // tasksとcontainerWidthが準備できたタイミングで1回だけ実行
+  // 準備ができるまでポーリングして、できたらスクロール
   useEffect(() => {
     if (initialScrollDoneRef.current) return;
     if (tasks.length === 0) return;
-    if (containerWidth < 100) return; // コンテナ幅が計算されるまで待つ
 
-    const timelineEl = timelineRef.current;
-    if (!timelineEl) return;
-    if (timelineEl.scrollWidth < 100) return; // スクロール幅が計算されるまで待つ
+    const tryScroll = () => {
+      const timelineEl = timelineRef.current;
+      if (!timelineEl) return false;
+      if (timelineEl.scrollWidth < 100) return false;
 
-    // 準備完了、スクロール実行
-    initialScrollDoneRef.current = true;
+      // 今日の位置を計算してスクロール
+      const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
+      if (todayPx != null) {
+        const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
+        timelineEl.scrollLeft = target;
+        setScrollLeft(target);
+      }
+      return true;
+    };
 
-    // 今日の位置を計算してスクロール
-    const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
-    if (todayPx != null) {
-      const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
-      timelineEl.scrollLeft = target;
-      setScrollLeft(target);
+    // 即座に試行
+    if (tryScroll()) {
+      initialScrollDoneRef.current = true;
+      return;
     }
-  }, [tasks.length, containerWidth, dateRange]);
+
+    // 準備ができていなければ、短い間隔でリトライ
+    let attempts = 0;
+    const maxAttempts = 20;
+    const interval = setInterval(() => {
+      attempts++;
+      if (tryScroll() || attempts >= maxAttempts) {
+        initialScrollDoneRef.current = true;
+        clearInterval(interval);
+      }
+    }, 50);
+
+    return () => clearInterval(interval);
+  }, [tasks.length, dateRange]);
 
   // タスクがない場合の表示（すべてのフックの後で判定）
   if (tasks.length === 0) {
