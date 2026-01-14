@@ -7486,23 +7486,7 @@ function App() {
           onSaveLocal={handleProjectOptimisticUpdate}
           onRollback={handleProjectRollback}
           onDelete={handleDeleteProject}
-          onTaskCreate={async (taskData) => {
-            await handleCreateTask({
-              projectId: taskData.projectId || '',
-              タスク名: taskData.タスク名 || '',
-              担当者: taskData.担当者,
-              担当者メール: taskData.担当者メール,
-              予定開始日: taskData.予定開始日,
-              期限: taskData.期限,
-              優先度: taskData.優先度 || '中',
-              ステータス: taskData.ステータス || '未着手',
-              ['工数見積(h)']: taskData['工数見積(h)'],
-              parentId: taskData.parentId ?? null,
-              マイルストーン: taskData.マイルストーン,
-              '通知設定': taskData['通知設定'],
-            });
-          }}
-          people={state.people}
+          onOpenTaskModal={openTaskModal}
           projectMembers={memoizedProjectMembers}
           stages={memoizedProjectStages}
           onStagesChanged={reloadTasks}

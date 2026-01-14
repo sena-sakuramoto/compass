@@ -3,7 +3,8 @@ import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import toast from 'react-hot-toast';
-import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check, ExternalLink } from 'lucide-react';
 import type { Project, Task, ManageableUserSummary, Stage } from '../lib/types';
 import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType, ProjectPermissions } from '../lib/auth-types';
 import { listProjectMembers, addProjectMember, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage, updateProject, listUsers, getCurrentUser } from '../lib/api';
@@ -13,7 +14,6 @@ import { GoogleDriveFolderPicker } from './GoogleDriveFolderPicker';
 import { ClientSelector } from './ClientSelector';
 import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
 import { formatDate, formatJapaneseEra } from '../lib/date';
-import { parseHoursInput } from '../lib/number';
 import { resolveApiBase } from '../lib/apiBase';
 
 // 日本語ロケールを登録
@@ -27,8 +27,7 @@ interface ProjectEditDialogProps {
   onSaveLocal?: (project: Project) => void;
   onRollback?: (projectId: string, prevProject: Project) => void;
   onDelete?: (project: Project) => Promise<void>;
-  onTaskCreate?: (taskData: Partial<Task>) => Promise<void>;
-  people?: Array<{ id: string; 氏名: string; メール?: string }>;
+  onOpenTaskModal?: (defaults?: { projectId?: string; stageId?: string }) => void;
   projectMembers?: ProjectMember[];
   stages?: Task[];
   onStagesChanged?: () => void | Promise<void>;
@@ -76,7 +75,7 @@ const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
 
 const BASE_URL = resolveApiBase();
 
-export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onSaveLocal, onRollback, onDelete, onTaskCreate, people = [], projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged }: ProjectEditDialogProps) {
+export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onSaveLocal, onRollback, onDelete, onOpenTaskModal, projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
@@ -121,23 +120,6 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('');
   const [inputMode, setInputMode] = useState<'email' | 'text'>('email');
   const [inviteName, setInviteName] = useState('');
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  const [newTaskName, setNewTaskName] = useState('');
-  const [newTaskAssignee, setNewTaskAssignee] = useState('');
-  const [newTaskAssigneeEmail, setNewTaskAssigneeEmail] = useState('');
-  const [newTaskStartDate, setNewTaskStartDate] = useState<Date | null>(null);
-  const [newTaskEndDate, setNewTaskEndDate] = useState<Date | null>(null);
-  const [newTaskPriority, setNewTaskPriority] = useState('中');
-  const [newTaskStatus, setNewTaskStatus] = useState('未着手');
-  const [newTaskEstimate, setNewTaskEstimate] = useState(4);
-  const [newTaskNotifyStart, setNewTaskNotifyStart] = useState(true);
-  const [newTaskNotifyDayBefore, setNewTaskNotifyDayBefore] = useState(true);
-  const [newTaskNotifyDue, setNewTaskNotifyDue] = useState(true);
-  const [newTaskNotifyOverdue, setNewTaskNotifyOverdue] = useState(true);
-  const [newTaskIsMilestone, setNewTaskIsMilestone] = useState(false);
-  const [newTaskKeepOpen, setNewTaskKeepOpen] = useState(false);
-  const newTaskNameInputRef = useRef<HTMLInputElement | null>(null);
-  const [taskCreating, setTaskCreating] = useState(false);
 
   // 工程管理用の状態
   const [stages, setStages] = useState<Task[]>([]);
@@ -148,7 +130,6 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
   const [stageStartDate, setStageStartDate] = useState('');
 const [stageEndDate, setStageEndDate] = useState('');
 const [stageSaving, setStageSaving] = useState(false);
-const [newTaskStageId, setNewTaskStageId] = useState('');
   const [logsExpanded, setLogsExpanded] = useState(false);
 const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(null);
 
@@ -164,55 +145,10 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
   const [showInitialMembersSection, setShowInitialMembersSection] = useState(false);
 
   const holidaySet = useJapaneseHolidaySet();
-  const assignableMembers = useMemo(() => {
-    const pool = new Map<string, ProjectMember>();
-    [...projectMembers, ...propsProjectMembers].forEach((member) => {
-      const key = member.userId || member.displayName;
-      if (!pool.has(key)) pool.set(key, member);
-    });
-    return Array.from(pool.values()).filter((member) => member.status === 'active');
-  }, [projectMembers, propsProjectMembers]);
-  const assigneeOptions = useMemo(
-    () =>
-      assignableMembers.map((member) => ({
-        key: member.userId || member.displayName,
-        value: member.displayName,
-        label: `${member.displayName} (${PROJECT_ROLE_LABELS[member.role] ?? member.role})`,
-      })),
-    [assignableMembers]
-  );
   const broadcastMemberUpdate = useCallback((projectId: string, members: ProjectMember[]) => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('project-members:updated', { detail: { projectId, members } }));
   }, []);
-
-  const resetInlineTaskForm = useCallback((keepContext: boolean) => {
-    setNewTaskName('');
-    setNewTaskStartDate(null);
-    setNewTaskEndDate(null);
-    setNewTaskIsMilestone(false);
-    if (keepContext) {
-      return;
-    }
-    setNewTaskAssignee('');
-    setNewTaskAssigneeEmail('');
-    setNewTaskPriority('中');
-    setNewTaskStatus('未着手');
-    setNewTaskEstimate(4);
-    setNewTaskNotifyStart(true);
-    setNewTaskNotifyDayBefore(true);
-    setNewTaskNotifyDue(true);
-    setNewTaskNotifyOverdue(true);
-    setNewTaskStageId('');
-  }, []);
-
-  useEffect(() => {
-    if (!showTaskForm) return;
-    const timer = window.setTimeout(() => {
-      newTaskNameInputRef.current?.focus();
-    }, 120);
-    return () => window.clearTimeout(timer);
-  }, [showTaskForm]);
 
   // プロジェクトIDが変わった時に初期化フラグをリセット
   const isInitialMount = useRef(true);
@@ -903,108 +839,6 @@ const loadCollaborators = async (force = false): Promise<void> => {
     }
   };
 
-  // 担当者選択時にメールアドレスを自動入力
-  useEffect(() => {
-    if (!newTaskAssignee) {
-      setNewTaskAssigneeEmail('');
-      return;
-    }
-    const member = projectMembers.find((m) => m.displayName === newTaskAssignee);
-    if (member) {
-      setNewTaskAssigneeEmail(member.email);
-      return;
-    }
-    const person = people.find((p) => p.氏名 === newTaskAssignee);
-    setNewTaskAssigneeEmail(person?.メール ?? '');
-  }, [newTaskAssignee, projectMembers, people]);
-
-  // マイルストーン用の日付変更ハンドラ
-  const handleMilestoneDateChange = (date: Date | null) => {
-    setNewTaskStartDate(date);
-    setNewTaskEndDate(date);
-  };
-
-  // 通常タスク用の日付範囲変更ハンドラ
-  const handleRangeDateChange = (date: Date | null) => {
-    if (!date) {
-      setNewTaskStartDate(null);
-      setNewTaskEndDate(null);
-      return;
-    }
-
-    // 開始日が未設定、または既に範囲が確定している場合は新しい開始日として設定
-    if (!newTaskStartDate || (newTaskStartDate && newTaskEndDate)) {
-      setNewTaskStartDate(date);
-      setNewTaskEndDate(null);
-    } else {
-      // 開始日が設定済みで終了日が未設定の場合
-      if (newTaskStartDate.getTime() === date.getTime()) {
-        // 同じ日をクリック → 単日タスク
-        setNewTaskEndDate(date);
-      } else if (date < newTaskStartDate) {
-        // クリックした日が開始日より前 → 開始日と終了日を入れ替え
-        setNewTaskEndDate(newTaskStartDate);
-        setNewTaskStartDate(date);
-      } else {
-        // クリックした日が開始日より後 → 範囲選択
-        setNewTaskEndDate(date);
-      }
-
-      // マイルストーン解除判定
-      if (newTaskStartDate.getTime() !== date.getTime() && newTaskIsMilestone) {
-        setNewTaskIsMilestone(false);
-      }
-    }
-  };
-
-  // 単日選択済みかどうか（旧ロジック互換）
-  const hasSingleDaySelection = Boolean(
-    newTaskStartDate &&
-    newTaskEndDate &&
-    newTaskStartDate.getTime() === newTaskEndDate.getTime()
-  );
-
-  const handleCreateTask = async () => {
-    if (!newTaskName.trim() || !project?.id || !onTaskCreate) return;
-
-    setTaskCreating(true);
-    try {
-      await onTaskCreate({
-        type: 'task',  // タスクのtypeを明示的に設定
-        タスク名: newTaskName,
-        担当者: newTaskAssignee || undefined,
-        担当者メール: newTaskAssigneeEmail || undefined,
-        予定開始日: newTaskStartDate ? format(newTaskStartDate, 'yyyy-MM-dd') : undefined,
-        期限: newTaskEndDate ? format(newTaskEndDate, 'yyyy-MM-dd') : undefined,
-        ステータス: newTaskStatus,
-        優先度: newTaskPriority,
-        ['工数見積(h)']: newTaskEstimate,
-        マイルストーン: newTaskIsMilestone,
-        '通知設定': {
-          開始日: newTaskNotifyStart,
-          期限前日: newTaskNotifyDayBefore,
-          期限当日: newTaskNotifyDue,
-          超過: newTaskNotifyOverdue,
-        },
-        parentId: newTaskStageId || null,
-        projectId: project.id,
-      });
-
-      resetInlineTaskForm(newTaskKeepOpen);
-      if (newTaskKeepOpen) {
-        setShowTaskForm(true);
-        newTaskNameInputRef.current?.focus();
-      } else {
-        setShowTaskForm(false);
-      }
-    } catch (error) {
-      console.error('タスクの作成に失敗しました:', error);
-      alert('タスクの作成に失敗しました');
-    } finally {
-      setTaskCreating(false);
-    }
-  };
-
   const handleDelete = async () => {
     if (!project || !onDelete) return;
 
@@ -1489,280 +1323,29 @@ const loadCollaborators = async (force = false): Promise<void> => {
             )}
 
             {/* タスク追加（編集モード時のみ） */}
-            {project && project.id && onTaskCreate && (
+            {project && project.id && onOpenTaskModal && (
               <div className="border-t border-slate-200 pt-4">
-                <div className="flex items-center justify-between mb-3">
-                  <label className="block text-sm font-medium text-slate-700">
-                    <Plus className="inline h-4 w-4 mr-1" />
-                    タスク追加
-                  </label>
-                  {!showTaskForm && (
-                    <button
-                      type="button"
-                      onClick={() => setShowTaskForm(true)}
-                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                    >
-                      + 新しいタスク
-                    </button>
-                  )}
-                </div>
-
-                {showTaskForm && (
-                  <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-white">
-                    {/* 工程 */}
-                    {stages.length > 0 && (
-                      <div>
-                        <label className="mb-1 block text-xs text-slate-500">工程</label>
-                        <select
-                          value={newTaskStageId}
-                          onChange={(e) => setNewTaskStageId(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm"
-                        >
-                          <option value="">未割り当て</option>
-                          {stages.map((stage) => (
-                            <option key={stage.id} value={stage.id}>
-                              {stage.タスク名}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
-                    {/* 担当者 */}
-                    <div>
-                      <label className="mb-1 block text-xs text-slate-500">担当者</label>
-                      <select
-                        value={newTaskAssignee}
-                        onChange={(e) => setNewTaskAssignee(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      >
-                        <option value="">未割り当て</option>
-                        {assigneeOptions.map((option) => (
-                          <option key={option.key} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {assigneeOptions.length === 0 && (
-                        <p className="mt-1 text-xs text-amber-600">
-                          プロジェクトにメンバーを追加すると、担当者として選択できるようになります
-                        </p>
-                      )}
-                    </div>
-
-                    {/* 通知送信先メール */}
-                    <div>
-                      <label className="mb-1 block text-xs text-slate-500">通知送信先メール</label>
-                      <input
-                        type="email"
-                        className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                        value={newTaskAssigneeEmail}
-                        onChange={(e) => setNewTaskAssigneeEmail(e.target.value)}
-                        placeholder="担当者メールアドレス"
-                      />
-                    </div>
-
-                    {/* タスク名 */}
-                    <div>
-                      <label className="mb-1 block text-xs text-slate-500">
-                        タスク名 <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        ref={newTaskNameInputRef}
-                        value={newTaskName}
-                        onChange={(e) => setNewTaskName(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="タスク名を入力"
-                      />
-                    </div>
-
-                    {/* マイルストーンチェックボックス */}
-                    <div
-                      className={`flex items-center gap-2 p-2 rounded-lg border ${
-                        newTaskIsMilestone ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        id="new-task-milestone"
-                        checked={newTaskIsMilestone}
-                        onChange={(e) => {
-                          setNewTaskIsMilestone(e.target.checked);
-                          if (e.target.checked) {
-                            if (newTaskStartDate) {
-                              setNewTaskEndDate(newTaskStartDate);
-                            } else {
-                              setNewTaskEndDate(null);
-                            }
-                          }
-                        }}
-                        className="w-4 h-4 rounded text-red-600 focus:ring-red-500 flex-shrink-0"
-                      />
-                      <label
-                        htmlFor="new-task-milestone"
-                        className="text-xs text-red-900 cursor-pointer"
-                      >
-                        ◆ マイルストーン（重要な1日の予定）
-                        {!hasSingleDaySelection && !newTaskIsMilestone && (
-                          <span className="block text-[10px] mt-0.5 text-gray-500">
-                            ※ オンにして実施日を選択すると単日タスクとして登録できます
-                          </span>
-                        )}
-                      </label>
-                    </div>
-
-                    {/* 日付選択 */}
-                    <div className="bg-blue-50 rounded-xl border border-blue-200 p-3">
-                      <label className="block text-xs font-semibold text-slate-700 mb-2">
-                        {newTaskIsMilestone ? '◆ 実施日' : '作業期間'}
-                      </label>
-                      {newTaskIsMilestone ? (
-                        <DatePicker
-                          selected={newTaskStartDate}
-                          onChange={handleMilestoneDateChange}
-                          locale="ja"
-                          dateFormat="yyyy年MM月dd日"
-                          className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholderText="実施日を選択"
-                        />
-                      ) : (
-                        <div>
-                          <DatePicker
-                            onChange={handleRangeDateChange}
-                            highlightDates={[
-                              ...(newTaskStartDate ? [newTaskStartDate] : []),
-                              ...(newTaskStartDate && newTaskEndDate ?
-                                Array.from({ length: Math.ceil((newTaskEndDate.getTime() - newTaskStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1 }, (_, i) => {
-                                  const d = new Date(newTaskStartDate);
-                                  d.setDate(newTaskStartDate.getDate() + i);
-                                  return d;
-                                }) : []
-                              )
-                            ]}
-                            inline
-                            locale="ja"
-                            className="w-full"
-                          />
-                          <div className="mt-2 text-xs text-slate-600 text-center bg-blue-50 rounded-lg py-2 px-3">
-                            {!newTaskStartDate && '📅 開始日を選択してください'}
-                            {newTaskStartDate && !newTaskEndDate && '📅 終了日を選択してください（同じ日をもう一度クリックで単日タスク）'}
-                            {newTaskStartDate && newTaskEndDate && (
-                              <span className="font-semibold text-blue-600">
-                                {newTaskStartDate.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })} 〜 {newTaskEndDate.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })}
-                                {newTaskStartDate.getTime() === newTaskEndDate.getTime() && ' (単日)'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 優先度とステータス */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="mb-1 block text-xs text-slate-500">優先度</label>
-                        <select
-                          className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                          value={newTaskPriority}
-                          onChange={(e) => setNewTaskPriority(e.target.value)}
-                        >
-                          <option value="高">高</option>
-                          <option value="中">中</option>
-                          <option value="低">低</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-xs text-slate-500">ステータス</label>
-                        <select
-                          className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                          value={newTaskStatus}
-                          onChange={(e) => setNewTaskStatus(e.target.value)}
-                        >
-                          <option value="未着手">未着手</option>
-                          <option value="進行中">進行中</option>
-                          <option value="確認待ち">確認待ち</option>
-                          <option value="保留">保留</option>
-                          <option value="完了">完了</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* 工数見積 */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="mb-1 block text-xs text-slate-500">工数見積(h)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.1"
-                          inputMode="decimal"
-                          className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                          value={newTaskEstimate}
-                          onChange={(e) => setNewTaskEstimate(parseHoursInput(e.target.value))}
-                        />
-                      </div>
-                    </div>
-
-                    {/* メール通知 */}
-                    <div>
-                      <p className="mb-1 text-xs font-semibold text-slate-500">メール通知</p>
-                      <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
-                        <label className="flex items-center gap-1.5">
-                          <input type="checkbox" checked={newTaskNotifyStart} onChange={(e) => setNewTaskNotifyStart(e.target.checked)} className="w-3.5 h-3.5" />
-                          <span>開始日</span>
-                        </label>
-                        <label className="flex items-center gap-1.5">
-                          <input type="checkbox" checked={newTaskNotifyDayBefore} onChange={(e) => setNewTaskNotifyDayBefore(e.target.checked)} className="w-3.5 h-3.5" />
-                          <span>期限前日</span>
-                        </label>
-                        <label className="flex items-center gap-1.5">
-                          <input type="checkbox" checked={newTaskNotifyDue} onChange={(e) => setNewTaskNotifyDue(e.target.checked)} className="w-3.5 h-3.5" />
-                          <span>期限当日</span>
-                        </label>
-                        <label className="flex items-center gap-1.5">
-                          <input type="checkbox" checked={newTaskNotifyOverdue} onChange={(e) => setNewTaskNotifyOverdue(e.target.checked)} className="w-3.5 h-3.5" />
-                          <span>期限超過</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    {/* ボタン */}
-                    <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-between">
-                      <label className="flex items-center gap-2 text-xs text-slate-600">
-                        <input
-                          type="checkbox"
-                          className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                          checked={newTaskKeepOpen}
-                          onChange={(e) => setNewTaskKeepOpen(e.target.checked)}
-                        />
-                        保存後も続けて追加
-                      </label>
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowTaskForm(false);
-                            setNewTaskKeepOpen(false);
-                            resetInlineTaskForm(false);
-                          }}
-                          className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-2xl hover:bg-slate-50 transition-colors"
-                          disabled={taskCreating}
-                        >
-                          キャンセル
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleCreateTask}
-                          disabled={!newTaskName.trim() || taskCreating}
-                          className="px-4 py-2 text-sm font-medium text-white bg-slate-900 rounded-2xl hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {taskCreating ? '作成中...' : newTaskKeepOpen ? '保存して続ける' : '保存'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <label className="block text-sm font-medium text-slate-700 mb-3">
+                  <Plus className="inline h-4 w-4 mr-1" />
+                  タスク追加
+                </label>
+                <motion.button
+                  type="button"
+                  onClick={() => onOpenTaskModal({ projectId: project.id })}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl shadow-md hover:shadow-lg transition-shadow"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Plus className="h-4 w-4" />
+                  新しいタスクを作成
+                  <ExternalLink className="h-3.5 w-3.5 ml-1 opacity-70" />
+                </motion.button>
+                <p className="mt-2 text-xs text-slate-500 text-center">
+                  タスク作成画面が開きます
+                </p>
               </div>
             )}
 
