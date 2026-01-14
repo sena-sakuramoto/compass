@@ -79,21 +79,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const headerTimelineRef = useRef<HTMLDivElement>(null);
   const initialScrollDoneRef = useRef(false);
-
-  // 画面が表示された瞬間に今日の位置にスクロール
-  const timelineRefCallback = useCallback((node: HTMLDivElement | null) => {
-    timelineRef.current = node;
-    if (node && !initialScrollDoneRef.current && tasks.length > 0) {
-      const range = calculateDateRange(tasks);
-      const todayPx = calculateTodayPosition(range, node.scrollWidth);
-      if (todayPx != null) {
-        const target = Math.max(todayPx - node.clientWidth / 4, 0);
-        node.scrollLeft = target;
-        setScrollLeft(target);
-      }
-      initialScrollDoneRef.current = true;
-    }
-  }, [tasks]);
+  const containerWidthCalculatedRef = useRef(false);
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -261,9 +247,29 @@ export const GanttChart: React.FC<GanttChartProps> = ({
     };
 
     updateWidth();
+    containerWidthCalculatedRef.current = true;
     window.addEventListener('resize', updateWidth);
     return () => window.removeEventListener('resize', updateWidth);
   }, [taskListWidth, viewMode, ticks.length, zoomLevel]);
+
+  // containerWidth計算後に今日の位置にスクロール（初回のみ）
+  useEffect(() => {
+    if (initialScrollDoneRef.current) return;
+    if (!containerWidthCalculatedRef.current) return;
+    if (tasks.length === 0) return;
+
+    const timelineEl = timelineRef.current;
+    if (!timelineEl) return;
+
+    initialScrollDoneRef.current = true;
+
+    const todayPx = calculateTodayPosition(dateRange, timelineEl.scrollWidth);
+    if (todayPx != null) {
+      const target = Math.max(todayPx - timelineEl.clientWidth / 4, 0);
+      timelineEl.scrollLeft = target;
+      setScrollLeft(target);
+    }
+  }, [containerWidth, tasks.length, dateRange]);
 
   // スクロール同期用のRAFフラグ
   const scrollRAFRef = useRef<number | null>(null);
@@ -469,7 +475,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
       {/* メインコンテンツ - 単一スクロールコンテナ */}
       <div
-        ref={timelineRefCallback}
+        ref={timelineRef}
         className="flex-1 overflow-auto"
         onScroll={(e) => {
           const left = e.currentTarget.scrollLeft;
