@@ -1332,20 +1332,40 @@ const loadCollaborators = async (force = false): Promise<void> => {
                 <motion.button
                   type="button"
                   onClick={() => onOpenTaskModal({ projectId: project.id })}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl shadow-md hover:shadow-lg transition-shadow"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  initial={{ opacity: 0, y: 10 }}
+                  className="group w-full flex items-center justify-center gap-2 px-4 py-3.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-2xl shadow-lg hover:shadow-xl hover:shadow-indigo-500/25 transition-all duration-300 relative overflow-hidden"
+                  whileHover={{
+                    scale: 1.03,
+                    background: "linear-gradient(to right, #3b82f6, #6366f1, #8b5cf6)"
+                  }}
+                  whileTap={{ scale: 0.97 }}
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 400,
+                    damping: 25
+                  }}
                 >
-                  <Plus className="h-4 w-4" />
-                  新しいタスクを作成
-                  <ExternalLink className="h-3.5 w-3.5 ml-1 opacity-70" />
+                  <motion.span
+                    className="absolute inset-0 bg-white/20"
+                    initial={{ x: "-100%", opacity: 0 }}
+                    whileHover={{ x: "100%", opacity: 1 }}
+                    transition={{ duration: 0.5, ease: "easeInOut" }}
+                  />
+                  <motion.span
+                    whileHover={{ rotate: 90 }}
+                    transition={{ type: "spring", stiffness: 300 }}
+                  >
+                    <Plus className="h-5 w-5" />
+                  </motion.span>
+                  <span>新しいタスクを作成</span>
+                  <motion.span
+                    whileHover={{ x: 3 }}
+                    transition={{ type: "spring", stiffness: 400 }}
+                  >
+                    <ExternalLink className="h-4 w-4 opacity-80" />
+                  </motion.span>
                 </motion.button>
-                <p className="mt-2 text-xs text-slate-500 text-center">
-                  タスク作成画面が開きます
-                </p>
               </div>
             )}
 
