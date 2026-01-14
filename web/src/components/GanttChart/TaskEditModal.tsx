@@ -288,8 +288,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                   console.log('[TaskEditModal] Stage selected:', e.target.value);
                   setStageId(e.target.value);
                 }}
-                className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400 bg-slate-50 cursor-not-allowed"
-                disabled
+                className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">未割り当て</option>
                 {stages.map((stage) => (
