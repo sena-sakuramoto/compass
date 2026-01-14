@@ -4689,21 +4689,37 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
         // pending状態を取得（サーバーデータのマージ時にガードとして使用）
         const pendingState = usePendingOverlay.getState();
         const pendingTasks = pendingState.pending;
+        const deletedTasks = pendingState.deletedTasks;
 
-        // タスクをマージする関数（pending中のタスクは上書きしない）
+        // タスクをマージする関数（pending中のタスクは上書きしない、削除済みタスクは除外）
         const mergeTasks = (prevTasks: Task[], serverTasks: Task[]): Task[] => {
           const taskMap = new Map<string, Task>();
+          const now = Date.now();
 
-          // まず既存のタスクをマップに追加
-          prevTasks.forEach((task) => taskMap.set(task.id, task));
+          // まず既存のタスクをマップに追加（削除済みは除外）
+          prevTasks.forEach((task) => {
+            const deletion = deletedTasks[task.id];
+            if (deletion && now < deletion.lockUntil) {
+              // 削除済みとしてマークされているタスクは追加しない
+              return;
+            }
+            taskMap.set(task.id, task);
+          });
 
           // サーバーからのタスクをマージ
           serverTasks.forEach((serverTask) => {
+            // 削除済みとしてマークされているタスクはスキップ
+            const deletion = deletedTasks[serverTask.id];
+            if (deletion && now < deletion.lockUntil) {
+              console.log('[useRemoteData] Skipping deleted task:', serverTask.id);
+              return;
+            }
+
             const existingTask = taskMap.get(serverTask.id);
             const pending = pendingTasks[serverTask.id];
 
             // pendingがある場合、updatedAtを比較してサーバーデータが古ければスキップ
-            if (pending && Date.now() < pending.lockUntil) {
+            if (pending && now < pending.lockUntil) {
               // pendingで変更されたフィールドがサーバーデータで元に戻ろうとしている場合はスキップ
               let shouldSkip = false;
               if (existingTask) {
@@ -6250,17 +6266,26 @@ function App() {
     }
 
     const removedTask = task;
+
+    // 1. 楽観的更新：UIから即座に削除
     setState((current) => ({
       ...current,
       tasks: current.tasks.filter((t) => t.id !== taskId),
     }));
 
+    // 2. 削除済みとしてpendingに追加（サーバーリロード時に復活を防ぐ）
+    const opId = usePendingOverlay.getState().addDeletedTask(taskId);
+
     try {
       await deleteTask(taskId);
+      // 3. ACK - 削除済み追跡を解除
+      usePendingOverlay.getState().ackDeletedTask(taskId, opId);
       pushToast({ tone: 'success', title: `タスク「${task.タスク名}」を削除しました` });
-      requestSnapshotReload('task:delete');
+      // リロードは不要（サーバー側で削除済み）
     } catch (error) {
       console.error('[Task] Failed to delete task:', error);
+      // 4. エラー時はロールバック
+      usePendingOverlay.getState().rollbackDeletedTask(taskId);
       setState((current) => {
         const exists = current.tasks.some((t) => t.id === removedTask.id);
         return exists

@@ -21,9 +21,19 @@ export interface PendingProjectChange {
 export type PendingMap = Record<string, PendingChange | undefined>;
 export type PendingProjectMap = Record<string, PendingProjectChange | undefined>;
 
+// 削除済みアイテムの追跡
+export interface PendingDeletion {
+  opId: string;
+  deletedAt: number;
+  lockUntil: number;
+}
+export type PendingDeletionMap = Record<string, PendingDeletion | undefined>;
+
 interface PendingOverlayState {
   pending: PendingMap;
   pendingProjects: PendingProjectMap;
+  deletedTasks: PendingDeletionMap;
+  deletedProjects: PendingDeletionMap;
 
   // タスクにpending変更を追加
   addPending: (taskId: string, fields: Partial<Task>, lockDuration?: number) => string;
@@ -49,6 +59,30 @@ interface PendingOverlayState {
   // プロジェクトのロールバック
   rollbackPendingProject: (projectId: string) => void;
 
+  // 削除済みタスクを追加
+  addDeletedTask: (taskId: string, lockDuration?: number) => string;
+
+  // 削除済みタスクのACK
+  ackDeletedTask: (taskId: string, opId: string) => void;
+
+  // 削除済みタスクのロールバック
+  rollbackDeletedTask: (taskId: string) => void;
+
+  // タスクが削除済みかチェック
+  isTaskDeleted: (taskId: string) => boolean;
+
+  // 削除済みプロジェクトを追加
+  addDeletedProject: (projectId: string, lockDuration?: number) => string;
+
+  // 削除済みプロジェクトのACK
+  ackDeletedProject: (projectId: string, opId: string) => void;
+
+  // 削除済みプロジェクトのロールバック
+  rollbackDeletedProject: (projectId: string) => void;
+
+  // プロジェクトが削除済みかチェック
+  isProjectDeleted: (projectId: string) => boolean;
+
   // 期限切れのpendingをクリーンアップ
   cleanupExpired: () => void;
 }
@@ -56,6 +90,8 @@ interface PendingOverlayState {
 export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
   pending: {},
   pendingProjects: {},
+  deletedTasks: {},
+  deletedProjects: {},
 
   addPending: (taskId: string, fields: Partial<Task>, lockDuration = 120000) => {
     const opId = crypto.randomUUID();
@@ -145,12 +181,100 @@ export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
     });
   },
 
+  // 削除済みタスクの追跡
+  addDeletedTask: (taskId: string, lockDuration = 120000) => {
+    const opId = crypto.randomUUID();
+    const now = Date.now();
+
+    set((state) => ({
+      deletedTasks: {
+        ...state.deletedTasks,
+        [taskId]: {
+          opId,
+          deletedAt: now,
+          lockUntil: now + lockDuration,
+        },
+      },
+    }));
+
+    return opId;
+  },
+
+  ackDeletedTask: (taskId: string, opId: string) => {
+    const current = get().deletedTasks[taskId];
+    if (current?.opId === opId) {
+      set((state) => {
+        const newDeleted = { ...state.deletedTasks };
+        delete newDeleted[taskId];
+        return { deletedTasks: newDeleted };
+      });
+    }
+  },
+
+  rollbackDeletedTask: (taskId: string) => {
+    set((state) => {
+      const newDeleted = { ...state.deletedTasks };
+      delete newDeleted[taskId];
+      return { deletedTasks: newDeleted };
+    });
+  },
+
+  isTaskDeleted: (taskId: string) => {
+    const deletion = get().deletedTasks[taskId];
+    return deletion !== undefined && Date.now() < deletion.lockUntil;
+  },
+
+  // 削除済みプロジェクトの追跡
+  addDeletedProject: (projectId: string, lockDuration = 120000) => {
+    const opId = crypto.randomUUID();
+    const now = Date.now();
+
+    set((state) => ({
+      deletedProjects: {
+        ...state.deletedProjects,
+        [projectId]: {
+          opId,
+          deletedAt: now,
+          lockUntil: now + lockDuration,
+        },
+      },
+    }));
+
+    return opId;
+  },
+
+  ackDeletedProject: (projectId: string, opId: string) => {
+    const current = get().deletedProjects[projectId];
+    if (current?.opId === opId) {
+      set((state) => {
+        const newDeleted = { ...state.deletedProjects };
+        delete newDeleted[projectId];
+        return { deletedProjects: newDeleted };
+      });
+    }
+  },
+
+  rollbackDeletedProject: (projectId: string) => {
+    set((state) => {
+      const newDeleted = { ...state.deletedProjects };
+      delete newDeleted[projectId];
+      return { deletedProjects: newDeleted };
+    });
+  },
+
+  isProjectDeleted: (projectId: string) => {
+    const deletion = get().deletedProjects[projectId];
+    return deletion !== undefined && Date.now() < deletion.lockUntil;
+  },
+
   cleanupExpired: () => {
     const now = Date.now();
 
     set((state) => {
       const newPending: PendingMap = {};
       const newPendingProjects: PendingProjectMap = {};
+      const newDeletedTasks: PendingDeletionMap = {};
+      const newDeletedProjects: PendingDeletionMap = {};
       let hasChanges = false;
 
       Object.entries(state.pending).forEach(([taskId, change]) => {
@@ -169,7 +293,30 @@ export const usePendingOverlay = create<PendingOverlayState>((set, get) => ({
         }
       });
 
-      return hasChanges ? { pending: newPending, pendingProjects: newPendingProjects } : state;
+      Object.entries(state.deletedTasks).forEach(([taskId, deletion]) => {
+        if (deletion && now < deletion.lockUntil) {
+          newDeletedTasks[taskId] = deletion;
+        } else if (deletion) {
+          hasChanges = true;
+        }
+      });
+
+      Object.entries(state.deletedProjects).forEach(([projectId, deletion]) => {
+        if (deletion && now < deletion.lockUntil) {
+          newDeletedProjects[projectId] = deletion;
+        } else if (deletion) {
+          hasChanges = true;
+        }
+      });
+
+      return hasChanges
+        ? {
+            pending: newPending,
+            pendingProjects: newPendingProjects,
+            deletedTasks: newDeletedTasks,
+            deletedProjects: newDeletedProjects,
+          }
+        : state;
     });
   },
 }));
