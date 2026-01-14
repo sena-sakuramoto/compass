@@ -834,7 +834,6 @@ interface TaskModalProps extends ModalProps {
   defaultStageId?: string;
   allowContinuousCreate?: boolean;
   preloadedProjectMembers?: ProjectMember[];
-  preloadedStages?: Task[];
   lockProject?: boolean;
   onSubmit(payload: {
     projectId: string;
@@ -868,7 +867,6 @@ function TaskModal({
   defaultStageId,
   allowContinuousCreate,
   preloadedProjectMembers,
-  preloadedStages,
   lockProject,
 }: TaskModalProps) {
   const [project, setProject] = useState('');
@@ -955,10 +953,7 @@ function TaskModal({
       resetFormFields(false);
       if (defaultProjectId) {
         setProject(defaultProjectId);
-        // preloadedデータがあれば即座に設定
-        if (preloadedStages && preloadedStages.length > 0) {
-          setStages(preloadedStages as Stage[]);
-        }
+        // preloadedProjectMembersがあれば即座に設定
         if (preloadedProjectMembers && preloadedProjectMembers.length > 0) {
           setProjectMembers(preloadedProjectMembers);
           setMembersLoading(false);
@@ -984,20 +979,13 @@ function TaskModal({
     prevProjectRef.current = project;
   }, [open, project]);
 
-  // プロジェクト選択時に工程一覧を取得
+  // プロジェクト選択時に工程一覧を取得（常にAPIから取得）
   useEffect(() => {
     if (!project) {
       setStages([]);
       return;
     }
 
-    // preloadedStagesに工程がある場合のみ使用、空配列の場合はAPIを呼ぶ
-    if (preloadedStages && preloadedStages.length > 0 && project === defaultProjectId) {
-      setStages(preloadedStages as Stage[]);
-      return;
-    }
-
-    // APIから工程を取得
     listStages(project)
       .then(({ stages: stageList }) => {
         setStages(stageList);
@@ -1006,7 +994,7 @@ function TaskModal({
         console.error('[TaskModal] Failed to load stages:', error);
         setStages([]);
       });
-  }, [project, preloadedStages, defaultProjectId]);
+  }, [project]);
 
   // プロジェクトメンバーを取得
   useEffect(() => {
@@ -7561,7 +7549,6 @@ function App() {
         defaultStageId={taskModalDefaults?.stageId}
         allowContinuousCreate
         preloadedProjectMembers={taskModalDefaults?.projectId ? allProjectMembers.get(taskModalDefaults.projectId) : undefined}
-        preloadedStages={taskModalDefaults?.projectId === editingProjectId ? memoizedProjectStages : (taskModalDefaults?.projectId ? state.tasks.filter(t => t.projectId === taskModalDefaults.projectId && t.type === 'stage') : undefined)}
         lockProject={Boolean(taskModalDefaults?.projectId)}
       />
       <TaskModal
