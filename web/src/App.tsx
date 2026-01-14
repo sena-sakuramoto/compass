@@ -5986,6 +5986,19 @@ function App() {
   };
 
   const handleTaskUpdate = async (taskId: string, updates: Partial<Task>) => {
+    // 一時IDの場合はAPIを呼び出さない（作成中のタスク）
+    if (taskId.startsWith('temp-')) {
+      console.warn('[handleTaskUpdate] Skipping API call for temp task:', taskId);
+      // ローカルのみ更新
+      setState((current) => ({
+        ...current,
+        tasks: current.tasks.map((task) =>
+          task.id === taskId ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task
+        ),
+      }));
+      return;
+    }
+
     const normalizedUpdates: Partial<Task> = { ...updates };
     const hasJapaneseAssignee = Object.prototype.hasOwnProperty.call(updates, '担当者');
     const hasEnglishAssignee = Object.prototype.hasOwnProperty.call(updates, 'assignee');
@@ -6324,6 +6337,18 @@ function App() {
   const handleDeleteTask = async (taskId: string) => {
     const task = state.tasks.find(t => t.id === taskId);
     if (!task) return;
+
+    // 一時IDの場合はローカルのみ削除（作成中のタスク）
+    if (taskId.startsWith('temp-')) {
+      console.warn('[handleDeleteTask] Deleting temp task locally:', taskId);
+      setState((current) => ({
+        ...current,
+        tasks: current.tasks.filter((t) => t.id !== taskId),
+      }));
+      usePendingOverlay.getState().rollbackCreatingTask(taskId);
+      pushToast({ tone: 'success', title: 'タスクを削除しました' });
+      return;
+    }
 
     // 注：確認ダイアログは呼び出し元（TaskModal, TaskEditModal等）で表示するため、
     // ここでは確認なしで即座に削除処理を実行する
