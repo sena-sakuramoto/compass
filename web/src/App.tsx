@@ -5021,7 +5021,7 @@ function App() {
   }, [state.tasks]);
 
   // 楽観的更新のためのPending Overlayストア
-  const { addPending, ackPending, rollbackPending, pending } = usePendingOverlay();
+  const { addPending, ackPending, rollbackPending, pending, deletedTasks } = usePendingOverlay();
 
   const canSync = authSupported && Boolean(user);
 
@@ -5616,9 +5616,14 @@ function App() {
   const filteredTasks = useMemo(() => {
     // pendingの変更を適用してから、フィルタリング
     const tasksWithPending = applyPendingToTasks(state.tasks, pending);
+    const now = Date.now();
 
     const query = search.trim().toLowerCase();
     return tasksWithPending.filter((task) => {
+      // 削除済みタスクを除外
+      const deletion = deletedTasks[task.id];
+      if (deletion && now < deletion.lockUntil) return false;
+
       // 工程は除外（タスクのみ表示）
       if (task.type === 'stage') return false;
 
@@ -5647,13 +5652,18 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, projectFilter, assigneeFilter, statusFilter, search, projectMap, normalizeTaskStatus, showArchivedProjects]);
+  }, [state.tasks, pending, deletedTasks, projectFilter, assigneeFilter, statusFilter, search, projectMap, normalizeTaskStatus, showArchivedProjects]);
 
   // ガントチャート用：工程（stage）も含むフィルタ済みタスク
   const filteredTasksWithStages = useMemo(() => {
     const tasksWithPending = applyPendingToTasks(state.tasks, pending);
+    const now = Date.now();
     const query = search.trim().toLowerCase();
     return tasksWithPending.filter((task) => {
+      // 削除済みタスクを除外
+      const deletion = deletedTasks[task.id];
+      if (deletion && now < deletion.lockUntil) return false;
+
       // ガントチャートでは工程（stage）も表示する（タスク一覧とは異なる）
       if (!showArchivedProjects) {
         const projectStatus = projectMap[task.projectId]?.ステータス;
@@ -5679,7 +5689,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, projectFilter, assigneeFilter, statusFilter, search, projectMap, normalizeTaskStatus, showArchivedProjects]);
+  }, [state.tasks, pending, deletedTasks, projectFilter, assigneeFilter, statusFilter, search, projectMap, normalizeTaskStatus, showArchivedProjects]);
 
   const projectOptions = useMemo(
     () => [
