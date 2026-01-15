@@ -124,6 +124,7 @@ import { useJapaneseHolidaySet } from './lib/japaneseHolidays';
 import { getCachedSnapshot, cacheSnapshot, cacheProjectMembers, getAllCachedProjectMembers } from './lib/idbCache';
 import type { User } from 'firebase/auth';
 import { usePendingOverlay, applyPendingToTasks } from './state/pendingOverlay';
+import { calculateProjectStatus } from './lib/projectStatus';
 
 const LOCAL_KEY = 'apdw_compass_snapshot_v1';
 
@@ -2094,7 +2095,7 @@ function DashboardPage({
               let overdue = false;
 
               // プロジェクトが完了/失注している場合は期限超過判定をスキップ
-              const isProjectCompleted = isClosedProjectStatus(project.ステータス);
+              const isProjectCompleted = isClosedProjectStatus(calculateProjectStatus(project));
 
               if (isProjectCompleted) {
                 // 完了済みプロジェクトは期限表示なし
@@ -2166,7 +2167,7 @@ function DashboardPage({
                   <ProjectCard
                     id={project.id}
                     name={project.物件名 || project.id}
-                    status={project.ステータス}
+                    status={calculateProjectStatus(project)}
                     priority={project.優先度}
                     start={project.span?.start || project.開始日}
                     due={project.span?.end || project.予定完了日}
@@ -2209,6 +2210,8 @@ interface FiltersProps {
   onReset: () => void;
   hasActiveFilters: boolean;
   resultCount?: number;
+  onCollapseAll?: () => void;
+  onExpandAll?: () => void;
 }
 
 interface ProjectWithDerived extends Project {
@@ -2502,6 +2505,8 @@ function SchedulePage({
   setPrintRangeMode,
   holidaySet,
   user,
+  expandedProjectIds,
+  onToggleProject,
 }: {
   filteredTasks: Task[];
   filteredTasksWithStages: Task[];
@@ -2544,6 +2549,8 @@ function SchedulePage({
   setPrintRangeMode: (mode: 'tasks' | 'construction') => void;
   holidaySet: any;
   user: User | null;
+  expandedProjectIds?: Set<string>;
+  onToggleProject?: (projectId: string) => void;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const jumpToTodayRef = useRef<(() => void) | null>(null);
@@ -3137,10 +3144,6 @@ function SchedulePage({
         className="flex-1 min-h-0 bg-white"
       >
         {/* 工程・タスク統合ガントチャート */}
-        {(() => {
-          console.error('[SchedulePage] ⚠️ Rendering NewGanttChart', { tasksCount: newGanttTasks.length });
-          return null;
-        })()}
         <NewGanttChart
             tasks={newGanttTasks}
             interactive={true}
@@ -3341,6 +3344,8 @@ function SchedulePage({
             }
           }}
           jumpToTodayRef={jumpToTodayRef}
+          expandedProjectIds={expandedProjectIds}
+          onToggleProject={onToggleProject}
         />
       </section>
     </div>
@@ -4772,7 +4777,9 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
         // pending状態を取得（サーバーデータのマージ時にガードとして使用）
         const pendingState = usePendingOverlay.getState();
         const pendingTasks = pendingState.pending;
+        const pendingProjects = pendingState.pendingProjects;
         const deletedTasks = pendingState.deletedTasks;
+        const deletedProjects = pendingState.deletedProjects;
         const creatingTasks = pendingState.creatingTasks;
 
         // 作成中のタスクIDセットを構築（tempIdとrealId両方）
@@ -4852,6 +4859,67 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
           return Array.from(taskMap.values());
         };
 
+        // プロジェクトをマージする関数（pending中のプロジェクトは上書きしない、削除済みプロジェクトは除外）
+        const mergeProjects = (prevProjects: Project[], serverProjects: Project[]): Project[] => {
+          const projectMap = new Map<string, Project>();
+          const now = Date.now();
+
+          // まず既存のプロジェクトをマップに追加（削除済みは除外）
+          prevProjects.forEach((project) => {
+            const deletion = deletedProjects[project.id];
+            if (deletion && now < deletion.lockUntil) {
+              // 削除済みとしてマークされているプロジェクトは追加しない
+              return;
+            }
+            projectMap.set(project.id, project);
+          });
+
+          // サーバーからのプロジェクトをマージ
+          serverProjects.forEach((serverProject) => {
+            // 削除済みとしてマークされているプロジェクトはスキップ
+            const deletion = deletedProjects[serverProject.id];
+            if (deletion && now < deletion.lockUntil) {
+              console.log('[useRemoteData] Skipping deleted project:', serverProject.id);
+              return;
+            }
+
+            const existingProject = projectMap.get(serverProject.id);
+            const pending = pendingProjects[serverProject.id];
+
+            // pendingがある場合、変更されたフィールドがサーバーデータで元に戻ろうとしている場合はスキップ
+            if (pending && now < pending.lockUntil) {
+              let shouldSkip = false;
+              if (existingProject) {
+                Object.entries(pending.fields).forEach(([key, pendingValue]) => {
+                  const serverValue = (serverProject as any)[key];
+                  // pendingの値とサーバーの値が異なる場合、サーバーデータを採用しない
+                  if (serverValue !== pendingValue) {
+                    shouldSkip = true;
+                  }
+                });
+              }
+              if (shouldSkip) {
+                console.log('[useRemoteData] Skipping server project due to pending:', serverProject.id);
+                return; // このサーバープロジェクトをスキップ
+              }
+            }
+
+            // updatedAt比較：サーバーの方が古い場合はスキップ
+            if (existingProject?.updatedAt && serverProject.updatedAt) {
+              const existingTime = new Date(existingProject.updatedAt).getTime();
+              const serverTime = new Date(serverProject.updatedAt).getTime();
+              if (serverTime < existingTime) {
+                console.log('[useRemoteData] Skipping older server project:', serverProject.id);
+                return; // 古いサーバーデータをスキップ
+              }
+            }
+
+            projectMap.set(serverProject.id, serverProject);
+          });
+
+          return Array.from(projectMap.values());
+        };
+
         if (p.status === 'fulfilled' && t.status === 'fulfilled') {
           const normalized = normalizeSnapshot({
             projects: p.value.projects,
@@ -4860,10 +4928,11 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
           });
 
           setState((prev) => {
-            // タスクはマージして上書きを防ぐ
+            // タスクとプロジェクトはマージして上書きを防ぐ
             const mergedTasks = mergeTasks(prev.tasks, normalized.tasks);
+            const mergedProjects = mergeProjects(prev.projects, normalized.projects);
             return {
-              projects: normalized.projects,
+              projects: mergedProjects,
               tasks: mergedTasks,
               people: prev.people,
             };
@@ -4881,11 +4950,15 @@ function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassStat
             tasks: [],
             people: [],
           });
-          setState((prev) => ({
-            projects: normalized.projects,
-            tasks: prev.tasks,
-            people: prev.people,
-          }));
+          setState((prev) => {
+            // プロジェクトはマージして上書きを防ぐ
+            const mergedProjects = mergeProjects(prev.projects, normalized.projects);
+            return {
+              projects: mergedProjects,
+              tasks: prev.tasks,
+              people: prev.people,
+            };
+          });
           // キャッシュに保存
           cacheSnapshot({ projects: normalized.projects }).catch(() => {});
         }
@@ -5008,6 +5081,7 @@ function App() {
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [search, setSearch] = useState('');
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('due');
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [printPanelOpen, setPrintPanelOpen] = useState(false);
@@ -5077,7 +5151,7 @@ function App() {
   }, [state.tasks]);
 
   // 楽観的更新のためのPending Overlayストア
-  const { addPending, ackPending, rollbackPending, pending, deletedTasks } = usePendingOverlay();
+  const { addPending, ackPending, rollbackPending, pending, deletedTasks, addPendingProject, ackPendingProject, rollbackPendingProject, pendingProjects } = usePendingOverlay();
 
   const canSync = authSupported && Boolean(user);
 
@@ -5711,15 +5785,18 @@ function App() {
       if (task.type === 'stage') return false;
 
       if (!showArchivedProjects) {
-        const projectStatus = projectMap[task.projectId]?.ステータス;
-        if (isArchivedProjectStatus(projectStatus)) return false;
+        const project = projectMap[task.projectId];
+        if (project && isArchivedProjectStatus(calculateProjectStatus(project))) return false;
       }
 
       // 配列が空の場合は全て表示、配列に値がある場合は含まれているかチェック
       const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
-      const statusValue = normalizeTaskStatus(task.ステータス);
-      const statusMatch = statusFilter.length === 0 || statusFilter.includes(statusValue);
+      // タスクのステータスは「完了/未完了」でフィルター
+      const isCompleted = task.ステータス === '完了';
+      const statusMatch = statusFilter.length === 0 ||
+        (statusFilter.includes('完了') && isCompleted) ||
+        (statusFilter.includes('未完了') && !isCompleted);
       const haystack = [
         task.id,
         task.タスク名,
@@ -5735,7 +5812,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, deletedTasks, projectFilter, assigneeFilter, statusFilter, search, projectMap, normalizeTaskStatus, showArchivedProjects]);
+  }, [state.tasks, pending, deletedTasks, projectFilter, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
 
   // ガントチャート用：工程（stage）も含むフィルタ済みタスク
   const filteredTasksWithStages = useMemo(() => {
@@ -5749,14 +5826,17 @@ function App() {
 
       // ガントチャートでは工程（stage）も表示する（タスク一覧とは異なる）
       if (!showArchivedProjects) {
-        const projectStatus = projectMap[task.projectId]?.ステータス;
-        if (isArchivedProjectStatus(projectStatus)) return false;
+        const project = projectMap[task.projectId];
+        if (project && isArchivedProjectStatus(calculateProjectStatus(project))) return false;
       }
 
       const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
-      const statusValue = normalizeTaskStatus(task.ステータス);
-      const statusMatch = statusFilter.length === 0 || statusFilter.includes(statusValue);
+      // タスクのステータスは「完了/未完了」でフィルター
+      const isCompleted = task.ステータス === '完了';
+      const statusMatch = statusFilter.length === 0 ||
+        (statusFilter.includes('完了') && isCompleted) ||
+        (statusFilter.includes('未完了') && !isCompleted);
       const haystack = [
         task.id,
         task.タスク名,
@@ -5772,7 +5852,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, deletedTasks, projectFilter, assigneeFilter, statusFilter, search, projectMap, normalizeTaskStatus, showArchivedProjects]);
+  }, [state.tasks, pending, deletedTasks, projectFilter, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
 
   const projectOptions = useMemo(
     () => [
@@ -5801,25 +5881,17 @@ function App() {
     return [{ value: 'all', label: '全員' }, ...sortedNames.map((name) => ({ value: name, label: name }))];
   }, [state.tasks, assigneeFilter]);
 
+  // タスクのステータスフィルターはシンプルに「完了/未完了」のみ
   const statusOptions = useMemo(() => {
-    const statuses = new Set<string>();
-    state.tasks.forEach((task) => {
-      const normalized = normalizeTaskStatus(task.ステータス);
-      if (normalized) statuses.add(normalized);
-    });
-    const preferredOrder = ['未着手', '進行中', '確認待ち', '保留', '完了'];
-    const ordered = preferredOrder.filter((status) => statuses.has(status));
-    const extras = Array.from(statuses)
-      .filter((status) => !preferredOrder.includes(status))
-      .sort((a, b) => a.localeCompare(b, 'ja'));
     return [
       { value: 'all', label: '全て' },
-      ...[...ordered, ...extras].map((status) => ({ value: status, label: status })),
+      { value: '未完了', label: '未完了' },
+      { value: '完了', label: '完了' },
     ];
-  }, [state.tasks, normalizeTaskStatus]);
+  }, []);
 
   const archivedProjectsCount = useMemo(
-    () => state.projects.filter((project) => isArchivedProjectStatus(project.ステータス)).length,
+    () => state.projects.filter((project) => isArchivedProjectStatus(calculateProjectStatus(project))).length,
     [state.projects]
   );
 
@@ -5832,6 +5904,27 @@ function App() {
     setStatusFilter([]);
     setSearch('');
   };
+
+  // 折畳/展開ハンドラ
+  const handleCollapseAll = useCallback(() => {
+    setExpandedProjectIds(new Set());
+  }, []);
+
+  const handleExpandAll = useCallback(() => {
+    const allProjectIds = new Set(filteredTasks.map(task => task.projectId).filter(Boolean) as string[]);
+    setExpandedProjectIds(allProjectIds);
+  }, [filteredTasks]);
+
+  // 初回マウント時にすべて展開
+  const initialExpandDoneRef = useRef(false);
+  useEffect(() => {
+    if (!initialExpandDoneRef.current && filteredTasks.length > 0) {
+      const allProjectIds = new Set(filteredTasks.map(task => task.projectId).filter(Boolean) as string[]);
+      setExpandedProjectIds(allProjectIds);
+      initialExpandDoneRef.current = true;
+    }
+  }, [filteredTasks]);
+
 
   const filtersProps: FiltersProps = {
     projects: projectOptions,
@@ -5848,6 +5941,8 @@ function App() {
     onReset: resetFilters,
     hasActiveFilters,
     resultCount: filteredTasks.length,
+    onCollapseAll: handleCollapseAll,
+    onExpandAll: handleExpandAll,
   };
 
   const filterChips = useMemo(() => {
@@ -5977,7 +6072,7 @@ function App() {
 
     const baseProjects = showArchivedProjects
       ? projectsWithDerived
-      : projectsWithDerived.filter((project) => !isArchivedProjectStatus(project.ステータス));
+      : projectsWithDerived.filter((project) => !isArchivedProjectStatus(calculateProjectStatus(project)));
     const copy = [...baseProjects];
     switch (projectSort) {
       case 'progress':
@@ -7412,6 +7507,18 @@ function App() {
                 setPrintRangeMode={setPrintRangeMode}
                 holidaySet={holidaySet}
                 user={user}
+                expandedProjectIds={expandedProjectIds}
+                onToggleProject={(projectId) => {
+                  setExpandedProjectIds(prev => {
+                    const newSet = new Set(prev);
+                    if (newSet.has(projectId)) {
+                      newSet.delete(projectId);
+                    } else {
+                      newSet.add(projectId);
+                    }
+                    return newSet;
+                  });
+                }}
               />
             }
           />
@@ -7524,6 +7631,18 @@ function App() {
                 setPrintRangeMode={setPrintRangeMode}
                 holidaySet={holidaySet}
                 user={user}
+                expandedProjectIds={expandedProjectIds}
+                onToggleProject={(projectId) => {
+                  setExpandedProjectIds(prev => {
+                    const newSet = new Set(prev);
+                    if (newSet.has(projectId)) {
+                      newSet.delete(projectId);
+                    } else {
+                      newSet.add(projectId);
+                    }
+                    return newSet;
+                  });
+                }}
               />
             }
           />

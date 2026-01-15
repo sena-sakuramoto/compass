@@ -4,7 +4,9 @@
 import React, { useState, useEffect } from 'react';
 import type { GanttTask } from './types';
 import type { ProjectMilestone } from './GanttTimeline';
+import type { Project } from '../../lib/types';
 import { Layers, ChevronRight, ChevronDown, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
+import { calculateProjectStatus, getStatusColor } from '../../lib/projectStatus';
 
 interface GanttTaskListProps {
   tasks: GanttTask[];
@@ -15,10 +17,12 @@ interface GanttTaskListProps {
   onTaskToggleComplete?: (task: GanttTask) => void;
   onProjectClick?: (projectId: string) => void;
   scrollTop?: number;
-  projectMap?: Record<string, { 物件名?: string; ステータス?: string;[key: string]: any }>;
+  projectMap?: Record<string, Project>;
   projectMilestones?: ProjectMilestone[];
   expandedStageIds?: Set<string>;
   onToggleStage?: (stageId: string) => void;
+  expandedProjectIds?: Set<string>;
+  onToggleProject?: (projectId: string) => void;
 }
 
 // 進捗率に応じた色を取得
@@ -56,7 +60,9 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   projectMap = {},
   projectMilestones = [],
   expandedStageIds: externalExpandedStageIds,
-  onToggleStage
+  onToggleStage,
+  expandedProjectIds,
+  onToggleProject
 }) => {
   // ローカル完了状態管理（即座にUIを更新するため）
   const [localCompletedStates, setLocalCompletedStates] = useState<Record<string, boolean>>({});
@@ -118,7 +124,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
       projectGroups.push({
         projectId: task.projectId,
         projectName: task.projectName,
-        projectStatus: project?.ステータス,
+        projectStatus: project ? calculateProjectStatus(project) : undefined,
         tasks: []
       });
     }
@@ -135,7 +141,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
         projectGroups.push({
           projectId,
           projectName: project.物件名 || projectId,
-          projectStatus: project.ステータス,
+          projectStatus: calculateProjectStatus(project),
           tasks: []
         });
       }
@@ -157,27 +163,39 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
         {projectGroups.map((group) => (
           <div key={group.projectId}>
             {/* プロジェクトヘッダー（タイムラインと同じ32px） */}
-            <div className="bg-slate-100/50 border-b border-slate-200 flex items-center justify-between px-4" style={{ height: '32px' }}>
-              <span
-                className={`text-xs font-semibold text-slate-700 ${onProjectClick ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}
-                onClick={() => onProjectClick && onProjectClick(group.projectId)}
-              >
-                {group.projectName}
-              </span>
+            <div className="bg-slate-100/50 border-b border-slate-200 flex items-center justify-between px-2" style={{ height: '32px' }}>
+              <div className="flex items-center gap-1">
+                {onToggleProject && (
+                  <button
+                    className="p-0.5 hover:bg-slate-200 rounded transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleProject(group.projectId);
+                    }}
+                  >
+                    {expandedProjectIds?.has(group.projectId) ? (
+                      <ChevronDown className="w-4 h-4 text-slate-500" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-slate-500" />
+                    )}
+                  </button>
+                )}
+                <span
+                  className={`text-xs font-semibold text-slate-700 ${onProjectClick ? 'cursor-pointer hover:text-blue-600 transition-colors' : ''}`}
+                  onClick={() => onProjectClick && onProjectClick(group.projectId)}
+                >
+                  {group.projectName}
+                </span>
+              </div>
               {group.projectStatus && (
-                <span className={`text-xs px-2 py-0.5 rounded ${group.projectStatus === '施工中' || group.projectStatus === '工事中'
-                    ? 'bg-blue-100 text-blue-700'
-                    : group.projectStatus === '完了'
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}>
+                <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(group.projectStatus)}`}>
                   {group.projectStatus}
                 </span>
               )}
             </div>
 
-            {/* プロジェクト内のタスク・工程 */}
-            {group.tasks.map((task, index) => {
+            {/* プロジェクト内のタスク・工程（プロジェクトが展開されている場合のみ表示） */}
+            {(!expandedProjectIds || expandedProjectIds.has(group.projectId)) && group.tasks.map((task, index) => {
               // ローカル状態を優先的に使用
               const isCompleted = localCompletedStates[task.id] ?? (task.status === 'completed');
               const incompleteDeps = hasIncompleteDependencies(task);

@@ -1,5 +1,6 @@
 import React from 'react';
 import { FolderOpen, ExternalLink, Users2, Briefcase, Pencil, HardHat, Banknote, Building2 } from 'lucide-react';
+import { getStatusColor } from '../lib/projectStatus';
 
 interface ProjectCardProps {
   id: string;
@@ -23,18 +24,7 @@ interface ProjectCardProps {
   onClick?: () => void;
 }
 
-const statusTone: Record<string, string> = {
-  完了: 'bg-slate-200 text-slate-700',
-  失注: 'bg-rose-100 text-rose-700',
-  進行中: 'bg-slate-200 text-slate-700',
-  未着手: 'bg-slate-100 text-slate-600',
-  確認待ち: 'bg-slate-200 text-slate-700',
-  保留: 'bg-slate-100 text-slate-600',
-  計画中: 'bg-slate-100 text-slate-600',
-  見積: 'bg-slate-200 text-slate-700',
-  実施中: 'bg-slate-200 text-slate-700',
-  設計中: 'bg-slate-200 text-slate-700',
-};
+// statusTone is now handled by getStatusColor from projectStatus.ts
 
 const priorityTone: Record<string, string> = {
   高: 'bg-rose-100 text-rose-700',
@@ -67,7 +57,7 @@ export function ProjectCard({
   onClick,
 }: ProjectCardProps) {
   const pct = Math.round(progress * 100);
-  const statusClass = statusTone[status] ?? 'bg-slate-100 text-slate-600';
+  const statusClass = getStatusColor(status);
   const priorityClass = priority ? priorityTone[priority] ?? 'bg-slate-100 text-slate-600' : '';
 
   return (

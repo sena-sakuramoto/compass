@@ -14,6 +14,8 @@ import { ClientSelector } from './ClientSelector';
 import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
 import { formatDate, formatJapaneseEra } from '../lib/date';
 import { resolveApiBase } from '../lib/apiBase';
+import { usePendingOverlay } from '../state/pendingOverlay';
+import { calculateProjectStatus, getStatusColor } from '../lib/projectStatus';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -32,16 +34,10 @@ interface ProjectEditDialogProps {
   onStagesChanged?: () => void | Promise<void>;
 }
 
-const STATUS_OPTIONS = [
-  '未着手',
-  '進行中',
-  '確認待ち',
+// 手動で設定するステータス（自動計算をオーバーライドする特別なケース）
+const MANUAL_STATUS_OPTIONS = [
+  '', // 自動計算を使用
   '保留',
-  '完了',
-  '計画中',
-  '見積',
-  '実施中',
-  '設計中',
   '失注',
 ];
 const PRIORITY_OPTIONS = ['高', '中', '低'];
@@ -82,9 +78,13 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
     ステータス: '未着手',
     優先度: '中',
     開始日: '',
-    予定完了日: '',
     現地調査日: '',
+    レイアウト確定日: '',
+    基本設計完了日: '',
+    設計施工現調日: '',
+    見積確定日: '',
     着工日: '',
+    中間検査日: '',
     竣工予定日: '',
     引渡し予定日: '',
     '所在地/現地': '',
@@ -95,6 +95,7 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
   });
   const [saving, setSaving] = useState(false);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  const { addPendingProject, ackPendingProject, rollbackPendingProject } = usePendingOverlay();
   const [currentUserOrgId, setCurrentUserOrgId] = useState<string | null>(null);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
@@ -201,9 +202,13 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
         ステータス: '未着手',
         優先度: '中',
         開始日: '',
-        予定完了日: '',
         現地調査日: '',
+        レイアウト確定日: '',
+        基本設計完了日: '',
+        設計施工現調日: '',
+        見積確定日: '',
         着工日: '',
+        中間検査日: '',
         竣工予定日: '',
         引渡し予定日: '',
         '所在地/現地': '',
@@ -772,10 +777,13 @@ const loadCollaborators = async (force = false): Promise<void> => {
 
     const updatedProject = formData as Project;
     const prevProject = project; // 元のプロジェクトを保存（ロールバック用）
+    let opId: string | null = null; // pendingOverlay用のオペレーションID
 
     try {
       // 楽観的更新: 先にローカルstateを更新
       if (onSaveLocal && project?.id) {
+        // pendingOverlayに変更を登録（サーバーリロードで上書きされないように保護）
+        opId = addPendingProject(project.id, updatedProject);
         onSaveLocal(updatedProject);
       }
 
@@ -792,11 +800,23 @@ const loadCollaborators = async (force = false): Promise<void> => {
         // 編集モード: 楽観的更新パターン
         try {
           await updateProject(project.id, updatedProject);
+          // API成功: pendingはすぐに解除せず、Firestoreの伝播を待つために遅延させる
+          // これにより、スナップショットリロードで古いデータに上書きされるのを防ぐ
+          if (opId) {
+            const projectId = project.id;
+            const currentOpId = opId;
+            setTimeout(() => {
+              ackPendingProject(projectId, currentOpId);
+            }, 5000); // 5秒後に解除
+          }
           toast.success('プロジェクトを保存しました');
         } catch (apiError) {
           console.error('[ProjectEditDialog] API保存エラー:', apiError);
           toast.error('プロジェクトの保存に失敗しました');
-          // ロールバック
+          // ロールバック: pendingを解除して元に戻す
+          if (project?.id) {
+            rollbackPendingProject(project.id);
+          }
           if (onRollback && prevProject) {
             onRollback(project.id, prevProject);
           }
@@ -1034,14 +1054,22 @@ const loadCollaborators = async (force = false): Promise<void> => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700">ステータス</label>
+                {/* 自動計算されたステータスを表示 */}
+                <div className="mt-1 flex items-center gap-2">
+                  <span className={`px-3 py-2 rounded-lg text-sm font-medium ${getStatusColor(calculateProjectStatus(formData as Project))}`}>
+                    {calculateProjectStatus(formData as Project)}
+                  </span>
+                  <span className="text-xs text-slate-500">（マイルストーンから自動計算）</span>
+                </div>
+                {/* 手動オーバーライド用 */}
                 <select
-                  value={formData.ステータス}
+                  value={formData.ステータス === '保留' || formData.ステータス === '失注' ? formData.ステータス : ''}
                   onChange={(e) => setFormData({ ...formData, ステータス: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
-                  {STATUS_OPTIONS.map((status) => (
+                  {MANUAL_STATUS_OPTIONS.map((status) => (
                     <option key={status} value={status}>
-                      {status}
+                      {status || '自動（マイルストーンから計算）'}
                     </option>
                   ))}
                 </select>
@@ -1089,6 +1117,52 @@ const loadCollaborators = async (force = false): Promise<void> => {
 
             <div className="grid grid-cols-3 gap-4">
               <div>
+                <label className="block text-sm font-medium text-slate-700">レイアウト確定日</label>
+                <input
+                  type="date"
+                  value={formData.レイアウト確定日 || ''}
+                  onChange={(e) => setFormData({ ...formData, レイアウト確定日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                {renderDateMeta(formData.レイアウト確定日)}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700">基本設計完了日</label>
+                <input
+                  type="date"
+                  value={formData.基本設計完了日 || ''}
+                  onChange={(e) => setFormData({ ...formData, 基本設計完了日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                {renderDateMeta(formData.基本設計完了日)}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700">設計施工現調日</label>
+                <input
+                  type="date"
+                  value={formData.設計施工現調日 || ''}
+                  onChange={(e) => setFormData({ ...formData, 設計施工現調日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                {renderDateMeta(formData.設計施工現調日)}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700">見積確定日</label>
+                <input
+                  type="date"
+                  value={formData.見積確定日 || ''}
+                  onChange={(e) => setFormData({ ...formData, 見積確定日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                {renderDateMeta(formData.見積確定日)}
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-slate-700">着工日</label>
                 <input
                   type="date"
@@ -1099,6 +1173,19 @@ const loadCollaborators = async (force = false): Promise<void> => {
                 {renderDateMeta(formData.着工日)}
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-slate-700">中間検査日</label>
+                <input
+                  type="date"
+                  value={formData.中間検査日 || ''}
+                  onChange={(e) => setFormData({ ...formData, 中間検査日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                {renderDateMeta(formData.中間検査日)}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700">竣工予定日</label>
                 <input
@@ -1119,19 +1206,6 @@ const loadCollaborators = async (force = false): Promise<void> => {
                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 {renderDateMeta(formData.引渡し予定日)}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700">予定完了日</label>
-                <input
-                  type="date"
-                  value={formData.予定完了日 || ''}
-                  onChange={(e) => setFormData({ ...formData, 予定完了日: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-                {renderDateMeta(formData.予定完了日)}
               </div>
             </div>
 

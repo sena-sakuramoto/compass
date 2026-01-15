@@ -13,7 +13,7 @@ export interface ProjectMilestone {
   projectId: string;
   date: Date;
   label: string;
-  type: 'survey' | 'construction_start' | 'completion' | 'delivery';
+  type: 'survey' | 'construction_start' | 'completion' | 'delivery' | 'layout' | 'basic_design' | 'design_survey' | 'estimate' | 'interim_inspection';
 }
 
 interface GanttTimelineProps {
@@ -40,6 +40,7 @@ interface GanttTimelineProps {
   projectMilestones?: ProjectMilestone[];
   projectMap?: Record<string, { 物件名?: string; ステータス?: string;[key: string]: any }>;
   expandedStageIds?: Set<string>;
+  expandedProjectIds?: Set<string>;
 }
 
 interface GanttTimelinePropsExtended extends GanttTimelineProps {
@@ -72,7 +73,8 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   onViewModeToggle,
   onZoom,
   onBatchEdit,
-  expandedStageIds = new Set()
+  expandedStageIds = new Set(),
+  expandedProjectIds = new Set()
 }) => {
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
@@ -320,9 +322,13 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
         // プロジェクトヘッダーの行を追加
         rowIndex++;
       }
-      groups[groups.length - 1].tasks.push(task);
-      groups[groups.length - 1].rowCount++;
-      rowIndex++;
+
+      // プロジェクトが展開されている場合のみタスクを追加
+      if (expandedProjectIds.has(task.projectId)) {
+        groups[groups.length - 1].tasks.push(task);
+        groups[groups.length - 1].rowCount++;
+        rowIndex++;
+      }
     });
 
     // タスクがないプロジェクトもマイルストーンがあれば追加
@@ -345,7 +351,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
 
     return groups;
-  }, [tasks, projectMap, projectMilestones, expandedStageIds]);
+  }, [tasks, projectMap, projectMilestones, expandedStageIds, expandedProjectIds]);
 
   // タスクの総高さを計算（プロジェクトヘッダー分も含む + 最後に空白のプロジェクト行）
   // 工程とタスクで異なる行の高さを使用
@@ -353,6 +359,10 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   const totalHeight = useMemo(() => {
     let height = projectGroups.length * projectHeaderHeight + projectHeaderHeight; // ヘッダー分
     tasks.forEach(task => {
+      // プロジェクトが折りたたまれている場合、タスクはスキップ
+      if (!expandedProjectIds.has(task.projectId)) {
+        return;
+      }
       // 親工程が折りたたまれている場合、子タスクはスキップ
       if (task.parentId && !expandedStageIds.has(task.parentId)) {
         return;
@@ -361,7 +371,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       height += isStage ? stageRowHeight : taskRowHeight;
     });
     return height;
-  }, [tasks, projectGroups.length, projectHeaderHeight, stageRowHeight, taskRowHeight, expandedStageIds]);
+  }, [tasks, projectGroups.length, projectHeaderHeight, stageRowHeight, taskRowHeight, expandedStageIds, expandedProjectIds]);
 
   // 依存関係を解決
   const dependencies = useMemo(() => resolveDependencies(tasks), [tasks]);
@@ -566,6 +576,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                     if (milestone.type === 'construction_start') milestoneColor = 'bg-green-500';
                     else if (milestone.type === 'completion') milestoneColor = 'bg-orange-500';
                     else if (milestone.type === 'delivery') milestoneColor = 'bg-purple-500';
+                    else if (milestone.type === 'layout') milestoneColor = 'bg-cyan-500';
+                    else if (milestone.type === 'basic_design') milestoneColor = 'bg-indigo-500';
+                    else if (milestone.type === 'design_survey') milestoneColor = 'bg-teal-500';
+                    else if (milestone.type === 'estimate') milestoneColor = 'bg-amber-500';
+                    else if (milestone.type === 'interim_inspection') milestoneColor = 'bg-rose-500';
 
                     return (
                       <div

@@ -10,6 +10,7 @@ import { BatchEditModal, BatchUpdate } from './BatchEditModal';
 import type { GanttTask, ViewMode } from './types';
 import { calculateDateRange, calculateDateTicks, calculateTodayPosition } from './utils';
 import type { ProjectMember } from '../../lib/auth-types';
+import type { Project } from '../../lib/types';
 import { useJapaneseHolidaySet } from '../../lib/japaneseHolidays';
 
 interface Person {
@@ -31,7 +32,7 @@ interface GanttChartProps {
   onTaskToggleComplete?: (task: GanttTask) => void;
   onProjectClick?: (projectId: string) => void;
   initialViewMode?: ViewMode;
-  projectMap?: Record<string, { ステータス?: string;[key: string]: any }>;
+  projectMap?: Record<string, Project>;
   people?: Person[];
   allProjectMembers?: Map<string, ProjectMember[]>;
   onRequestPeople?: () => void;
@@ -39,6 +40,8 @@ interface GanttChartProps {
   onStageAddTask?: (stage: GanttTask) => void;
   showMilestonesWithoutTasks?: boolean;
   jumpToTodayRef?: React.MutableRefObject<(() => void) | null>;
+  expandedProjectIds?: Set<string>;
+  onToggleProject?: (projectId: string) => void;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -61,6 +64,8 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onStageAddTask,
   showMilestonesWithoutTasks = false,
   jumpToTodayRef,
+  expandedProjectIds: externalExpandedProjectIds,
+  onToggleProject,
 }) => {
   const holidaySet = useJapaneseHolidaySet();
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
@@ -74,6 +79,12 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [showBatchEditModal, setShowBatchEditModal] = useState(false);
   const [expandedStageIds, setExpandedStageIds] = useState<Set<string>>(new Set());
+  const [internalExpandedProjectIds, setInternalExpandedProjectIds] = useState<Set<string>>(new Set());
+
+  // 外部制御がある場合はそれを使用、なければ内部状態を使用
+  const expandedProjectIds = externalExpandedProjectIds ?? internalExpandedProjectIds;
+  const setExpandedProjectIds = onToggleProject ? undefined : setInternalExpandedProjectIds;
+
   const taskListRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -130,13 +141,21 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
     // 工程を初期状態で全て展開
     const stageIds = new Set<string>();
+    const projectIds = new Set<string>();
     tasks.forEach(task => {
       if (task.type === 'stage') {
         stageIds.add(task.id);
       }
+      if (task.projectId) {
+        projectIds.add(task.projectId);
+      }
     });
     setExpandedStageIds(stageIds);
-  }, [tasks]);
+    // 内部制御の場合のみプロジェクトも初期化
+    if (!externalExpandedProjectIds && setExpandedProjectIds) {
+      setExpandedProjectIds(projectIds);
+    }
+  }, [tasks, externalExpandedProjectIds]);
 
   // 日付軸のティックを計算
   const ticks = useMemo(
@@ -201,6 +220,71 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             date,
             label: '引渡し',
             type: 'delivery',
+          });
+        }
+      }
+
+      // レイアウト確定日
+      if (project.レイアウト確定日) {
+        const date = new Date(project.レイアウト確定日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: 'レイアウト確定',
+            type: 'layout',
+          });
+        }
+      }
+
+      // 基本設計完了日
+      if (project.基本設計完了日) {
+        const date = new Date(project.基本設計完了日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: '基本設計',
+            type: 'basic_design',
+          });
+        }
+      }
+
+      // 設計施工現調日
+      if (project.設計施工現調日) {
+        const date = new Date(project.設計施工現調日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: '設計施工現調',
+            type: 'design_survey',
+          });
+        }
+      }
+
+      // 見積確定日
+      if (project.見積確定日) {
+        const date = new Date(project.見積確定日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: '見積確定',
+            type: 'estimate',
+          });
+        }
+      }
+
+      // 中間検査日
+      if (project.中間検査日) {
+        const date = new Date(project.中間検査日);
+        if (!isNaN(date.getTime())) {
+          milestones.push({
+            projectId,
+            date,
+            label: '中間検査',
+            type: 'interim_inspection',
           });
         }
       }
@@ -534,6 +618,18 @@ export const GanttChart: React.FC<GanttChartProps> = ({
                   return newSet;
                 });
               }}
+              expandedProjectIds={expandedProjectIds}
+              onToggleProject={onToggleProject ?? (setExpandedProjectIds ? (projectId) => {
+                setExpandedProjectIds(prev => {
+                  const newSet = new Set(prev);
+                  if (newSet.has(projectId)) {
+                    newSet.delete(projectId);
+                  } else {
+                    newSet.add(projectId);
+                  }
+                  return newSet;
+                });
+              } : undefined)}
             />
           </div>
 
@@ -564,6 +660,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             projectMilestones={projectMilestones}
             projectMap={projectMap}
             expandedStageIds={expandedStageIds}
+            expandedProjectIds={expandedProjectIds}
             onZoom={(direction) => {
               if (direction === 'in') {
                 handleZoomIn();

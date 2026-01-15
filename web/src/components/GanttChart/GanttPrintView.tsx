@@ -172,6 +172,29 @@ export const GanttPrintView: React.FC<GanttPrintViewProps> = ({
           projectMilestones.push({ date: hikiwatashiDate, label: '引渡', color: '#dc2626' });
         }
 
+        // 追加マイルストーン
+        const layoutDate = parseDate(info?.レイアウト確定日 ?? null);
+        const basicDesignDate = parseDate(info?.基本設計完了日 ?? null);
+        const designSurveyDate = parseDate(info?.設計施工現調日 ?? null);
+        const estimateDate = parseDate(info?.見積確定日 ?? null);
+        const interimInspectionDate = parseDate(info?.中間検査日 ?? null);
+
+        if (layoutDate && layoutDate >= range.start && layoutDate <= range.end) {
+          projectMilestones.push({ date: layoutDate, label: 'レイアウト', color: '#06b6d4' });
+        }
+        if (basicDesignDate && basicDesignDate >= range.start && basicDesignDate <= range.end) {
+          projectMilestones.push({ date: basicDesignDate, label: '基本設計', color: '#6366f1' });
+        }
+        if (designSurveyDate && designSurveyDate >= range.start && designSurveyDate <= range.end) {
+          projectMilestones.push({ date: designSurveyDate, label: '設計施工現調', color: '#14b8a6' });
+        }
+        if (estimateDate && estimateDate >= range.start && estimateDate <= range.end) {
+          projectMilestones.push({ date: estimateDate, label: '見積確定', color: '#f59e0b' });
+        }
+        if (interimInspectionDate && interimInspectionDate >= range.start && interimInspectionDate <= range.end) {
+          projectMilestones.push({ date: interimInspectionDate, label: '中間検査', color: '#f43f5e' });
+        }
+
         // マイルストーンの位置を計算
         const getMilestonePercent = (date: Date) => {
           const offset = differenceInDays(startOfDay(date), range.start);

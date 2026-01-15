@@ -133,6 +133,12 @@ function normalizeProject(raw: any): Project {
     着工日: formatDate(raw['着工日']),
     竣工予定日: formatDate(raw['竣工予定日']),
     引渡し予定日: formatDate(raw['引渡し予定日']),
+    // 追加マイルストーン
+    レイアウト確定日: formatDate(raw['レイアウト確定日']),
+    基本設計完了日: formatDate(raw['基本設計完了日']),
+    設計施工現調日: formatDate(raw['設計施工現調日']),
+    見積確定日: formatDate(raw['見積確定日']),
+    中間検査日: formatDate(raw['中間検査日']),
     '所在地/現地': location,
     ...(sanitizedLocation !== undefined ? { '所在地_現地': sanitizedLocation } : location ? { '所在地_現地': location } : {}),
     'フォルダURL': raw['フォルダURL'] ?? '',
