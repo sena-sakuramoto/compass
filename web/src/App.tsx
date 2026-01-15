@@ -44,6 +44,8 @@ import {
   syncTaskCalendar,
   listProjectMembers,
   listStages,
+  updateStage,
+  deleteStage,
   listActivityLogs,
   ApiError,
   getCurrentUser,
@@ -74,7 +76,7 @@ import NotificationsPage from './pages/NotificationsPage';
 import BillingGateOverlay from './components/BillingGateOverlay';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
-import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage } from './lib/types';
+import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage, CompassState } from './lib/types';
 import type { ProjectMember } from './lib/auth-types';
 import { PROJECT_ROLE_LABELS } from './lib/auth-types';
 import { isArchivedProjectStatus, isClosedProjectStatus, STATUS_PROGRESS } from './lib/constants';
@@ -125,14 +127,45 @@ import { getCachedSnapshot, cacheSnapshot, cacheProjectMembers, getAllCachedProj
 import type { User } from 'firebase/auth';
 import { usePendingOverlay, applyPendingToTasks } from './state/pendingOverlay';
 import { calculateProjectStatus } from './lib/projectStatus';
-
-const LOCAL_KEY = 'apdw_compass_snapshot_v1';
-
-interface CompassState {
-  projects: Project[];
-  tasks: Task[];
-  people: Person[];
-}
+import {
+  WorkloadScale,
+  DateRange,
+  ProjectRevenueSpan,
+  WorkloadSummaryRow,
+  getPeriodRange,
+  getPreviousRange,
+  getTaskRange,
+  getOverlapRange,
+  getTaskHoursInRange,
+  sumTaskHoursInRange,
+  filterTasksByRange,
+  countTasksInRange,
+  sumHoursForRange,
+  buildActiveDaysByAssignee,
+  buildWorkload,
+  buildProjectRevenueSpans,
+  getRevenueInRange,
+  sumRevenueForRange,
+  sumRevenueForWindow,
+  countProjectsInRange,
+  calculateDelta,
+  buildTimelineData,
+  buildWeeklySummary,
+  buildMonthlySummary,
+} from './lib/workload';
+import { formatHours, formatCurrency, formatPeriodLabel, escapeCsvValue, downloadCsv } from './lib/formatting';
+import { buildGantt, TimeScale, GanttItemInput, BuildGanttOptions, DangerTaskInfo } from './lib/gantt';
+import { PEOPLE_CACHE_TTL_MS, readPeopleCache, writePeopleCache, buildMemberNamesFromMembers } from './lib/peopleCache';
+import { DangerTasksModal } from './components/Modals/DangerTasksModal';
+import { Modal, ModalProps } from './components/Modals/Modal';
+import { TaskModal } from './components/Modals/TaskModal';
+import { ProjectModal } from './components/Modals/ProjectModal';
+import { PersonModal } from './components/Modals/PersonModal';
+import { StageEditModal } from './components/Modals/StageEditModal';
+import { SummaryCard } from './components/Charts/SummaryCard';
+import { WorkloadChart, WorkloadTimelineChart } from './components/Charts/WorkloadCharts';
+import { useSnapshot } from './hooks/useSnapshot';
+import { useRemoteData } from './hooks/useRemoteData';
 
 type ToastInput = {
   tone: ToastMessage['tone'];
@@ -140,121 +173,6 @@ type ToastInput = {
   description?: string;
   duration?: number;
 };
-
-function useSnapshot() {
-  const [state, setState] = useState<CompassState>(() => {
-    // 一時的にローカルストレージをクリアしてサンプルデータを使用
-    // TODO: 本番では以下の2行を削除
-    localStorage.removeItem(LOCAL_KEY);
-
-    if (typeof window === 'undefined') {
-      const normalized = normalizeSnapshot(SAMPLE_SNAPSHOT);
-      return {
-        projects: normalized.projects,
-        tasks: normalized.tasks,
-        people: normalized.people,
-      };
-    }
-    try {
-      const cached = localStorage.getItem(LOCAL_KEY);
-      if (cached) {
-        const parsed = JSON.parse(cached) as SnapshotPayload;
-        const normalized = normalizeSnapshot(parsed);
-        return {
-          projects: normalized.projects,
-          tasks: normalized.tasks,
-          people: normalized.people,
-        };
-      }
-    } catch (err) {
-      console.warn('Failed to load cached snapshot', err);
-    }
-    const normalized = normalizeSnapshot(SAMPLE_SNAPSHOT);
-    return {
-      projects: normalized.projects,
-      tasks: normalized.tasks,
-      people: normalized.people,
-    };
-  });
-
-  // Undo/Redo用の履歴管理
-  const [history, setHistory] = useState<CompassState[]>([state]);
-  const [historyIndex, setHistoryIndex] = useState(0);
-  const isUndoingRef = useRef(false);
-
-  // 状態を変更し、履歴に追加
-  const setStateWithHistory = useCallback((newState: CompassState | ((prev: CompassState) => CompassState)) => {
-    if (isUndoingRef.current) {
-      // undo/redo中は履歴に追加しない
-      setState(newState);
-      return;
-    }
-
-    setState((prevState) => {
-      const nextState = typeof newState === 'function' ? newState(prevState) : newState;
-
-      // 履歴に追加（現在位置より後の履歴は削除）
-      setHistory((prevHistory) => {
-        // 現在位置より後を削除して新しい状態を追加
-        const newHistory = prevHistory.slice(0, historyIndex + 1);
-        newHistory.push(nextState);
-        // 履歴は最大50件まで保持
-        if (newHistory.length > 50) {
-          newHistory.shift();
-        } else {
-          setHistoryIndex(newHistory.length - 1);
-        }
-        return newHistory;
-      });
-
-      return nextState;
-    });
-  }, [historyIndex]);
-
-  // Undo
-  const undo = useCallback(() => {
-    if (historyIndex <= 0) return;
-
-    isUndoingRef.current = true;
-    const previousState = history[historyIndex - 1];
-    if (previousState) {
-      setState(previousState);
-      setHistoryIndex((prev) => prev - 1);
-    }
-    isUndoingRef.current = false;
-  }, [history, historyIndex]);
-
-  // Redo
-  const redo = useCallback(() => {
-    if (historyIndex >= history.length - 1) return;
-
-    isUndoingRef.current = true;
-    const nextState = history[historyIndex + 1];
-    if (nextState) {
-      setState(nextState);
-      setHistoryIndex((prev) => prev + 1);
-    }
-    isUndoingRef.current = false;
-  }, [history, historyIndex]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem(
-      LOCAL_KEY,
-      JSON.stringify({
-        generated_at: todayString(),
-        projects: state.projects,
-        tasks: state.tasks,
-        people: state.people,
-      })
-    );
-  }, [state]);
-
-  const canUndo = historyIndex > 0;
-  const canRedo = historyIndex < history.length - 1;
-
-  return [state, setStateWithHistory, undo, redo, canUndo, canRedo] as const;
-}
 
 function AppLayout({
   children,
@@ -762,1084 +680,7 @@ function BottomBar({
   );
 }
 
-
-interface ModalProps {
-  open: boolean;
-  onOpenChange(open: boolean): void;
-}
-
-function Modal({ open, onOpenChange, children, title }: ModalProps & { title: string; children: React.ReactNode }) {
-  // ESCキーでモーダルを閉じる（イベント伝播を止めて親ダイアログに影響させない）
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        e.preventDefault();
-        onOpenChange(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown, true); // capture phase
-    return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [open, onOpenChange]);
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 overflow-y-auto"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          <motion.div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => onOpenChange(false)}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          />
-          <motion.div
-            className="w-full max-w-lg rounded-2xl bg-white shadow-xl my-8 flex flex-col max-h-[calc(100vh-4rem)] relative"
-            initial={{ opacity: 0, scale: 0.9, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            transition={{
-              type: "spring",
-              stiffness: 350,
-              damping: 30
-            }}
-          >
-            <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-slate-200 flex-shrink-0">
-              <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
-              <button type="button" onClick={() => onOpenChange(false)} className="text-slate-500 hover:text-slate-700">
-                ×
-              </button>
-            </div>
-            <div className="px-6 py-4 overflow-y-auto flex-1">
-              {children}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
-interface TaskModalProps extends ModalProps {
-  projects: Project[];
-  people: Person[];
-  editingTask?: Task | null;
-  defaultProjectId?: string;
-  defaultStageId?: string;
-  allowContinuousCreate?: boolean;
-  preloadedProjectMembers?: ProjectMember[];
-  lockProject?: boolean;
-  onSubmit(payload: {
-    projectId: string;
-    タスク名: string;
-    担当者?: string;
-    予定開始日?: string;
-    期限?: string;
-    マイルストーン?: boolean;
-    優先度: string;
-    ステータス: string;
-    ['工数見積(h)']?: number;
-    担当者メール?: string;
-    '通知設定'?: TaskNotificationSettings;
-  }): Promise<void>;
-  onUpdate?(taskId: string, updates: Partial<Task>): Promise<void>;
-  onDelete?(taskId: string): Promise<void>;
-  onNotify?(message: ToastInput): void;
-}
-
-function TaskModal({
-  open,
-  onOpenChange,
-  projects,
-  people,
-  editingTask,
-  onSubmit,
-  onUpdate,
-  onDelete,
-  onNotify,
-  defaultProjectId,
-  defaultStageId,
-  allowContinuousCreate,
-  preloadedProjectMembers,
-  lockProject,
-}: TaskModalProps) {
-  const [project, setProject] = useState('');
-  const [assignee, setAssignee] = useState('');
-  const [assigneeEmail, setAssigneeEmail] = useState('');
-  const [name, setName] = useState('');
-  const [startDate, setStartDate] = useState<Date | null>(null);
-  const [endDate, setEndDate] = useState<Date | null>(null);
-  const [durationDays, setDurationDays] = useState<number>(1);
-  const [priority, setPriority] = useState('中');
-  const [status, setStatus] = useState('未着手');
-  const [estimate, setEstimate] = useState(4);
-  const [notifyStart, setNotifyStart] = useState(true);
-  const [notifyDayBefore, setNotifyDayBefore] = useState(true);
-  const [notifyDue, setNotifyDue] = useState(true);
-  const [notifyOverdue, setNotifyOverdue] = useState(true);
-  const [isMilestone, setIsMilestone] = useState(false);
-  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
-  const [stageId, setStageId] = useState<string>('');
-  const [stages, setStages] = useState<Stage[]>([]);
-  const taskNameInputRef = useRef<HTMLInputElement | null>(null);
-  const submitIntentRef = useRef<'close' | 'continue'>('close');
-  const prevProjectRef = useRef<string>('');
-  const allowContinuous = Boolean(allowContinuousCreate && !editingTask);
-
-  const resetFormFields = useCallback((keepContext: boolean) => {
-    setName('');
-    setStartDate(null);
-    setEndDate(null);
-    setDurationDays(1);
-    setIsMilestone(false);
-    if (keepContext) return;
-    setProject('');
-    setStageId('');
-    setAssignee('');
-    setAssigneeEmail('');
-    setPriority('中');
-    setStatus('未着手');
-    setEstimate(4);
-    setNotifyStart(true);
-    setNotifyDayBefore(true);
-    setNotifyDue(true);
-    setNotifyOverdue(true);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-
-    if (editingTask) {
-      setProject(editingTask.projectId);
-      setAssignee(editingTask.担当者 || editingTask.assignee || '');
-      setAssigneeEmail(editingTask.担当者メール || '');
-      setName(editingTask.タスク名);
-      setStageId(editingTask.parentId || '');
-
-      const startDateValue = editingTask.予定開始日 || editingTask.start;
-      const endDateValue = editingTask.期限 || editingTask.end;
-      setStartDate(startDateValue ? new Date(startDateValue) : null);
-      setEndDate(endDateValue ? new Date(endDateValue) : null);
-
-      if (startDateValue && endDateValue) {
-        const start = new Date(startDateValue);
-        const end = new Date(endDateValue);
-        const diffTime = end.getTime() - start.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-        setDurationDays(diffDays > 0 ? diffDays : 1);
-      }
-
-      setPriority(editingTask.優先度 || '中');
-      setStatus(editingTask.ステータス || '未着手');
-      const existingEstimate = editingTask['工数見積(h)'];
-      setEstimate(existingEstimate != null ? clampToSingleDecimal(existingEstimate) : 4);
-
-      const notif = editingTask['通知設定'];
-      setNotifyStart(notif?.開始日 ?? true);
-      setNotifyDayBefore(notif?.期限前日 ?? true);
-      setNotifyDue(notif?.期限当日 ?? true);
-      setNotifyOverdue(notif?.超過 ?? true);
-
-      const milestoneValue = editingTask['マイルストーン'] === true || editingTask['milestone'] === true;
-      setIsMilestone(milestoneValue);
-    } else {
-      resetFormFields(false);
-      if (defaultProjectId) {
-        setProject(defaultProjectId);
-        // preloadedProjectMembersがあれば即座に設定
-        if (preloadedProjectMembers && preloadedProjectMembers.length > 0) {
-          setProjectMembers(preloadedProjectMembers);
-          setMembersLoading(false);
-        }
-      }
-      if (defaultStageId) {
-        setStageId(defaultStageId);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, editingTask, defaultProjectId, defaultStageId, resetFormFields]);
-
-  useEffect(() => {
-    if (!open) {
-      prevProjectRef.current = '';
-      return;
-    }
-    if (prevProjectRef.current && prevProjectRef.current !== project) {
-      setStageId('');
-      setAssignee('');
-      setAssigneeEmail('');
-    }
-    prevProjectRef.current = project;
-  }, [open, project]);
-
-  // プロジェクト選択時に工程一覧を取得（常にAPIから取得）
-  useEffect(() => {
-    if (!project) {
-      setStages([]);
-      return;
-    }
-
-    listStages(project)
-      .then(({ stages: stageList }) => {
-        setStages(stageList);
-      })
-      .catch(error => {
-        console.error('[TaskModal] Failed to load stages:', error);
-        setStages([]);
-      });
-  }, [project]);
-
-  // プロジェクトメンバーを取得
-  useEffect(() => {
-    if (!project) {
-      setProjectMembers([]);
-      return;
-    }
-
-    // preloadedProjectMembersにメンバーがある場合のみ使用、空配列の場合はAPIを呼ぶ
-    if (preloadedProjectMembers && preloadedProjectMembers.length > 0 && project === defaultProjectId) {
-      setProjectMembers(preloadedProjectMembers);
-      setMembersLoading(false);
-      return;
-    }
-
-    setMembersLoading(true);
-    listProjectMembers(project, { status: 'active' })
-      .then(members => {
-        setProjectMembers(members);
-      })
-      .catch(error => {
-        console.error('[TaskModal] Failed to load project members:', error);
-        setProjectMembers([]);
-      })
-      .finally(() => {
-        setMembersLoading(false);
-      });
-  }, [project, preloadedProjectMembers, defaultProjectId]);
-
-  // 担当者選択時にメールアドレスを自動入力（プロジェクトメンバーから検索）
-  useEffect(() => {
-    if (!assignee) {
-      setAssigneeEmail('');
-      return;
-    }
-    const member = projectMembers.find((m) => m.displayName === assignee);
-    if (member) {
-      setAssigneeEmail(member.email);
-      return;
-    }
-    // フォールバック: peopleから検索（後方互換性のため）
-    const person = people.find((p) => p.氏名 === assignee);
-    setAssigneeEmail(person?.メール ?? '');
-  }, [assignee, projectMembers, people]);
-
-  useEffect(() => {
-    if (!open || editingTask) return;
-    const timer = window.setTimeout(() => {
-      taskNameInputRef.current?.focus();
-    }, 120);
-    return () => window.clearTimeout(timer);
-  }, [open, editingTask]);
-
-  // マイルストーン用の日付変更ハンドラ
-  const handleMilestoneDateChange = (date: Date | null) => {
-    setStartDate(date);
-    setEndDate(date);
-  };
-
-  // 通常タスク用の日付範囲変更ハンドラ
-  const handleRangeDateChange = (date: Date | null) => {
-    if (!date) {
-      setStartDate(null);
-      setEndDate(null);
-      return;
-    }
-
-    // 開始日が未設定、または既に範囲が確定している場合は新しい開始日として設定
-    if (!startDate || (startDate && endDate)) {
-      setStartDate(date);
-      setEndDate(null);
-    } else {
-      // 開始日が設定済みで終了日が未設定の場合
-      if (startDate.getTime() === date.getTime()) {
-        // 同じ日をクリック → 単日タスク
-        setEndDate(date);
-        setDurationDays(1);
-      } else if (date < startDate) {
-        // クリックした日が開始日より前 → 開始日と終了日を入れ替え
-        setEndDate(startDate);
-        setStartDate(date);
-        const diffTime = startDate.getTime() - date.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-        setDurationDays(diffDays);
-      } else {
-        // クリックした日が開始日より後 → 範囲選択
-        setEndDate(date);
-        const diffTime = date.getTime() - startDate.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-        setDurationDays(diffDays);
-      }
-
-      // マイルストーン解除判定
-      if (startDate.getTime() !== date.getTime() && isMilestone) {
-        setIsMilestone(false);
-      }
-    }
-  };
-
-  // マイルストーンチェックボックスが有効かどうかを判定
-  const isMilestoneCheckboxEnabled = startDate && endDate && startDate.getTime() === endDate.getTime();
-
-  // 期間変更時に終了日を再計算
-  const handleDurationChange = (days: number) => {
-    setDurationDays(days);
-    if (startDate && days > 0) {
-      const newEndDate = new Date(startDate);
-      newEndDate.setDate(startDate.getDate() + days - 1);
-      setEndDate(newEndDate);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const intent = submitIntentRef.current;
-    submitIntentRef.current = 'close';
-    console.log('[TaskModal] handleSubmit - isMilestone state:', isMilestone);
-    try {
-      const payload = {
-        projectId: project,
-        タスク名: name,
-        担当者: assignee,
-        予定開始日: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
-        期限: endDate ? format(endDate, 'yyyy-MM-dd') : undefined,
-        優先度: priority,
-        ステータス: status,
-        ['工数見積(h)']: estimate,
-        担当者メール: assigneeEmail || undefined,
-        マイルストーン: isMilestone,
-        parentId: stageId || null,
-        '通知設定': {
-          開始日: notifyStart,
-          期限前日: notifyDayBefore,
-          期限当日: notifyDue,
-          超過: notifyOverdue,
-        },
-      } as {
-        projectId: string;
-        タスク名: string;
-        担当者?: string;
-        予定開始日?: string;
-        期限?: string;
-        マイルストーン?: boolean;
-        優先度: string;
-        ステータス: string;
-        ['工数見積(h)']?: number;
-        担当者メール?: string;
-        parentId?: string | null;
-        '通知設定'?: TaskNotificationSettings;
-      };
-
-      const shouldClose = editingTask || !(allowContinuous && intent === 'continue');
-      if (shouldClose) {
-        onOpenChange(false);
-      }
-
-      if (editingTask && onUpdate) {
-        console.log('[TaskModal] Updating task with payload:', payload);
-        await onUpdate(editingTask.id, payload);
-      } else {
-        console.log('[TaskModal] Creating task with payload:', payload);
-        await onSubmit(payload);
-      }
-      if (!editingTask && allowContinuous && intent === 'continue') {
-        resetFormFields(true);
-        taskNameInputRef.current?.focus();
-        return;
-      }
-    } catch (err) {
-      console.error(err);
-      onNotify?.({ tone: 'error', title: editingTask ? 'タスクの更新に失敗しました' : 'タスクの追加に失敗しました' });
-    }
-  };
-
-  const assignableMembers = useMemo(
-    () => projectMembers.filter((member) => member.status === 'active'),
-    [projectMembers]
-  );
-
-  const assigneeOptions = assignableMembers.map((member) => {
-    const roleLabel = PROJECT_ROLE_LABELS[member.role] ?? member.role;
-    return {
-      key: member.userId || member.displayName,
-      value: member.displayName,
-      label: `${member.displayName} (${roleLabel})`,
-    };
-  });
-
-  const handleFormKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
-    if (e.key !== 'Enter') return;
-    const nativeEvent = e.nativeEvent as KeyboardEvent & { isComposing?: boolean; keyCode?: number };
-    if (nativeEvent.isComposing || nativeEvent.keyCode === 229) {
-      e.preventDefault();
-      return;
-    }
-    const target = e.target as HTMLElement;
-    if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) {
-      e.preventDefault();
-    }
-  };
-
-  return (
-    <Modal open={open} onOpenChange={onOpenChange} title={editingTask ? "タスク編集" : "タスク追加"}>
-      <form className="space-y-3" onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">プロジェクト</label>
-            {lockProject && project ? (
-              <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                {projects.find(p => p.id === project)?.物件名 || project}
-              </div>
-            ) : (
-              <select
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={project}
-                onChange={(e) => setProject(e.target.value)}
-                required
-              >
-                <option value="">選択</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.物件名 || p.id}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">担当者</label>
-            {!project ? (
-              <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
-                プロジェクトを選択してください
-              </div>
-            ) : membersLoading ? (
-              <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
-                メンバー読み込み中...
-              </div>
-            ) : assigneeOptions.length > 0 ? (
-              <select
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
-              >
-                <option value="">選択</option>
-                {assigneeOptions.map((option) => (
-                  <option key={option.key} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div>
-                <select
-                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-400 bg-slate-50"
-                  value=""
-                  disabled
-                >
-                  <option value="">担当者候補がありません</option>
-                </select>
-                <p className="mt-1 text-xs text-amber-600">
-                  プロジェクトにメンバーを追加すると、担当者として選択できます
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">通知送信先メール</label>
-          <input
-            type="email"
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-            value={assigneeEmail}
-            onChange={(e) => setAssigneeEmail(e.target.value)}
-            placeholder="担当者メールアドレス"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">工程</label>
-          <select
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            value={stageId}
-            onChange={(e) => setStageId(e.target.value)}
-          >
-            <option value="">未割り当て</option>
-            {stages.map((stage) => (
-              <option key={stage.id} value={stage.id}>
-                {stage.タスク名}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">タスク名</label>
-          <input
-            ref={taskNameInputRef}
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </div>
-
-        {/* マイルストーンチェックボックス */}
-        <div className={`flex items-center gap-2 p-2 rounded-lg border ${isMilestoneCheckboxEnabled
-          ? 'bg-red-50 border-red-200'
-          : 'bg-gray-50 border-gray-200'
-          }`}>
-          <input
-            type="checkbox"
-            id="milestone"
-            checked={isMilestone}
-            disabled={!isMilestoneCheckboxEnabled}
-            onChange={(e) => {
-              console.log('[TaskModal] Milestone checkbox changed to:', e.target.checked);
-              setIsMilestone(e.target.checked);
-              // チェックされたら、既に開始日が入力されている場合は終了日を同じにする
-              if (e.target.checked && startDate) {
-                setEndDate(startDate);
-              }
-            }}
-            className={`w-4 h-4 rounded focus:ring-red-500 flex-shrink-0 ${isMilestoneCheckboxEnabled
-              ? 'text-red-600 cursor-pointer'
-              : 'text-gray-400 cursor-not-allowed'
-              }`}
-          />
-          <label
-            htmlFor="milestone"
-            className={`text-xs ${isMilestoneCheckboxEnabled
-              ? 'text-red-900 cursor-pointer'
-              : 'text-gray-400 cursor-not-allowed'
-              }`}
-          >
-            ◆ マイルストーン（重要な1日の予定）
-            {!isMilestoneCheckboxEnabled && (
-              <span className="block text-[10px] mt-0.5 text-gray-500">※ 1日だけの予定を選択すると設定可</span>
-            )}
-          </label>
-        </div>
-
-        {/* 日付選択 */}
-        <div className="bg-blue-50 rounded-xl border border-blue-200 p-3">
-          <label className="block text-xs font-semibold text-slate-700 mb-2">
-            {isMilestone ? '◆ 実施日' : '作業期間'}
-          </label>
-          {isMilestone ? (
-            <DatePicker
-              selected={startDate}
-              onChange={handleMilestoneDateChange}
-              locale="ja"
-              dateFormat="yyyy年MM月dd日"
-              className="w-full text-sm border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholderText="実施日を選択"
-            />
-          ) : (
-            <div>
-              <DatePicker
-                onChange={handleRangeDateChange}
-                highlightDates={[
-                  ...(startDate ? [startDate] : []),
-                  ...(startDate && endDate ?
-                    Array.from({ length: Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1 }, (_, i) => {
-                      const d = new Date(startDate);
-                      d.setDate(startDate.getDate() + i);
-                      return d;
-                    }) : []
-                  )
-                ]}
-                inline
-                locale="ja"
-                className="w-full"
-              />
-              <div className="mt-2 text-xs text-slate-600 text-center bg-blue-50 rounded-lg py-2 px-3">
-                {!startDate && '📅 開始日を選択してください'}
-                {startDate && !endDate && '📅 終了日を選択してください（同じ日をもう一度クリックで単日タスク）'}
-                {startDate && endDate && (
-                  <span className="font-semibold text-blue-600">
-                    {startDate.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })} 〜 {endDate.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })}
-                    {startDate.getTime() === endDate.getTime() && ' (単日)'}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">優先度</label>
-            <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            >
-              <option value="高">高</option>
-              <option value="中">中</option>
-              <option value="低">低</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">ステータス</label>
-            <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              <option value="未着手">未着手</option>
-              <option value="進行中">進行中</option>
-              <option value="確認待ち">確認待ち</option>
-              <option value="保留">保留</option>
-              <option value="完了">完了</option>
-            </select>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">工数見積(h)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.1"
-              inputMode="decimal"
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-              value={estimate}
-              onChange={(e) => setEstimate(parseHoursInput(e.target.value))}
-            />
-          </div>
-        </div>
-        <div>
-          <p className="mb-1 text-xs font-semibold text-slate-500">メール通知</p>
-          <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={notifyStart} onChange={(e) => setNotifyStart(e.target.checked)} className="w-3.5 h-3.5" />
-              <span>開始日</span>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={notifyDayBefore} onChange={(e) => setNotifyDayBefore(e.target.checked)} className="w-3.5 h-3.5" />
-              <span>期限前日</span>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={notifyDue} onChange={(e) => setNotifyDue(e.target.checked)} className="w-3.5 h-3.5" />
-              <span>期限当日</span>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={notifyOverdue} onChange={(e) => setNotifyOverdue(e.target.checked)} className="w-3.5 h-3.5" />
-              <span>期限超過</span>
-            </label>
-          </div>
-        </div>
-        <div className="flex items-center justify-between pt-2">
-          {/* 削除ボタン（編集モード時のみ表示） */}
-          {editingTask && onDelete ? (
-            <button
-              type="button"
-              onClick={async () => {
-                if (!editingTask) return;
-                if (!confirm(`タスク「${editingTask.タスク名}」を削除しますか？この操作は取り消せません。`)) {
-                  return;
-                }
-                try {
-                  await onDelete(editingTask.id);
-                  onOpenChange(false);
-                } catch (err) {
-                  console.error(err);
-                  onNotify?.({ tone: 'error', title: 'タスクの削除に失敗しました' });
-                }
-              }}
-              className="rounded-2xl bg-red-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
-            >
-              削除
-            </button>
-          ) : (
-            <div />
-          )}
-
-          {/* キャンセル・保存ボタン */}
-          <div className="flex flex-wrap gap-2 justify-end">
-            <button type="button" className="rounded-2xl border px-4 py-1.5 text-sm" onClick={() => onOpenChange(false)}>
-              キャンセル
-            </button>
-            {!editingTask && allowContinuous && (
-              <button
-                type="submit"
-                className="rounded-2xl border border-slate-300 px-4 py-1.5 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50"
-                onClick={() => {
-                  submitIntentRef.current = 'continue';
-                }}
-              >
-                続けて追加
-              </button>
-            )}
-            <button
-              type="submit"
-              className="rounded-2xl bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white"
-              onClick={() => {
-                submitIntentRef.current = 'close';
-              }}
-            >
-              {editingTask ? '保存' : '追加'}
-            </button>
-          </div>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-interface ProjectModalProps extends ModalProps {
-  onSubmit(payload: {
-    物件名: string;
-    開始日?: string;
-    予定完了日?: string;
-    現地調査日?: string;
-    着工日?: string;
-    竣工予定日?: string;
-    ステータス: string;
-    優先度: string;
-  }): Promise<void>;
-  onNotify?(message: ToastInput): void;
-}
-
-function ProjectModal({ open, onOpenChange, onSubmit, onNotify }: ProjectModalProps) {
-  const [name, setName] = useState('');
-  const [start, setStart] = useState('');
-  const [due, setDue] = useState('');
-  const [surveyDate, setSurveyDate] = useState('');
-  const [constructionStart, setConstructionStart] = useState('');
-  const [completionDate, setCompletionDate] = useState('');
-  const [status, setStatus] = useState('計画中');
-  const [priority, setPriority] = useState('中');
-
-  useEffect(() => {
-    if (!open) return;
-    setName('');
-    setStart('');
-    setDue('');
-    setSurveyDate('');
-    setConstructionStart('');
-    setCompletionDate('');
-    setStatus('計画中');
-    setPriority('中');
-  }, [open]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await onSubmit({
-        物件名: name,
-        開始日: start,
-        予定完了日: due,
-        現地調査日: surveyDate,
-        着工日: constructionStart,
-        竣工予定日: completionDate,
-        ステータス: status,
-        優先度: priority,
-      });
-      onOpenChange(false);
-    } catch (err) {
-      console.error(err);
-      onNotify?.({ tone: 'error', title: 'プロジェクトの追加に失敗しました' });
-    }
-  };
-
-  return (
-    <Modal open={open} onOpenChange={onOpenChange} title="プロジェクト追加">
-      <form className="space-y-4" onSubmit={handleSubmit}>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">物件名</label>
-          <input
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </div>
-        <div className="space-y-3">
-          <div className="text-sm font-semibold text-slate-700">スケジュール</div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">開始日</label>
-              <input
-                type="date"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={start}
-                onChange={(e) => setStart(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">予定完了日</label>
-              <input
-                type="date"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={due}
-                onChange={(e) => setDue(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="text-sm font-semibold text-slate-700 pt-2">マイルストーン</div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">現地調査日</label>
-              <input
-                type="date"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={surveyDate}
-                onChange={(e) => setSurveyDate(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">着工日</label>
-              <input
-                type="date"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={constructionStart}
-                onChange={(e) => setConstructionStart(e.target.value)}
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">竣工予定日</label>
-              <input
-                type="date"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={completionDate}
-                onChange={(e) => setCompletionDate(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">ステータス</label>
-            <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              <option value="計画中">計画中</option>
-              <option value="設計中">設計中</option>
-              <option value="見積">見積</option>
-              <option value="実施中">実施中</option>
-              <option value="完了">完了</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">優先度</label>
-            <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            >
-              <option value="高">高</option>
-              <option value="中">中</option>
-              <option value="低">低</option>
-            </select>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className="rounded-2xl border px-3 py-2" onClick={() => onOpenChange(false)}>
-            キャンセル
-          </button>
-          <button type="submit" className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
-            追加
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-interface PersonModalProps extends ModalProps {
-  onSubmit(payload: {
-    type?: 'person' | 'client';
-    氏名: string;
-    役割?: string;
-    部署?: string;
-    会社名?: string;
-    メール?: string;
-    電話?: string;
-    '稼働時間/日(h)'?: number;
-  }): Promise<void>;
-  onNotify?(message: ToastInput): void;
-}
-
-function PersonModal({ open, onOpenChange, onSubmit, onNotify }: PersonModalProps) {
-  const [personType, setPersonType] = useState<'person' | 'client'>('person');
-  const [name, setName] = useState('');
-  const [role, setRole] = useState('');
-  const [department, setDepartment] = useState('');
-  const [companyName, setCompanyName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [workingHours, setWorkingHours] = useState<number | ''>('');
-
-  useEffect(() => {
-    if (open) {
-      setPersonType('person');
-      setName('');
-      setRole('');
-      setDepartment('');
-      setCompanyName('');
-      setEmail('');
-      setPhone('');
-      setWorkingHours('');
-    }
-  }, [open]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const payload = {
-        type: personType,
-        氏名: name,
-        役割: role || undefined,
-        部署: personType === 'person' ? (department || undefined) : undefined,
-        会社名: personType === 'client' ? (companyName || undefined) : undefined,
-        メール: email || undefined,
-        電話: phone || undefined,
-        '稼働時間/日(h)': personType === 'person' && workingHours ? Number(workingHours) : undefined,
-      };
-      await onSubmit(payload);
-      onOpenChange(false);
-    } catch (err) {
-      console.error(err);
-      onNotify?.({ tone: 'error', title: `${personType === 'client' ? 'クライアント' : '担当者'}の追加に失敗しました` });
-    }
-  };
-
-  return (
-    <Modal open={open} onOpenChange={onOpenChange} title={personType === 'client' ? 'クライアント追加' : '担当者追加'}>
-      <form className="space-y-4" onSubmit={handleSubmit}>
-        <div>
-          <label className="mb-2 block text-xs text-slate-500">タイプ *</label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="personType"
-                value="person"
-                checked={personType === 'person'}
-                onChange={() => setPersonType('person')}
-                className="w-4 h-4 text-blue-600"
-              />
-              <span className="text-sm text-slate-700">担当者</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="radio"
-                name="personType"
-                value="client"
-                checked={personType === 'client'}
-                onChange={() => setPersonType('client')}
-                className="w-4 h-4 text-blue-600"
-              />
-              <span className="text-sm text-slate-700">クライアント</span>
-            </label>
-          </div>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">氏名 *</label>
-          <input
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="氏名"
-            required
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">役割</label>
-          <input
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            placeholder="役割"
-          />
-        </div>
-        {personType === 'person' && (
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">部署</label>
-            <input
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder="部署"
-            />
-          </div>
-        )}
-        {personType === 'client' && (
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">会社名</label>
-            <input
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={companyName}
-              onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="例: 株式会社〇〇"
-            />
-          </div>
-        )}
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">メール</label>
-          <input
-            type="email"
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="メールアドレス"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">電話</label>
-          <input
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="電話番号"
-          />
-        </div>
-        {personType === 'person' && (
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">稼働時間/日(h)</label>
-            <input
-              type="number"
-              step="0.5"
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2"
-              value={workingHours}
-              onChange={(e) => setWorkingHours(e.target.value ? Number(e.target.value) : '')}
-              placeholder="8"
-            />
-          </div>
-        )}
-        <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className="rounded-2xl border px-3 py-2" onClick={() => onOpenChange(false)}>
-            キャンセル
-          </button>
-          <button type="submit" className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
-            追加
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
 type ProjectSortKey = 'due' | 'progress' | 'tasks' | 'priority';
-
-type TimeScale = 'auto' | 'six_weeks' | 'quarter' | 'half_year' | 'full';
 
 function AuthConfigMissingScreen() {
   return (
@@ -2484,6 +1325,7 @@ function SchedulePage({
   canSync,
   allProjectMembers,
   onStageAddTask,
+  onStageClick,
   stageProgressMap,
   onRequestPeople,
   onRequestProjectMembers,
@@ -2528,6 +1370,7 @@ function SchedulePage({
   canSync: boolean;
   allProjectMembers?: Map<string, ProjectMember[]>;
   onStageAddTask?: (stage: GanttTask) => void;
+  onStageClick?: (stage: GanttTask) => void;
   stageProgressMap: Record<string, number>;
   onRequestPeople?: () => void;
   onRequestProjectMembers?: (projectId: string) => void;
@@ -3182,6 +2025,7 @@ function SchedulePage({
             }
             }}
             onStageAddTask={onStageAddTask}
+            onStageClick={onStageClick}
           onTaskCopy={(task, newStartDate, newEndDate) => {
             // タスクコピー処理
             const originalTask = filteredTasks.find(t => t.id === task.id);
@@ -3504,156 +2348,6 @@ function SchedulePage({
       </div>
     </>
   );
-}
-
-interface GanttItemInput {
-  key: string;
-  name: string;
-  start: Date;
-  end: Date;
-  status?: string;
-  progress?: number;
-  projectLabel?: string;
-  assigneeLabel?: string;
-}
-
-interface BuildGanttOptions {
-  timeScale?: TimeScale;
-  today?: Date;
-}
-
-interface DangerTaskInfo {
-  id: string;
-  name: string;
-  projectName: string;
-  dueDateLabel: string;
-  urgencyLabel: string;
-  status: string;
-  daysDiff: number;
-  assignee: string;
-}
-
-function buildGantt(items: GanttItemInput[], options: BuildGanttOptions = {}) {
-  if (!items.length) {
-    return { data: [], ticks: [], min: 0, max: 0, minDate: null, maxDate: null, todayX: null };
-  }
-
-  const { timeScale = 'auto', today = new Date() } = options;
-
-  const sortedItems = items.slice().sort((a, b) => a.start.getTime() - b.start.getTime());
-
-  let minDate = new Date(Math.min(...sortedItems.map((item) => item.start.getTime())));
-  let maxDate = new Date(Math.max(...sortedItems.map((item) => item.end.getTime())));
-  let relevantItems = sortedItems;
-
-  const clampToWindow = (windowStart: Date, windowEnd: Date) => {
-    const windowItems = sortedItems.filter((item) => item.end >= windowStart && item.start <= windowEnd);
-    if (windowItems.length) {
-      relevantItems = windowItems;
-      minDate = windowStart;
-      maxDate = windowEnd;
-    }
-  };
-
-  if (timeScale === 'six_weeks') {
-    const startWindow = new Date(today.getTime() - 7 * DAY_MS);
-    const endWindow = new Date(startWindow.getTime() + 42 * DAY_MS);
-    clampToWindow(startWindow, endWindow);
-  } else if (timeScale === 'quarter') {
-    const startWindow = new Date(today.getTime() - 14 * DAY_MS);
-    const endWindow = new Date(startWindow.getTime() + 120 * DAY_MS);
-    clampToWindow(startWindow, endWindow);
-  } else if (timeScale === 'half_year') {
-    const startWindow = new Date(today.getTime() - 30 * DAY_MS);
-    const endWindow = new Date(startWindow.getTime() + 210 * DAY_MS);
-    clampToWindow(startWindow, endWindow);
-  } else if (timeScale === 'full') {
-    const spanMs = maxDate.getTime() - minDate.getTime();
-    const paddingDays = Math.max(7, Math.ceil(spanMs / DAY_MS / 20));
-    minDate = new Date(minDate.getTime() - paddingDays * DAY_MS);
-    maxDate = new Date(maxDate.getTime() + paddingDays * DAY_MS);
-  } else {
-    // autoモード: 本日を中心に前後60日間表示
-    const startWindow = new Date(today.getTime() - 60 * DAY_MS);
-    const endWindow = new Date(today.getTime() + 60 * DAY_MS);
-    clampToWindow(startWindow, endWindow);
-  }
-
-  const spanDays = Math.max(1, Math.ceil((maxDate.getTime() - minDate.getTime()) / DAY_MS));
-
-  // 日付ラベルの重なりを防ぐため、期間に応じてより広い間隔を設定
-  const autoTickStep =
-    spanDays > 365 ? 60 :  // 1年以上 → 60日間隔
-      spanDays > 180 ? 30 :  // 半年以上 → 30日間隔
-        spanDays > 90 ? 14 :   // 3ヶ月以上 → 14日間隔
-          spanDays > 60 ? 7 :    // 2ヶ月以上 → 7日間隔
-            spanDays > 30 ? 3 :    // 1ヶ月以上 → 3日間隔
-              1;                     // 1ヶ月以下 → 1日間隔
-
-  let tickStep = autoTickStep;
-
-  switch (timeScale) {
-    case 'six_weeks':
-      tickStep = 3;  // 6週間表示では3日間隔
-      break;
-    case 'quarter':
-      tickStep = 7;  // 四半期表示では7日間隔
-      break;
-    case 'half_year':
-      tickStep = 14; // 半年表示では14日間隔
-      break;
-    case 'full':
-      tickStep = Math.max(14, Math.ceil(spanDays / 15)); // 全期間表示では最低14日間隔
-      break;
-    default:
-      tickStep = autoTickStep;
-  }
-
-  const ticks: number[] = [];
-  for (let i = 0; i <= spanDays; i += tickStep) {
-    ticks.push(i);
-  }
-  if (ticks[ticks.length - 1] !== spanDays) {
-    ticks.push(spanDays);
-  }
-
-  const data: GanttDatum[] = relevantItems.map((item) => {
-    const originalStart = item.start;
-    const originalEnd = item.end;
-    const clampedStart = originalStart < minDate ? minDate : originalStart;
-    const clampedEnd = originalEnd > maxDate ? maxDate : originalEnd;
-    const offset = Math.max(0, Math.floor((clampedStart.getTime() - minDate.getTime()) / DAY_MS));
-    const duration = Math.max(1, Math.ceil((clampedEnd.getTime() - clampedStart.getTime()) / DAY_MS));
-    const safeProgress = typeof item.progress === 'number' && !Number.isNaN(item.progress) ? item.progress : undefined;
-    const totalDuration = Math.max(1, Math.ceil((originalEnd.getTime() - originalStart.getTime()) / DAY_MS));
-    return {
-      key: item.key,
-      name: item.name,
-      offset,
-      duration,
-      startLabel: formatDate(originalStart),
-      endLabel: formatDate(originalEnd),
-      startDate: new Date(originalStart.getTime()),
-      endDate: new Date(originalEnd.getTime()),
-      durationDays: totalDuration,
-      status: item.status,
-      progressRatio: safeProgress,
-      isOverdue: originalEnd.getTime() < today.getTime() && item.status !== '完了',
-      projectLabel: item.projectLabel,
-      assigneeLabel: item.assigneeLabel,
-    };
-  });
-
-  const todayX =
-    today < minDate || today > maxDate ? null : Math.floor((today.getTime() - minDate.getTime()) / DAY_MS);
-
-  return { data, ticks, min: 0, max: spanDays, minDate, maxDate, todayX };
-}
-
-type WorkloadScale = 'week' | 'month' | 'year';
-interface DateRange {
-  start: Date;
-  end: Date;
 }
 
 function WorkloadPage({ tasks, projects, people }: { tasks: Task[]; projects: Project[]; people: Person[] }) {
@@ -4178,344 +2872,6 @@ function WorkloadPage({ tasks, projects, people }: { tasks: Task[]; projects: Pr
   );
 }
 
-function SummaryCard({
-  title,
-  value,
-  note,
-  delta,
-  accent,
-}: {
-  title: string;
-  value: string;
-  note?: string;
-  delta: number | null;
-  accent?: 'highlight';
-}) {
-  const deltaLabel =
-    delta == null
-      ? null
-      : `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%`;
-  const deltaTone =
-    delta == null ? '' : delta >= 0 ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50';
-
-  return (
-    <div
-      className={`flex flex-col rounded-2xl border p-4 ${
-        accent === 'highlight'
-          ? 'border-amber-200 bg-amber-50/70'
-          : 'border-slate-100 bg-slate-50/70'
-      }`}
-    >
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{title}</p>
-      <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
-      <div className="mt-2 flex items-center gap-2">
-        {deltaLabel && (
-          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${deltaTone}`}>{deltaLabel}</span>
-        )}
-        {note && <span className="text-xs text-slate-500">{note}</span>}
-      </div>
-    </div>
-  );
-}
-
-function getPeriodRange(scale: WorkloadScale, reference: Date): DateRange {
-  if (scale === 'week') {
-    return {
-      start: startOfWeek(reference, { weekStartsOn: 1 }),
-      end: endOfWeek(reference, { weekStartsOn: 1 }),
-    };
-  }
-  if (scale === 'month') {
-    return {
-      start: startOfMonth(reference),
-      end: endOfMonth(reference),
-    };
-  }
-  return {
-    start: startOfYear(reference),
-    end: endOfYear(reference),
-  };
-}
-
-function getPreviousRange(range: DateRange, scale: WorkloadScale): DateRange {
-  if (scale === 'week') {
-    return getPeriodRange('week', subWeeks(range.start, 1));
-  }
-  if (scale === 'month') {
-    return getPeriodRange('month', subMonths(range.start, 1));
-  }
-  return getPeriodRange('year', subYears(range.start, 1));
-}
-
-function getTaskRange(task: Task): DateRange | null {
-  const startSource = task.start ?? task.予定開始日 ?? task.実績開始日 ?? task.実績完了日 ?? task.期限 ?? null;
-  const endSource = task.end ?? task.期限 ?? task.実績完了日 ?? task.実績開始日 ?? task.予定開始日 ?? task.start ?? null;
-  const start = startSource ? parseDate(startSource) : null;
-  const end = endSource ? parseDate(endSource) : null;
-  if (!start && !end) return null;
-  const safeStart = start ?? end;
-  const safeEnd = end ?? start;
-  if (!safeStart || !safeEnd) return null;
-  return safeStart <= safeEnd ? { start: safeStart, end: safeEnd } : { start: safeEnd, end: safeStart };
-}
-
-function getOverlapRange(rangeA: DateRange, rangeB: DateRange): DateRange | null {
-  const start = rangeA.start > rangeB.start ? rangeA.start : rangeB.start;
-  const end = rangeA.end < rangeB.end ? rangeA.end : rangeB.end;
-  return start <= end ? { start, end } : null;
-}
-
-function getTaskHoursInRange(task: Task, range: DateRange): number {
-  const taskRange = getTaskRange(task);
-  if (!taskRange) return 0;
-  const overlap = getOverlapRange(taskRange, range);
-  if (!overlap) return 0;
-  const estimate = toNumber(task['工数見積(h)']);
-  if (!estimate) return 0;
-  const taskSpanDays = Math.max(1, differenceInCalendarDays(taskRange.end, taskRange.start) + 1);
-  const overlapDays = Math.max(1, differenceInCalendarDays(overlap.end, overlap.start) + 1);
-  return (estimate * overlapDays) / taskSpanDays;
-}
-
-function sumTaskHoursInRange(tasks: Task[], range: DateRange): number {
-  return tasks.reduce((sum, task) => sum + getTaskHoursInRange(task, range), 0);
-}
-
-function filterTasksByRange(tasks: Task[], range: DateRange): Task[] {
-  return tasks.filter((task) => {
-    const taskRange = getTaskRange(task);
-    return taskRange ? Boolean(getOverlapRange(taskRange, range)) : false;
-  });
-}
-
-function buildActiveDaysByAssignee(tasks: Task[], range: DateRange): Map<string, number> {
-  const daySets = new Map<string, Set<string>>();
-  tasks.forEach((task) => {
-    const assignee = (task.assignee ?? task.担当者 ?? '未設定').trim() || '未設定';
-    const taskRange = getTaskRange(task);
-    if (!taskRange) return;
-    const overlap = getOverlapRange(taskRange, range);
-    if (!overlap) return;
-    const set = daySets.get(assignee) ?? new Set<string>();
-    eachDayOfInterval(overlap).forEach((day) => {
-      set.add(format(day, 'yyyy-MM-dd'));
-    });
-    daySets.set(assignee, set);
-  });
-  const counts = new Map<string, number>();
-  daySets.forEach((set, key) => {
-    counts.set(key, set.size);
-  });
-  return counts;
-}
-
-function buildWorkload(tasks: Task[], range: DateRange) {
-  const map = new Map<string, { assignee: string; est: number; count: number }>();
-  tasks.forEach((task) => {
-    const key = (task.assignee ?? task.担当者 ?? '未設定').trim() || '未設定';
-    const entry = map.get(key) ?? { assignee: key, est: 0, count: 0 };
-    entry.est += getTaskHoursInRange(task, range);
-    entry.count += 1;
-    map.set(key, entry);
-  });
-  return Array.from(map.values()).sort((a, b) => b.est - a.est);
-}
-
-interface ProjectRevenueSpan {
-  projectId: string;
-  start: Date;
-  end: Date;
-  revenue: number;
-}
-
-function pickDate(...sources: (string | undefined | null)[]): Date | null {
-  for (const source of sources) {
-    if (!source) continue;
-    const date = parseDate(source);
-    if (date) return date;
-  }
-  return null;
-}
-
-function resolveProjectRevenueRange(project: Project): DateRange | null {
-  const start = pickDate(project.span?.start, project.開始日, project.着工日, project.現地調査日);
-  const end = pickDate(project.span?.end, project.引渡し予定日, project.竣工予定日, project.予定完了日);
-  if (!start && !end) return null;
-  const safeStart = start ?? end;
-  const safeEnd = end ?? start;
-  if (!safeStart || !safeEnd) return null;
-  return safeStart <= safeEnd ? { start: safeStart, end: safeEnd } : { start: safeEnd, end: safeStart };
-}
-
-function buildProjectRevenueSpans(projects: Project[]): ProjectRevenueSpan[] {
-  return projects
-    .map((project) => {
-      const rawAmount = project.施工費;
-      const amount = typeof rawAmount === 'number' ? rawAmount : rawAmount ? Number(rawAmount) : 0;
-      if (!amount) return null;
-      const range = resolveProjectRevenueRange(project);
-      if (!range) return null;
-      return { projectId: project.id, start: range.start, end: range.end, revenue: amount };
-    })
-    .filter((span): span is ProjectRevenueSpan => Boolean(span));
-}
-
-function getRevenueInRange(span: ProjectRevenueSpan, range: DateRange): number {
-  const overlap = getOverlapRange({ start: span.start, end: span.end }, range);
-  if (!overlap) return 0;
-  const totalDays = Math.max(1, differenceInCalendarDays(span.end, span.start) + 1);
-  const overlapDays = Math.max(1, differenceInCalendarDays(overlap.end, overlap.start) + 1);
-  return (span.revenue * overlapDays) / totalDays;
-}
-
-function sumRevenueForRange(spans: ProjectRevenueSpan[], range: DateRange): number {
-  return spans.reduce((sum, span) => sum + getRevenueInRange(span, range), 0);
-}
-
-function countProjectsInRange(spans: ProjectRevenueSpan[], range: DateRange): number {
-  return spans.filter((span) => Boolean(getOverlapRange({ start: span.start, end: span.end }, range))).length;
-}
-
-function calculateDelta(current: number, previous: number): number | null {
-  if (!previous) return null;
-  return ((current - previous) / previous) * 100;
-}
-
-function formatHours(value: number): string {
-  const rounded = Math.round(value * 10) / 10;
-  return rounded.toLocaleString('ja-JP', { maximumFractionDigits: 1 });
-}
-
-function formatCurrency(value: number): string {
-  return `¥${Math.round(value).toLocaleString('ja-JP')}`;
-}
-
-function formatPeriodLabel(range: DateRange, scale: WorkloadScale): string {
-  if (scale === 'week') {
-    return `${format(range.start, 'M/d')} 〜 ${format(range.end, 'M/d')}`;
-  }
-  if (scale === 'month') {
-    return format(range.start, 'yyyy年M月');
-  }
-  return format(range.start, 'yyyy年');
-}
-
-function countTasksInRange(tasks: Task[], range: DateRange): number {
-  return tasks.reduce((count, task) => {
-    const taskRange = getTaskRange(task);
-    if (!taskRange) return count;
-    return getOverlapRange(taskRange, range) ? count + 1 : count;
-  }, 0);
-}
-
-function sumHoursForRange(tasks: Task[], start: Date, end: Date): number {
-  return sumTaskHoursInRange(tasks, { start, end });
-}
-
-function sumRevenueForWindow(spans: ProjectRevenueSpan[], start: Date, end: Date): number {
-  return spans.reduce((sum, span) => sum + getRevenueInRange(span, { start, end }), 0);
-}
-
-function buildTimelineData(
-  range: DateRange,
-  scale: WorkloadScale,
-  tasks: Task[],
-  revenueSpans: ProjectRevenueSpan[]
-) {
-  if (scale === 'week') {
-    return eachDayOfInterval(range).map((day) => {
-      const bucketStart = startOfDay(day);
-      const bucketEnd = endOfDay(day);
-      return {
-        label: format(day, 'M/d'),
-        hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
-        revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
-      };
-    });
-  }
-
-  if (scale === 'month') {
-    const weeks = eachWeekOfInterval(range, { weekStartsOn: 1 });
-    return weeks.map((weekStart) => {
-      const bucketStart = weekStart < range.start ? range.start : weekStart;
-      const bucketEndCandidate = endOfWeek(weekStart, { weekStartsOn: 1 });
-      const bucketEnd = bucketEndCandidate > range.end ? range.end : bucketEndCandidate;
-      return {
-        label: `${format(bucketStart, 'M/d')}〜${format(bucketEnd, 'M/d')}`,
-        hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
-        revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
-      };
-    });
-  }
-
-  // year
-  const months = eachMonthOfInterval(range);
-  return months.map((monthStart) => {
-    const bucketStart = monthStart < range.start ? range.start : monthStart;
-    const bucketEndCandidate = endOfMonth(monthStart);
-    const bucketEnd = bucketEndCandidate > range.end ? range.end : bucketEndCandidate;
-    return {
-      label: format(bucketStart, 'M月'),
-      hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
-      revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
-    };
-  });
-}
-
-type WorkloadSummaryRow = {
-  label: string;
-  hours: number;
-  tasks: number;
-  revenue: number;
-};
-
-function buildWeeklySummary(range: DateRange, tasks: Task[], revenueSpans: ProjectRevenueSpan[]): WorkloadSummaryRow[] {
-  return eachWeekOfInterval(range, { weekStartsOn: 1 }).map((weekStart) => {
-    const bucketStart = weekStart < range.start ? range.start : weekStart;
-    const bucketEndCandidate = endOfWeek(weekStart, { weekStartsOn: 1 });
-    const bucketEnd = bucketEndCandidate > range.end ? range.end : bucketEndCandidate;
-    return {
-      label: `${format(bucketStart, 'M/d')}〜${format(bucketEnd, 'M/d')}`,
-      hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
-      tasks: countTasksInRange(tasks, { start: bucketStart, end: bucketEnd }),
-      revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
-    };
-  });
-}
-
-function buildMonthlySummary(range: DateRange, tasks: Task[], revenueSpans: ProjectRevenueSpan[]): WorkloadSummaryRow[] {
-  return eachMonthOfInterval(range).map((monthStart) => {
-    const bucketStart = monthStart < range.start ? range.start : monthStart;
-    const bucketEndCandidate = endOfMonth(monthStart);
-    const bucketEnd = bucketEndCandidate > range.end ? range.end : bucketEndCandidate;
-    return {
-      label: format(bucketStart, 'yyyy/M'),
-      hours: sumHoursForRange(tasks, bucketStart, bucketEnd),
-      tasks: countTasksInRange(tasks, { start: bucketStart, end: bucketEnd }),
-      revenue: sumRevenueForWindow(revenueSpans, bucketStart, bucketEnd),
-    };
-  });
-}
-
-function escapeCsvValue(value: string): string {
-  const normalized = value ?? '';
-  if (/[",\n]/.test(normalized)) {
-    return `"${normalized.replace(/"/g, '""')}"`;
-  }
-  return normalized;
-}
-
-function downloadCsv(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 function renderWorkloadSortHeader(
   key: 'hours' | 'tasks' | 'capacity' | 'utilization' | 'overload' | 'assignee',
   label: string,
@@ -4547,10 +2903,28 @@ function renderWorkloadSortHeader(
 
 const CRITICAL_THRESHOLD_DAYS = 2;
 
-function buildDangerTasks(tasks: Task[], projectMap: Record<string, Project>): DangerTaskInfo[] {
+function buildDangerTasks(
+  tasks: Task[],
+  projectMap: Record<string, Project>,
+  currentUser?: { displayName?: string | null; email?: string | null } | null
+): DangerTaskInfo[] {
   const today = startOfDay(new Date());
   return tasks
-    .filter((task) => task.type !== 'stage' && task.ステータス !== '完了')
+    .filter((task) => {
+      if (task.type === 'stage') return false;
+      if (task.ステータス === '完了') return false;
+      if (currentUser) {
+        const taskAssignee = (task.assignee || task.担当者 || '').trim().toLowerCase();
+        const taskEmail = (task.担当者メール || '').trim().toLowerCase();
+        const userName = (currentUser.displayName || '').trim().toLowerCase();
+        const userEmail = (currentUser.email || '').trim().toLowerCase();
+        // 名前またはメールアドレスで一致判定
+        const nameMatch = taskAssignee && userName && taskAssignee === userName;
+        const emailMatch = taskEmail && userEmail && taskEmail === userEmail;
+        if (!nameMatch && !emailMatch) return false;
+      }
+      return true;
+    })
     .map((task) => {
       const due =
         parseDate(task.期限 ?? task.end ?? task.実績完了日 ?? task.実績開始日 ?? task.予定開始日 ?? task.start ?? null) ||
@@ -4583,466 +2957,6 @@ function buildDangerTasks(tasks: Task[], projectMap: Record<string, Project>): D
     .sort((a, b) => a.daysDiff - b.daysDiff);
 }
 
-function DangerTasksModal({ tasks, onClose }: { tasks: DangerTaskInfo[]; onClose(): void }) {
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
-  const dueTodayTasks = tasks.filter((task) => task.daysDiff === 0);
-  const otherDangerTasks = tasks.filter((task) => task.daysDiff !== 0);
-
-  const renderTaskCard = (task: DangerTaskInfo) => (
-    <div
-      key={task.id}
-      className="rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3 shadow-sm"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">{task.name}</p>
-          <p className="text-xs text-slate-500">
-            {task.projectName} ・ {task.status}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">担当: {task.assignee}</p>
-        </div>
-        <div className="text-right text-sm font-semibold text-rose-600">{task.urgencyLabel}</div>
-      </div>
-      <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-        <span>期限: {task.dueDateLabel}</span>
-        {task.daysDiff < 0 ? (
-          <span className="rounded-full bg-rose-50 px-2 py-0.5 text-rose-600">要対応</span>
-        ) : task.daysDiff === 0 ? (
-          <span className="rounded-full bg-amber-100/70 px-2 py-0.5 text-amber-700">本日締切</span>
-        ) : (
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-600">要確認</span>
-        )}
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-8">
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-rose-500">リマインド</p>
-            <h3 className="text-lg font-semibold text-slate-900">要注意タスク</h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100"
-            aria-label="閉じる"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="max-h-[360px] overflow-y-auto px-6 py-4 space-y-5">
-          {dueTodayTasks.length > 0 && (
-            <section>
-              <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-600">
-                <span className="text-slate-900">今日が期限のタスク</span>
-                <span>{dueTodayTasks.length}件</span>
-              </div>
-              <div className="space-y-3">
-                {dueTodayTasks.map(renderTaskCard)}
-              </div>
-            </section>
-          )}
-          {otherDangerTasks.length > 0 && (
-            <section>
-              <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-600">
-                <span className="text-slate-900">期限が迫っている / 超過タスク</span>
-                <span>{otherDangerTasks.length}件</span>
-              </div>
-              <div className="space-y-3">
-                {otherDangerTasks.map(renderTaskCard)}
-              </div>
-            </section>
-          )}
-          {tasks.length === 0 && (
-            <p className="py-6 text-center text-sm text-slate-500">危険なタスクはありません。</p>
-          )}
-        </div>
-        <div className="flex justify-end border-t border-slate-100 px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-          >
-            閉じる
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WorkloadChart({ data }: { data: { assignee: string; est: number; count: number }[] }) {
-  return (
-    <WorkloadResponsiveContainer width="100%" height="100%">
-      <WorkloadBarChart data={data} margin={{ left: 8, right: 16, top: 16, bottom: 16 }}>
-        <WorkloadCartesianGrid vertical={false} strokeDasharray="3 3" />
-        <WorkloadXAxis dataKey="assignee" tick={{ fontSize: 12 }} />
-        <WorkloadYAxis />
-        <WorkloadTooltip
-          formatter={(value: number, _name, props) => [
-            `${Math.round(value)} h`,
-            `${props?.payload?.count ?? 0} 件のタスク`,
-          ]}
-        />
-        <WorkloadBar dataKey="est" radius={[6, 6, 0, 0]} fill="#0f172a" />
-      </WorkloadBarChart>
-    </WorkloadResponsiveContainer>
-  );
-}
-
-function WorkloadTimelineChart({ data }: { data: { label: string; hours: number; revenue: number }[] }) {
-  return (
-    <WorkloadResponsiveContainer width="100%" height="100%">
-      <WorkloadComposedChart data={data} margin={{ left: 8, right: 16, top: 16, bottom: 16 }}>
-        <WorkloadCartesianGrid vertical={false} strokeDasharray="3 3" />
-        <WorkloadXAxis dataKey="label" tick={{ fontSize: 12 }} />
-        <WorkloadYAxis yAxisId="left" tick={{ fontSize: 11 }} width={40} />
-        <WorkloadYAxis
-          yAxisId="right"
-          orientation="right"
-          tick={{ fontSize: 11 }}
-          width={60}
-          tickFormatter={(value) => `¥${Math.round((value as number) / 1000)}k`}
-        />
-        <WorkloadTooltip
-          formatter={(value: number, name: string) =>
-            name === 'hours' ? [`${formatHours(value)} h`, '稼働'] : [formatCurrency(value), '稼ぎ']
-          }
-        />
-        <WorkloadArea
-          yAxisId="left"
-          dataKey="hours"
-          type="monotone"
-          stroke="#2563eb"
-          fill="#93c5fd"
-          fillOpacity={0.4}
-        />
-        <WorkloadLine yAxisId="right" dataKey="revenue" type="monotone" stroke="#f97316" strokeWidth={2} dot={false} />
-      </WorkloadComposedChart>
-    </WorkloadResponsiveContainer>
-  );
-}
-
-function useRemoteData(setState: React.Dispatch<React.SetStateAction<CompassState>>, enabled: boolean) {
-  const [loading, setLoading] = useState(false);
-  const initialLoadDoneRef = useRef(false);
-
-  useEffect(() => {
-    if (!enabled) {
-      setLoading(false);
-      return;
-    }
-
-    // Stale-While-Revalidate: まずキャッシュから読み込み
-    const loadFromCache = async () => {
-      if (initialLoadDoneRef.current) return; // 初回のみ
-      try {
-        const cached = await getCachedSnapshot();
-        if (cached.projects?.length || cached.tasks?.length) {
-          console.log('[useRemoteData] Loading from cache:', {
-            projects: cached.projects?.length || 0,
-            tasks: cached.tasks?.length || 0,
-          });
-          setState((prev) => ({
-            projects: cached.projects?.length ? cached.projects : prev.projects,
-            tasks: cached.tasks?.length ? cached.tasks : prev.tasks,
-            people: cached.people?.length ? cached.people : prev.people,
-          }));
-        }
-      } catch (err) {
-        console.warn('[useRemoteData] Failed to load from cache:', err);
-      }
-    };
-
-    // キャッシュから即座に表示
-    loadFromCache();
-
-    const load = async () => {
-      setLoading(true);
-      try {
-        const [p, t] = await Promise.allSettled([listProjects(), listTasks({})]);
-
-        // pending状態を取得（サーバーデータのマージ時にガードとして使用）
-        const pendingState = usePendingOverlay.getState();
-        const pendingTasks = pendingState.pending;
-        const pendingProjects = pendingState.pendingProjects;
-        const deletedTasks = pendingState.deletedTasks;
-        const deletedProjects = pendingState.deletedProjects;
-        const creatingTasks = pendingState.creatingTasks;
-
-        // 作成中のタスクIDセットを構築（tempIdとrealId両方）
-        const creatingTaskIds = new Set<string>();
-        Object.values(creatingTasks).forEach((creating) => {
-          if (!creating) return;
-          if (Date.now() >= creating.lockUntil) return;
-          creatingTaskIds.add(creating.tempId);
-          if (creating.realId) creatingTaskIds.add(creating.realId);
-        });
-
-        // タスクをマージする関数（pending中のタスクは上書きしない、削除済みタスクは除外、作成中タスクは保護）
-        const mergeTasks = (prevTasks: Task[], serverTasks: Task[]): Task[] => {
-          const taskMap = new Map<string, Task>();
-          const now = Date.now();
-
-          // まず既存のタスクをマップに追加（削除済みは除外）
-          prevTasks.forEach((task) => {
-            const deletion = deletedTasks[task.id];
-            if (deletion && now < deletion.lockUntil) {
-              // 削除済みとしてマークされているタスクは追加しない
-              return;
-            }
-            taskMap.set(task.id, task);
-          });
-
-          // サーバーからのタスクをマージ
-          serverTasks.forEach((serverTask) => {
-            // 削除済みとしてマークされているタスクはスキップ
-            const deletion = deletedTasks[serverTask.id];
-            if (deletion && now < deletion.lockUntil) {
-              console.log('[useRemoteData] Skipping deleted task:', serverTask.id);
-              return;
-            }
-
-            // 作成中タスクはローカルの状態を優先（上書きしない）
-            if (creatingTaskIds.has(serverTask.id)) {
-              console.log('[useRemoteData] Skipping creating task:', serverTask.id);
-              return;
-            }
-
-            const existingTask = taskMap.get(serverTask.id);
-            const pending = pendingTasks[serverTask.id];
-
-            // pendingがある場合、updatedAtを比較してサーバーデータが古ければスキップ
-            if (pending && now < pending.lockUntil) {
-              // pendingで変更されたフィールドがサーバーデータで元に戻ろうとしている場合はスキップ
-              let shouldSkip = false;
-              if (existingTask) {
-                Object.entries(pending.fields).forEach(([key, pendingValue]) => {
-                  const serverValue = (serverTask as any)[key];
-                  // pendingの値とサーバーの値が異なる場合、サーバーデータを採用しない
-                  if (serverValue !== pendingValue) {
-                    shouldSkip = true;
-                  }
-                });
-              }
-              if (shouldSkip) {
-                console.log('[useRemoteData] Skipping server task due to pending:', serverTask.id);
-                return; // このサーバータスクをスキップ
-              }
-            }
-
-            // updatedAt比較：サーバーの方が古い場合はスキップ
-            if (existingTask?.updatedAt && serverTask.updatedAt) {
-              const existingTime = new Date(existingTask.updatedAt).getTime();
-              const serverTime = new Date(serverTask.updatedAt).getTime();
-              if (serverTime < existingTime) {
-                console.log('[useRemoteData] Skipping older server task:', serverTask.id);
-                return; // 古いサーバーデータをスキップ
-              }
-            }
-
-            taskMap.set(serverTask.id, serverTask);
-          });
-
-          return Array.from(taskMap.values());
-        };
-
-        // プロジェクトをマージする関数（pending中のプロジェクトは上書きしない、削除済みプロジェクトは除外）
-        const mergeProjects = (prevProjects: Project[], serverProjects: Project[]): Project[] => {
-          const projectMap = new Map<string, Project>();
-          const now = Date.now();
-
-          // まず既存のプロジェクトをマップに追加（削除済みは除外）
-          prevProjects.forEach((project) => {
-            const deletion = deletedProjects[project.id];
-            if (deletion && now < deletion.lockUntil) {
-              // 削除済みとしてマークされているプロジェクトは追加しない
-              return;
-            }
-            projectMap.set(project.id, project);
-          });
-
-          // サーバーからのプロジェクトをマージ
-          serverProjects.forEach((serverProject) => {
-            // 削除済みとしてマークされているプロジェクトはスキップ
-            const deletion = deletedProjects[serverProject.id];
-            if (deletion && now < deletion.lockUntil) {
-              console.log('[useRemoteData] Skipping deleted project:', serverProject.id);
-              return;
-            }
-
-            const existingProject = projectMap.get(serverProject.id);
-            const pending = pendingProjects[serverProject.id];
-
-            // pendingがある場合、変更されたフィールドがサーバーデータで元に戻ろうとしている場合はスキップ
-            if (pending && now < pending.lockUntil) {
-              let shouldSkip = false;
-              if (existingProject) {
-                Object.entries(pending.fields).forEach(([key, pendingValue]) => {
-                  const serverValue = (serverProject as any)[key];
-                  // pendingの値とサーバーの値が異なる場合、サーバーデータを採用しない
-                  if (serverValue !== pendingValue) {
-                    shouldSkip = true;
-                  }
-                });
-              }
-              if (shouldSkip) {
-                console.log('[useRemoteData] Skipping server project due to pending:', serverProject.id);
-                return; // このサーバープロジェクトをスキップ
-              }
-            }
-
-            // updatedAt比較：サーバーの方が古い場合はスキップ
-            if (existingProject?.updatedAt && serverProject.updatedAt) {
-              const existingTime = new Date(existingProject.updatedAt).getTime();
-              const serverTime = new Date(serverProject.updatedAt).getTime();
-              if (serverTime < existingTime) {
-                console.log('[useRemoteData] Skipping older server project:', serverProject.id);
-                return; // 古いサーバーデータをスキップ
-              }
-            }
-
-            projectMap.set(serverProject.id, serverProject);
-          });
-
-          return Array.from(projectMap.values());
-        };
-
-        if (p.status === 'fulfilled' && t.status === 'fulfilled') {
-          const normalized = normalizeSnapshot({
-            projects: p.value.projects,
-            tasks: t.value.tasks,
-            people: [],
-          });
-
-          setState((prev) => {
-            // タスクとプロジェクトはマージして上書きを防ぐ
-            const mergedTasks = mergeTasks(prev.tasks, normalized.tasks);
-            const mergedProjects = mergeProjects(prev.projects, normalized.projects);
-            return {
-              projects: mergedProjects,
-              tasks: mergedTasks,
-              people: prev.people,
-            };
-          });
-
-          // キャッシュに保存（バックグラウンド）
-          initialLoadDoneRef.current = true;
-          cacheSnapshot({ projects: normalized.projects, tasks: normalized.tasks }).catch(() => {});
-          return;
-        }
-
-        if (p.status === 'fulfilled') {
-          const normalized = normalizeSnapshot({
-            projects: p.value.projects,
-            tasks: [],
-            people: [],
-          });
-          setState((prev) => {
-            // プロジェクトはマージして上書きを防ぐ
-            const mergedProjects = mergeProjects(prev.projects, normalized.projects);
-            return {
-              projects: mergedProjects,
-              tasks: prev.tasks,
-              people: prev.people,
-            };
-          });
-          // キャッシュに保存
-          cacheSnapshot({ projects: normalized.projects }).catch(() => {});
-        }
-
-        if (t.status === 'fulfilled') {
-          const normalized = normalizeSnapshot({
-            projects: [],
-            tasks: t.value.tasks,
-            people: [],
-          });
-          setState((prev) => {
-            // タスクはマージして上書きを防ぐ
-            const mergedTasks = mergeTasks(prev.tasks, normalized.tasks);
-            return {
-              projects: prev.projects,
-              tasks: mergedTasks,
-              people: prev.people,
-            };
-          });
-          // キャッシュに保存
-          cacheSnapshot({ tasks: normalized.tasks }).catch(() => {});
-        }
-      } catch (err) {
-        console.warn('Failed to load remote snapshot', err);
-      } finally {
-        setLoading(false);
-        initialLoadDoneRef.current = true;
-      }
-    };
-    load();
-
-    const handler = () => load();
-    window.addEventListener('snapshot:reload', handler);
-    return () => window.removeEventListener('snapshot:reload', handler);
-  }, [setState, enabled]);
-
-  return loading;
-}
-
-const PEOPLE_CACHE_TTL_MS = 5 * 60 * 1000;
-
-function readPeopleCache(key: string): { people: Person[]; fetchedAt: number } | null {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { people?: Person[]; fetchedAt?: number };
-    if (!Array.isArray(parsed.people) || typeof parsed.fetchedAt !== 'number') return null;
-    return { people: parsed.people, fetchedAt: parsed.fetchedAt };
-  } catch {
-    return null;
-  }
-}
-
-function writePeopleCache(key: string, people: Person[]) {
-  try {
-    localStorage.setItem(
-      key,
-      JSON.stringify({
-        people,
-        fetchedAt: Date.now(),
-      })
-    );
-  } catch {
-    // ignore cache write failures
-  }
-}
-
-function buildMemberNamesFromMembers(members: ProjectMember[]): string[] {
-  const seen = new Set<string>();
-  const names: string[] = [];
-  members.forEach((member) => {
-    const name =
-      member.displayName?.trim() ||
-      member.email?.split('@')[0]?.trim() ||
-      '';
-    if (!name) return;
-    const key = member.userId || member.email || name;
-    if (seen.has(key)) return;
-    seen.add(key);
-    names.push(name);
-  });
-  return names.sort((a, b) => a.localeCompare(b, 'ja'));
-}
-
 const EMPTY_PROJECT_MEMBERS: ProjectMember[] = [];
 const EMPTY_PROJECT_STAGES: Task[] = [];
 
@@ -5069,6 +2983,8 @@ function App() {
   const [projectDialogMode, setProjectDialogMode] = useState<'create' | 'edit'>('create');
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [editingPerson, setEditingPerson] = useState<Person | null>(null);
+  const [editingStage, setEditingStage] = useState<Task | null>(null);
+  const [stageEditModalOpen, setStageEditModalOpen] = useState(false);
   const [managingMembersProject, setManagingMembersProject] = useState<Project | null>(null);
   const [allProjectMembers, setAllProjectMembers] = useState<Map<string, ProjectMember[]>>(new Map());
   const [dangerModalTasks, setDangerModalTasks] = useState<DangerTaskInfo[]>([]);
@@ -5744,8 +3660,8 @@ function App() {
   }, [printProjectIds, printPaperSize, pushToast]);
 
   const dangerTasks = useMemo(
-    () => buildDangerTasks(state.tasks, projectMap),
-    [state.tasks, projectMap]
+    () => buildDangerTasks(state.tasks, projectMap, user),
+    [state.tasks, projectMap, user]
   );
 
   const normalizeTaskStatus = useCallback((value?: string | null) => {
@@ -5760,6 +3676,46 @@ function App() {
       openTaskModal({ projectId: stage.projectId, stageId: stage.id });
     },
     [openTaskModal]
+  );
+
+  const handleStageClick = useCallback(
+    (stage: GanttTask) => {
+      // GanttTask を Task に変換して編集モーダルを開く
+      const stageAsTask = state.tasks.find((t) => t.id === stage.id);
+      if (stageAsTask) {
+        setEditingStage(stageAsTask);
+        setStageEditModalOpen(true);
+      }
+    },
+    [state.tasks]
+  );
+
+  const handleStageUpdate = useCallback(
+    async (stageId: string, updates: { タスク名?: string }) => {
+      await updateStage(stageId, updates);
+      // ローカル状態を更新
+      setState((prev) => ({
+        ...prev,
+        tasks: prev.tasks.map((t) =>
+          t.id === stageId ? { ...t, ...updates } : t
+        ),
+      }));
+    },
+    [setState]
+  );
+
+  const handleStageDelete = useCallback(
+    async (stageId: string) => {
+      await deleteStage(stageId);
+      // ローカル状態から削除し、子タスクのparentIdをnullに
+      setState((prev) => ({
+        ...prev,
+        tasks: prev.tasks
+          .filter((t) => t.id !== stageId)
+          .map((t) => (t.parentId === stageId ? { ...t, parentId: null } : t)),
+      }));
+    },
+    [setState]
   );
 
   useEffect(() => {
@@ -7486,6 +5442,7 @@ function App() {
                 canSync={canSync}
                 allProjectMembers={allProjectMembers}
                 onStageAddTask={handleStageTaskAdd}
+                onStageClick={handleStageClick}
                 stageProgressMap={stageProgressMap}
                 onRequestPeople={ensurePeopleLoaded}
                 onRequestProjectMembers={loadProjectMembersForProject}
@@ -7612,6 +5569,7 @@ function App() {
                 canSync={canSync}
                 allProjectMembers={allProjectMembers}
                 onStageAddTask={handleStageTaskAdd}
+                onStageClick={handleStageClick}
                 stageProgressMap={stageProgressMap}
                 projectFilter={projectFilter}
                 printPanelOpen={printPanelOpen}
@@ -7682,6 +5640,17 @@ function App() {
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
       <PersonModal open={personModalOpen} onOpenChange={setPersonModalOpen} onSubmit={handleCreatePerson} onNotify={pushToast} />
+      <StageEditModal
+        open={stageEditModalOpen}
+        onOpenChange={setStageEditModalOpen}
+        stage={editingStage}
+        onUpdate={handleStageUpdate}
+        onDelete={handleStageDelete}
+        onAddTask={(stage) => {
+          openTaskModal({ projectId: stage.projectId, stageId: stage.id });
+        }}
+        onNotify={pushToast}
+      />
       {projectDialogOpen && (
         <ProjectEditDialog
           project={editingProject || null}

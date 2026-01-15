@@ -98,7 +98,21 @@
       "Bash(npx firebase deploy:*)",
       "Bash(grep:*)",
       "Bash(npx firebase:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(cd:*)",
+      "Bash(npm run:*)",
+      "Bash(git -C D:/senaa_dev/compass status)",
+      "Bash(git -C D:/senaa_dev/compass add web/src/App.tsx web/src/components/ProjectEditDialog.tsx)",
+      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfeat: PJ編集画面のタスク追加をモーダル化\n\n- インラインフォームを削除してモーダル起動ボタンに変更\n- 誤タップ防止のためボタンを分離\n- framer-motionによる気持ちいいアニメーション追加\n- 不要になったstate・関数を削除\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C D:/senaa_dev/compass push)",
+      "Bash(git -C D:/senaa_dev/compass add web/src/App.tsx)",
+      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfix: TaskModalのz-indexをProjectEditDialogより上に\n\n- Modal z-indexを50から60に変更\n- PJ編集画面からタスクモーダルが開けるように修正\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfix: PJ編集からのタスク追加を改善\n\n- preloadedProjectMembersでAPI呼び出しをスキップ\n- lockProjectでプロジェクトを固定表示\n- メンバー読み込み待ち時間を削減\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C D:/senaa_dev/compass add web/src/components/ProjectEditDialog.tsx)",
+      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfeat: タスク作成ボタンのアニメーション強化\n\n- スプリング物理で弾むような動き\n- ホバー時のシャイン（光沢）エフェクト\n- プラスアイコンが90度回転\n- 矢印アイコンが右に移動\n- グラデーションと影のエフェクト強化\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfeat: モーダルのにゅっとアニメーション + ESC制御\n\n- モーダルがスケール+フェードでにゅっと出現\n- 閉じる時も滑らかにアニメーション\n- ESCキーはモーダルを先に閉じる（PJ編集画面に伝播しない）\n- ボタンはシンプルなデザインに\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfix: タスクモーダルに工程をプリロード\n\n- preloadedStagesをTaskModalに追加\n- PJ編集画面から開く時は既存の工程データを使用\n- API呼び出しをスキップして即座に工程表示\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfix: タスクモーダルのpreloadedStages条件を修正\n\n- editingProjectIdとの比較を廃止\n- taskModalDefaultsのprojectIdから直接フィルタリング\n- メンバーも同様にallProjectMembersから取得\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ],
     "deny": [],
     "ask": []

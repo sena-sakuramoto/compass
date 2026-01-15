@@ -38,6 +38,7 @@ interface GanttChartProps {
   onRequestPeople?: () => void;
   onRequestProjectMembers?: (projectId: string) => void;
   onStageAddTask?: (stage: GanttTask) => void;
+  onStageClick?: (stage: GanttTask) => void;
   showMilestonesWithoutTasks?: boolean;
   jumpToTodayRef?: React.MutableRefObject<(() => void) | null>;
   expandedProjectIds?: Set<string>;
@@ -62,6 +63,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onRequestPeople,
   onRequestProjectMembers,
   onStageAddTask,
+  onStageClick,
   showMilestonesWithoutTasks = false,
   jumpToTodayRef,
   expandedProjectIds: externalExpandedProjectIds,
@@ -424,9 +426,17 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   };
 
   const handleTaskClickInternal = (task: GanttTask) => {
-    if (task.type === 'stage' && onStageAddTask) {
-      onStageAddTask(task);
-      return;
+    if (task.type === 'stage') {
+      // 工程クリック時は編集モーダルを開く（onStageClickがあれば）
+      if (onStageClick) {
+        onStageClick(task);
+        return;
+      }
+      // フォールバック：onStageAddTaskがあればタスク追加
+      if (onStageAddTask) {
+        onStageAddTask(task);
+        return;
+      }
     }
     setSelectedTask(task);
     if (onTaskClick) {
