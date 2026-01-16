@@ -1,4 +1,4 @@
-import { Search, Filter, X } from 'lucide-react';
+import { Search, Filter, X, ChevronRight, ChevronDown } from 'lucide-react';
 import React, { useState } from 'react';
 import { MultiSelect } from './MultiSelect';
 
@@ -39,6 +39,9 @@ interface FiltersProps {
   sprints?: Option[];
   compact?: boolean;
   stacked?: boolean;
+  // 折畳/展開機能
+  onCollapseAll?: () => void;
+  onExpandAll?: () => void;
 }
 
 const baseSelectClass = 'rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800';
@@ -66,6 +69,8 @@ export function Filters(props: FiltersProps) {
     sprints = [],
     compact = false,
     stacked = false,
+    onCollapseAll,
+    onExpandAll,
   } = props;
 
   const [showQuickFilters, setShowQuickFilters] = useState(false);
@@ -291,10 +296,36 @@ export function Filters(props: FiltersProps) {
         </div>
       )}
 
-      {/* 結果件数 */}
-      {typeof resultCount === 'number' ? (
-        <div className="text-xs text-slate-500 md:text-right">表示件数: {resultCount}</div>
-      ) : null}
+      {/* 結果件数と折畳/展開ボタン */}
+      <div className="flex items-center justify-between">
+        {typeof resultCount === 'number' ? (
+          <div className="text-xs text-slate-500">表示件数: {resultCount}</div>
+        ) : <div />}
+        {(onCollapseAll || onExpandAll) && (
+          <div className="flex items-center gap-1">
+            {onCollapseAll && (
+              <button
+                onClick={onCollapseAll}
+                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 transition"
+                title="すべて折りたたむ"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+                折畳
+              </button>
+            )}
+            {onExpandAll && (
+              <button
+                onClick={onExpandAll}
+                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 transition"
+                title="すべて展開"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+                展開
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ export const STATUS_PROGRESS: Record<string, number> = {
   計画中: 0.05,
   現地調査済: 0.1,
   'レイアウト確定': 0.2,
+  'パース確定': 0.25,
   基本設計完了: 0.3,
   設計施工現調済: 0.4,
   見積確定: 0.5,

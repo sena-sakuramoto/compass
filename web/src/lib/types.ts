@@ -21,6 +21,7 @@ export interface Project {
   引渡し予定日?: string;
   // 追加マイルストーン
   レイアウト確定日?: string;
+  パース確定日?: string;
   基本設計完了日?: string;
   設計施工現調日?: string;
   見積確定日?: string;

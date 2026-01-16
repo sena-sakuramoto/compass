@@ -21,6 +21,13 @@ export interface Project {
   着工日?: string | null;
   竣工予定日?: string | null;
   引渡し予定日?: string | null; // 追加
+  // 追加マイルストーン
+  レイアウト確定日?: string | null;
+  パース確定日?: string | null;
+  基本設計完了日?: string | null;
+  設計施工現調日?: string | null;
+  見積確定日?: string | null;
+  中間検査日?: string | null;
   '所在地/現地'?: string | null;
   フォルダURL?: string | null;
   備考?: string | null;

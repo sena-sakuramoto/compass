@@ -11,6 +11,7 @@ const MILESTONE_STATUS_MAP: { field: keyof Project; status: string }[] = [
   { field: '見積確定日', status: '見積確定' },
   { field: '設計施工現調日', status: '設計施工現調済' },
   { field: '基本設計完了日', status: '基本設計完了' },
+  { field: 'パース確定日', status: 'パース確定' },
   { field: 'レイアウト確定日', status: 'レイアウト確定' },
   { field: '現地調査日', status: '現地調査済' },
 ];
@@ -70,6 +71,8 @@ export function getStatusColor(status: string): string {
       return 'bg-cyan-100 text-cyan-700';
     case 'レイアウト確定':
       return 'bg-teal-100 text-teal-700';
+    case 'パース確定':
+      return 'bg-sky-100 text-sky-700';
     case '基本設計完了':
       return 'bg-green-100 text-green-700';
     case '設計施工現調済':
@@ -101,6 +104,7 @@ export const ALL_STATUS_OPTIONS = [
   '計画中',
   '現地調査済',
   'レイアウト確定',
+  'パース確定',
   '基本設計完了',
   '設計施工現調済',
   '見積確定',

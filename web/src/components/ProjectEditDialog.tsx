@@ -70,6 +70,26 @@ const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
 
 const BASE_URL = resolveApiBase();
 
+// グローバルキャッシュ（ダイアログを閉じてもデータを保持）
+interface MemberCache {
+  manageableUsers: ManageableUserSummary[];
+  collaborators: Collaborator[];
+  loadedAt: number;
+  projectId: string | null;
+}
+
+const memberCache: MemberCache = {
+  manageableUsers: [],
+  collaborators: [],
+  loadedAt: 0,
+  projectId: null,
+};
+
+const CACHE_TTL = 5 * 60 * 1000; // 5分間キャッシュ
+
+// プリロード用のPromise（重複リクエスト防止）
+let preloadPromise: Promise<void> | null = null;
+
 export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onSaveLocal, onRollback, onDelete, onOpenTaskModal, projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
@@ -80,6 +100,7 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
     開始日: '',
     現地調査日: '',
     レイアウト確定日: '',
+    パース確定日: '',
     基本設計完了日: '',
     設計施工現調日: '',
     見積確定日: '',
@@ -204,6 +225,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
         開始日: '',
         現地調査日: '',
         レイアウト確定日: '',
+        パース確定日: '',
         基本設計完了日: '',
         設計施工現調日: '',
         見積確定日: '',
@@ -341,17 +363,70 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     };
   }, [mode, showInitialMembersSection, manageableLoaded]);
 
-  // 招待フォームが開かれたときに候補ユーザーと協力者をロード
+  // ダイアログが開かれた時点でプリロードを開始（バックグラウンド）
+  useEffect(() => {
+    if (project?.id && mode === 'edit') {
+      // キャッシュが有効かチェック
+      const now = Date.now();
+      const cacheValid = memberCache.projectId === project.id &&
+                         (now - memberCache.loadedAt) < CACHE_TTL;
+
+      if (cacheValid) {
+        // キャッシュから即座に表示
+        setManageableUsers(memberCache.manageableUsers);
+        setCollaborators(memberCache.collaborators);
+        setManageableLoaded(true);
+        setCollaboratorsLoaded(true);
+      } else {
+        // バックグラウンドでプリロード開始
+        if (!preloadPromise) {
+          preloadPromise = (async () => {
+            try {
+              const [users, collabData] = await Promise.all([
+                listManageableProjectUsers(project.id),
+                listCollaborators(),
+              ]);
+              // キャッシュに保存
+              memberCache.manageableUsers = users;
+              memberCache.collaborators = collabData.collaborators || [];
+              memberCache.loadedAt = Date.now();
+              memberCache.projectId = project.id;
+              // stateを更新
+              setManageableUsers(users);
+              setCollaborators(collabData.collaborators || []);
+              setManageableLoaded(true);
+              setCollaboratorsLoaded(true);
+            } catch (err) {
+              console.error('[ProjectEditDialog] Preload error:', err);
+            } finally {
+              preloadPromise = null;
+            }
+          })();
+        }
+      }
+    }
+  }, [project?.id, mode]);
+
+  // 招待フォームが開かれたときにキャッシュから即座に表示
   useEffect(() => {
     if (showInviteForm && project?.id) {
-      loadManageableUsers().catch(() => {
-        /* errors handled inside */
-      });
-      loadCollaborators().catch(() => {
-        /* errors handled inside */
-      });
+      // キャッシュが有効ならそのまま使う
+      const now = Date.now();
+      const cacheValid = memberCache.projectId === project.id &&
+                         (now - memberCache.loadedAt) < CACHE_TTL;
+
+      if (cacheValid && !manageableLoaded) {
+        setManageableUsers(memberCache.manageableUsers);
+        setCollaborators(memberCache.collaborators);
+        setManageableLoaded(true);
+        setCollaboratorsLoaded(true);
+      } else if (!manageableLoaded && !manageableLoading) {
+        // キャッシュがない場合のみAPIを呼び出す
+        loadManageableUsers().catch(() => {});
+        loadCollaborators().catch(() => {});
+      }
     }
-  }, [showInviteForm, project?.id]);
+  }, [showInviteForm, project?.id, manageableLoaded, manageableLoading]);
 
   // ESCキーでダイアログを閉じる
   useEffect(() => {
@@ -390,6 +465,11 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       setManageableUsers(users);
       setManageableLoaded(true);
 
+      // キャッシュに保存
+      memberCache.manageableUsers = users;
+      memberCache.projectId = project.id;
+      memberCache.loadedAt = Date.now();
+
       if (selectedCandidateId && !users.some(user => user.id === selectedCandidateId)) {
         setSelectedCandidateId('');
       }
@@ -407,17 +487,19 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     }
   };
 
-const loadCollaborators = async (force = false): Promise<void> => {
-  if (collaboratorsLoading) return;
-  if (!force && collaboratorsLoaded) return;
+  const loadCollaborators = async (force = false): Promise<void> => {
+    if (collaboratorsLoading) return;
+    if (!force && collaboratorsLoaded) return;
 
     try {
       setCollaboratorsLoading(true);
-      console.log('[ProjectEditDialog] Loading collaborators...');
       const data = await listCollaborators();
-      console.log('[ProjectEditDialog] Collaborators loaded:', data);
       setCollaborators(data.collaborators || []);
       setCollaboratorsLoaded(true);
+
+      // キャッシュに保存
+      memberCache.collaborators = data.collaborators || [];
+      memberCache.loadedAt = Date.now();
 
       if (selectedCollaboratorId && !data.collaborators.some(c => c.id === selectedCollaboratorId)) {
         setSelectedCollaboratorId('');
@@ -603,90 +685,87 @@ const loadCollaborators = async (force = false): Promise<void> => {
     }
 
     const previousMembers = projectMembers;
-    let optimisticApplied = false;
+    const projectId = project.id;
 
-    try {
-      setSubmitting(true);
-      const nowIso = new Date().toISOString();
-      const tempUserId = `temp-${Date.now()}`;
-      const optimisticMember: ProjectMember = {
-        id: `${project.id}_${tempUserId}`,
-        projectId: project.id,
-        userId: tempUserId,
-        email: memberInput.email ?? '',
-        displayName: memberInput.displayName ?? memberInput.email ?? '招待中',
-        orgId: currentUserOrgId ?? '',
-        orgName: '',
-        role: memberInput.role,
-        jobTitle: memberInput.jobTitle || undefined,
-        permissions: DEFAULT_MEMBER_PERMISSIONS,
-        invitedBy: '',
-        invitedAt: nowIso,
-        status: 'invited',
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      };
-      const optimisticMembers = [...previousMembers, optimisticMember];
-      optimisticApplied = true;
-      setProjectMembers(optimisticMembers);
-      broadcastMemberUpdate(project.id, optimisticMembers);
+    // 楽観的更新: 即座にUIを更新
+    const nowIso = new Date().toISOString();
+    const tempUserId = `temp-${Date.now()}`;
+    const optimisticMember: ProjectMember = {
+      id: `${projectId}_${tempUserId}`,
+      projectId: projectId,
+      userId: tempUserId,
+      email: memberInput.email ?? '',
+      displayName: memberInput.displayName ?? memberInput.email ?? '招待中',
+      orgId: currentUserOrgId ?? '',
+      orgName: '',
+      role: memberInput.role,
+      jobTitle: memberInput.jobTitle || undefined,
+      permissions: DEFAULT_MEMBER_PERMISSIONS,
+      invitedBy: '',
+      invitedAt: nowIso,
+      status: 'invited',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    const optimisticMembers = [...previousMembers, optimisticMember];
+    setProjectMembers(optimisticMembers);
+    broadcastMemberUpdate(projectId, optimisticMembers);
 
-      await submitMemberInvite(project.id, memberInput);
-      const successMessage = memberInput.displayName && !memberInput.email
-        ? '協力者をメンバーとして追加しました'
-        : 'メンバーを追加しました';
-      toast.success(successMessage);
-      setSuccess('メンバーを追加しました');
-      resetInviteForm();
-    } catch (err: any) {
-      console.error('Error inviting member:', err);
-      if (optimisticApplied && project?.id) {
+    // 即座にフォームを閉じてトーストを表示
+    const successMessage = memberInput.displayName && !memberInput.email
+      ? '協力者をメンバーとして追加しました'
+      : 'メンバーを追加しました';
+    toast.success(successMessage);
+    resetInviteForm();
+
+    // バックグラウンドでAPIを呼び出す
+    submitMemberInvite(projectId, memberInput)
+      .then(() => {
+        // 成功時: キャッシュを無効化（次回のプリロードで最新を取得）
+        memberCache.loadedAt = 0;
+      })
+      .catch((err) => {
+        // 失敗時: ロールバックしてエラーを表示
+        console.error('Error inviting member:', err);
         setProjectMembers(previousMembers);
-        broadcastMemberUpdate(project.id, previousMembers);
-      }
-      setError(err instanceof Error ? err.message : 'メンバーの追加に失敗しました');
-    } finally {
-      setSubmitting(false);
-    }
+        broadcastMemberUpdate(projectId, previousMembers);
+        toast.error(err instanceof Error ? err.message : 'メンバーの追加に失敗しました');
+      });
   };
 
   const handleRemoveMember = async (userId: string) => {
     if (!confirm('このメンバーをプロジェクトから削除しますか？') || !project?.id) return;
 
-    try {
-      setError(null);
-      const token = await getAuthToken();
-      const response = await fetch(`${BASE_URL}/projects/${project.id}/members/${userId}`, {
-        method: 'DELETE',
-        headers: buildAuthHeaders(token),
-      });
+    const projectId = project.id;
+    const previousMembers = [...projectMembers];
 
-      if (!response.ok) throw new Error('Failed to remove member');
+    // 楽観的更新: 即座にUIから削除
+    const optimisticMembers = projectMembers.filter(m => m.userId !== userId);
+    setProjectMembers(optimisticMembers);
+    broadcastMemberUpdate(projectId, optimisticMembers);
+    toast.success('メンバーを削除しました');
 
-      // メンバーリストを再読み込み
+    // バックグラウンドでAPIを呼び出す
+    (async () => {
       try {
-        const members = await listProjectMembers(project.id);
-        setProjectMembers(members);
-        broadcastMemberUpdate(project.id, members);
-      } catch (memberLoadErr) {
-        console.error('Failed to reload members:', memberLoadErr);
-        // エラーがあっても空配列で続行
-        setProjectMembers([]);
-      }
+        const token = await getAuthToken();
+        const response = await fetch(`${BASE_URL}/projects/${projectId}/members/${userId}`, {
+          method: 'DELETE',
+          headers: buildAuthHeaders(token),
+        });
 
-      // 候補ユーザーリストを再読み込み
-      try {
-        await loadManageableUsers(true);
-      } catch (userLoadErr) {
-        console.error('Failed to reload manageable users:', userLoadErr);
-        // エラーがあっても続行
-      }
+        if (!response.ok) throw new Error('Failed to remove member');
 
-      setSuccess('メンバーを削除しました');
-    } catch (err) {
-      console.error('Error removing member:', err);
-      setError('メンバーの削除に失敗しました');
-    }
+        // 成功時: キャッシュを無効化
+        memberCache.loadedAt = 0;
+      } catch (err) {
+        // 失敗時: ロールバック
+        console.error('Error removing member:', err);
+        setProjectMembers(previousMembers);
+        broadcastMemberUpdate(projectId, previousMembers);
+        toast.error('メンバーの削除に失敗しました');
+      }
+    })();
   };
 
   const handleUpdateRole = async (userId: string, newRole: ProjectRole) => {
@@ -1128,6 +1207,17 @@ const loadCollaborators = async (force = false): Promise<void> => {
               </div>
 
               <div>
+                <label className="block text-sm font-medium text-slate-700">パース確定日</label>
+                <input
+                  type="date"
+                  value={formData.パース確定日 || ''}
+                  onChange={(e) => setFormData({ ...formData, パース確定日: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                {renderDateMeta(formData.パース確定日)}
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium text-slate-700">基本設計完了日</label>
                 <input
                   type="date"
@@ -1137,7 +1227,9 @@ const loadCollaborators = async (force = false): Promise<void> => {
                 />
                 {renderDateMeta(formData.基本設計完了日)}
               </div>
+            </div>
 
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700">設計施工現調日</label>
                 <input
@@ -1148,9 +1240,7 @@ const loadCollaborators = async (force = false): Promise<void> => {
                 />
                 {renderDateMeta(formData.設計施工現調日)}
               </div>
-            </div>
 
-            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700">見積確定日</label>
                 <input
@@ -1172,7 +1262,9 @@ const loadCollaborators = async (force = false): Promise<void> => {
                 />
                 {renderDateMeta(formData.着工日)}
               </div>
+            </div>
 
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700">中間検査日</label>
                 <input
@@ -1183,9 +1275,7 @@ const loadCollaborators = async (force = false): Promise<void> => {
                 />
                 {renderDateMeta(formData.中間検査日)}
               </div>
-            </div>
 
-            <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700">竣工予定日</label>
                 <input

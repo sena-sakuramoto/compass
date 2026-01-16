@@ -112,7 +112,12 @@
       "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfeat: タスク作成ボタンのアニメーション強化\n\n- スプリング物理で弾むような動き\n- ホバー時のシャイン（光沢）エフェクト\n- プラスアイコンが90度回転\n- 矢印アイコンが右に移動\n- グラデーションと影のエフェクト強化\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfeat: モーダルのにゅっとアニメーション + ESC制御\n\n- モーダルがスケール+フェードでにゅっと出現\n- 閉じる時も滑らかにアニメーション\n- ESCキーはモーダルを先に閉じる（PJ編集画面に伝播しない）\n- ボタンはシンプルなデザインに\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfix: タスクモーダルに工程をプリロード\n\n- preloadedStagesをTaskModalに追加\n- PJ編集画面から開く時は既存の工程データを使用\n- API呼び出しをスキップして即座に工程表示\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
-      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfix: タスクモーダルのpreloadedStages条件を修正\n\n- editingProjectIdとの比較を廃止\n- taskModalDefaultsのprojectIdから直接フィルタリング\n- メンバーも同様にallProjectMembersから取得\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git -C D:/senaa_dev/compass commit -m \"$\\(cat <<''EOF''\nfix: タスクモーダルのpreloadedStages条件を修正\n\n- editingProjectIdとの比較を廃止\n- taskModalDefaultsのprojectIdから直接フィルタリング\n- メンバーも同様にallProjectMembersから取得\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(netstat:*)",
+      "Bash(firebase hosting:sites:list:*)",
+      "WebFetch(domain:compass-31e9e.web.app)",
+      "Bash(gh issue create:*)",
+      "Bash(git stash drop:*)"
     ],
     "deny": [],
     "ask": []
