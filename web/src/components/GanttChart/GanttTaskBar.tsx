@@ -16,6 +16,7 @@ interface GanttTaskBarProps {
   onCopy?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onClick?: (task: GanttTask) => void;
   onSelect?: (taskId: string, isCtrlPressed: boolean) => void;
+  onSelectionDragStart?: (e: React.MouseEvent) => void;
   interactive?: boolean;
   isSelected?: boolean;
   selectedCount?: number;
@@ -30,10 +31,15 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   onCopy,
   onClick,
   onSelect,
+  onSelectionDragStart,
   interactive = false,
   isSelected = false,
   selectedCount = 0
 }) => {
+  // レンダリング時にログ出力（選択されている場合のみ）
+  if (isSelected) {
+    console.log('[DEBUG] GanttTaskBar rendering selected task:', task.name, { isSelected, selectedCount, hasOnSelectionDragStart: !!onSelectionDragStart });
+  }
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragMode, setDragMode] = useState<DragMode>(null);
@@ -77,9 +83,12 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
   // ドラッグ開始
   const handleMouseDown = (e: React.MouseEvent, mode: DragMode) => {
-    // 複数選択時は親（GanttTimeline）のドラッグ処理に委譲
-    if (isSelected && selectedCount > 1 && mode === 'move') {
-      // 親にイベントを伝播させる（stopPropagationしない）
+    console.log('[DEBUG] GanttTaskBar handleMouseDown', { isSelected, selectedCount, mode, hasOnSelectionDragStart: !!onSelectionDragStart });
+    // 選択中のタスクは親（GanttTimeline）のドラッグ処理に委譲（工程へのドロップを可能にする）
+    if (isSelected && selectedCount >= 1 && mode === 'move' && onSelectionDragStart) {
+      console.log('[DEBUG] Calling onSelectionDragStart');
+      hasDragged.current = true;
+      onSelectionDragStart(e);
       return;
     }
 
@@ -256,6 +265,10 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
   // ドラッグ中はプレビュー位置を使用、それ以外は通常の位置を使用
   const displayPosition = isDragging ? previewPosition : position;
+  const isResizeHandle = (event: React.MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    return Boolean(target?.closest('[data-resize-handle="start"], [data-resize-handle="end"]'));
+  };
 
   return (
     <div
@@ -270,6 +283,10 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
       onMouseEnter={() => !isDragging && setIsHovered(true)}
       onMouseLeave={() => !isDragging && setIsHovered(false)}
       onClick={handleClick}
+      onMouseDown={(e) => {
+        if (isResizeHandle(e)) return;
+        handleMouseDown(e, 'move');
+      }}
     >
       {/* バーの本体 */}
       <div
@@ -283,7 +300,6 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
           backgroundColor: color,
           opacity: task.status === 'completed' ? 0.5 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1
         }}
-        onMouseDown={(e) => handleMouseDown(e, 'move')}
       >
         {/* 進捗バー */}
         {task.progress > 0 && task.progress < 100 && (
@@ -350,12 +366,14 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
             className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-10"
             style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}
             onMouseDown={(e) => handleMouseDown(e, 'resize-start')}
+            data-resize-handle="start"
           />
           {/* 右ハンドル */}
           <div
             className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize opacity-0 group-hover:opacity-100 transition-opacity z-10"
             style={{ backgroundColor: 'rgba(255, 255, 255, 0.6)' }}
             onMouseDown={(e) => handleMouseDown(e, 'resize-end')}
+            data-resize-handle="end"
           />
         </>
       )}

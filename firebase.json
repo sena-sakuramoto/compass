@@ -7,6 +7,14 @@
     "site": "compass-31e9e",
     "public": "web/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "headers": [
+      {
+        "source": "**/*.@(js|css)",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        ]
+      }
+    ],
     "rewrites": [
       {
         "source": "/api/**",

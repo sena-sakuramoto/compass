@@ -1,6 +1,6 @@
 // タイムラインコンポーネント（右側、横スクロール）
 
-import React, { useRef, useEffect, useMemo, useState } from 'react';
+import React, { useRef, useEffect, useMemo, useState, useCallback } from 'react';
 import { GanttTimeAxis } from './GanttTimeAxis';
 import { GanttTaskBar } from './GanttTaskBar';
 import { GanttMilestone } from './GanttMilestone';
@@ -84,6 +84,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   const [hoveredStageId, setHoveredStageId] = useState<string | null>(null);
   const dragStartX = useRef<number>(0);
   const dragStartY = useRef<number>(0);
+  const hoveredStageIdRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const touchStateRef = useRef<{
     initialDistance: number;
@@ -138,8 +139,37 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       return;
     }
 
-    // タスクバー上でのクリックは無視
-    if ((e.target as HTMLElement).closest('.gantt-task-bar')) {
+    const targetEl = e.target as HTMLElement;
+    const barEl = targetEl.closest('.gantt-task-bar') as HTMLElement | null;
+
+    // 選択済みタスクのバーを掴んだらバッチドラッグ開始
+    if (barEl) {
+      const taskId = barEl.dataset.taskId;
+      const isResizeHandle = Boolean(
+        targetEl.closest('[data-resize-handle="start"], [data-resize-handle="end"]')
+      );
+      if (!isResizeHandle && taskId && selectedTaskIds.has(taskId)) {
+        handleSelectionDragStart(e);
+        return;
+      }
+    }
+
+    // バー以外でも、選択済みタスクの行上ならバッチドラッグ開始
+    if (selectedTaskIds.size > 0) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const y = e.clientY - rect.top + scrollTop;
+      const selectedInRow = Array.from(selectedTaskIds).find((id) => {
+        const position = taskPositionsRef.current.get(id);
+        return position && y >= position.top && y <= position.top + position.height;
+      });
+      if (selectedInRow) {
+        handleSelectionDragStart(e);
+        return;
+      }
+    }
+
+    // タスクバー上でのクリックは範囲選択を無視
+    if (barEl) {
       return;
     }
 
@@ -200,34 +230,47 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
   // 選択タスクのドラッグ移動開始
   const handleSelectionDragStart = (e: React.MouseEvent) => {
+    console.log('[DEBUG] handleSelectionDragStart called, selectedTaskIds:', selectedTaskIds.size);
     if (selectedTaskIds.size === 0) return;
 
+    console.log('[DEBUG] Starting drag selection');
     setIsDraggingSelection(true);
     dragStartX.current = e.clientX;
     dragStartY.current = e.clientY;
     setHoveredStageId(null);
+    hoveredStageIdRef.current = null;
     e.stopPropagation();
   };
 
+  // 最新のtaskPositionsとstagesListをrefで保持（イベントハンドラー内で常に最新値を参照するため）
+  const taskPositionsRef = useRef<Map<string, { left: number; width: number; top: number; height: number }>>(new Map());
+  const stagesListRef = useRef<GanttTask[]>([]);
+
   // 工程リストを取得（ドロップ先として使用）
   const stagesList = useMemo(() => {
-    return tasks.filter(t => t.type === 'stage');
+    const list = tasks.filter(t => t.type === 'stage');
+    // refも同時に更新（useEffectを待たずに即座に反映）
+    stagesListRef.current = list;
+    return list;
   }, [tasks]);
 
-  // マウス位置から工程を検出
-  const findStageAtPosition = (clientY: number): string | null => {
+  // マウス位置から工程を検出（refを使用して常に最新の位置情報を参照）
+  const findStageAtPosition = useCallback((clientY: number): string | null => {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
     const y = clientY - rect.top;
 
-    for (const stage of stagesList) {
-      const position = taskPositions.get(stage.id);
+    const positions = taskPositionsRef.current;
+    const stages = stagesListRef.current;
+
+    for (const stage of stages) {
+      const position = positions.get(stage.id);
       if (position && y >= position.top && y <= position.top + position.height) {
         return stage.id;
       }
     }
     return null;
-  };
+  }, []);
 
   // グローバルイベントリスナー（選択タスクのドラッグ移動）
   useEffect(() => {
@@ -240,24 +283,30 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       // 工程の上にホバーしているかチェック
       if (onBatchAssignToStage) {
         const stageId = findStageAtPosition(e.clientY);
-        setHoveredStageId(stageId);
+        if (stageId !== hoveredStageIdRef.current) {
+          hoveredStageIdRef.current = stageId;
+          setHoveredStageId(stageId);
+        }
       }
     };
 
     const handleUp = (e: MouseEvent) => {
+      const stageIdAtDrop = onBatchAssignToStage ? findStageAtPosition(e.clientY) : null;
+
       // 工程の上でドロップした場合
-      if (hoveredStageId && onBatchAssignToStage) {
+      if (stageIdAtDrop && onBatchAssignToStage) {
         // 選択中のタスクから工程を除外（工程を工程に所属させない）
         const taskIdsToAssign = Array.from(selectedTaskIds).filter(id => {
           const task = tasks.find(t => t.id === id);
           return task && task.type !== 'stage';
         });
         if (taskIdsToAssign.length > 0) {
-          onBatchAssignToStage(taskIdsToAssign, hoveredStageId);
+          onBatchAssignToStage(taskIdsToAssign, stageIdAtDrop);
         }
         setIsDraggingSelection(false);
         setDragPreviewOffset(0);
         setHoveredStageId(null);
+        hoveredStageIdRef.current = null;
         return;
       }
 
@@ -280,6 +329,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       setIsDraggingSelection(false);
       setDragPreviewOffset(0);
       setHoveredStageId(null);
+      hoveredStageIdRef.current = null;
     };
 
     window.addEventListener('mousemove', handleMove);
@@ -288,7 +338,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [isDraggingSelection, dateRange, containerWidth, onBatchMove, onBatchAssignToStage, hoveredStageId, selectedTaskIds, tasks, stagesList]);
+  }, [isDraggingSelection, dateRange, containerWidth, onBatchMove, onBatchAssignToStage, selectedTaskIds, tasks, findStageAtPosition]);
 
   // 今日の位置を計算
   const todayPosition = calculateTodayPosition(dateRange, containerWidth);
@@ -409,6 +459,8 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       });
     });
 
+    // refも同時に更新（useEffectを待たずに即座に反映）
+    taskPositionsRef.current = positions;
     return positions;
   }, [tasks, dateRange, containerWidth, stageRowHeight, taskRowHeight, projectGroups, projectHeaderHeight]);
 
@@ -441,7 +493,10 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
           const maxY = Math.max(selectionStart.y, end.y);
 
           // 選択範囲が小さすぎる場合は無視（クリックと区別）
+          console.log('[DEBUG] Range selection box:', { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY });
           if (maxX - minX >= 5 || maxY - minY >= 5) {
+            console.log('[DEBUG] Range selection valid, checking tasks');
+            let selectedCount = 0;
             tasks.forEach((task) => {
               const position = taskPositions.get(task.id);
               if (!position) return;
@@ -458,9 +513,12 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                 taskTop <= maxY;
 
               if (isInSelection) {
+                console.log('[DEBUG] Task in selection:', task.name, task.id);
+                selectedCount++;
                 onTaskSelection(task.id, true);
               }
             });
+            console.log('[DEBUG] Total tasks selected:', selectedCount);
           }
         }
       }
@@ -673,21 +731,28 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
           )}
 
           {/* タスクバーとマイルストーン */}
+          {(() => {
+            console.log('[DEBUG] GanttTimeline rendering tasks, selectedTaskIds:', Array.from(selectedTaskIds), 'size:', selectedTaskIds.size);
+            return null;
+          })()}
           {tasks.map((task, index) => {
             const position = taskPositions.get(task.id);
             if (!position) return null;
 
             const isSelected = selectedTaskIds.has(task.id);
+            if (isSelected) {
+              console.log('[DEBUG] GanttTimeline: task isSelected=true', task.id, task.name);
+            }
 
             // マイルストーンの場合は専用コンポーネントで表示
             if (task.milestone) {
-              return (
-                <div key={task.id} className="gantt-task-bar">
-                  <GanttMilestone
-                    task={task}
-                    position={position}
-                    dateRange={dateRange}
-                    containerWidth={containerWidth}
+            return (
+              <div key={task.id} className="gantt-task-bar" data-task-id={task.id}>
+                <GanttMilestone
+                  task={task}
+                  position={position}
+                  dateRange={dateRange}
+                  containerWidth={containerWidth}
                     onClick={onTaskClick}
                     onSelect={onTaskSelection}
                     onUpdate={handleTaskUpdateWithBatch}
@@ -719,11 +784,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
               <div
                 key={task.id}
                 className="gantt-task-bar"
-                onMouseDown={(e) => {
-                  if (isSelected && selectedTaskIds.size >= 1) {
-                    handleSelectionDragStart(e);
-                  }
-                }}
+                data-task-id={task.id}
               >
                 <GanttTaskBar
                   task={task}
@@ -734,6 +795,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                   onSelect={onTaskSelection}
                   onUpdate={handleTaskUpdateWithBatch}
                   onCopy={onTaskCopy}
+                  onSelectionDragStart={handleSelectionDragStart}
                   interactive={interactive}
                   isSelected={isSelected}
                   selectedCount={selectedTaskIds.size}
@@ -781,19 +843,19 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
             const stage = stagesList.find(s => s.id === hoveredStageId);
             return (
               <>
-                {/* 工程バーのハイライト */}
+                {/* 工程行のハイライト */}
                 <div
                   className="absolute pointer-events-none"
                   style={{
-                    left: `${stagePosition.left}px`,
+                    left: '0px',
                     top: `${stagePosition.top}px`,
-                    width: `${stagePosition.width}px`,
+                    width: `${containerWidth}px`,
                     height: `${stagePosition.height}px`,
-                    backgroundColor: 'rgba(34, 197, 94, 0.3)',
-                    border: '3px solid #22c55e',
-                    borderRadius: '8px',
-                    zIndex: 35,
-                    boxShadow: '0 0 12px rgba(34, 197, 94, 0.5)',
+                    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+                    border: '2px solid rgba(34, 197, 94, 0.6)',
+                    borderRadius: '10px',
+                    zIndex: 28,
+                    boxShadow: '0 0 10px rgba(34, 197, 94, 0.3)',
                   }}
                 />
                 {/* ラベル（工程バーの近く） */}

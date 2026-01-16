@@ -13,8 +13,9 @@ export default defineConfig(({ mode }) => ({
     },
   },
   // 本番ビルド時にconsole.log/debugを削除（パフォーマンス・セキュリティ向上）
+  // デバッグのため一時的に無効化
   esbuild: {
-    drop: mode === 'production' ? ['console', 'debugger'] : [],
+    drop: [], // mode === 'production' ? ['console', 'debugger'] : [],
   },
   build: {
     rollupOptions: {

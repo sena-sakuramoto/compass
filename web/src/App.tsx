@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+// デバッグ用 - 起動時にログ出力
+console.log('[APP DEBUG] App.tsx loaded at', new Date().toISOString());
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
