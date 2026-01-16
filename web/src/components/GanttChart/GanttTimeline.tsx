@@ -720,7 +720,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                 key={task.id}
                 className="gantt-task-bar"
                 onMouseDown={(e) => {
-                  if (isSelected && selectedTaskIds.size > 1) {
+                  if (isSelected && selectedTaskIds.size >= 1) {
                     handleSelectionDragStart(e);
                   }
                 }}
@@ -792,7 +792,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                     backgroundColor: 'rgba(34, 197, 94, 0.3)',
                     border: '3px solid #22c55e',
                     borderRadius: '8px',
-                    zIndex: 50,
+                    zIndex: 35,
                     boxShadow: '0 0 12px rgba(34, 197, 94, 0.5)',
                   }}
                 />
@@ -803,7 +803,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                     left: `${stagePosition.left + stagePosition.width / 2}px`,
                     top: `${stagePosition.top - 36}px`,
                     transform: 'translateX(-50%)',
-                    zIndex: 100,
+                    zIndex: 35,
                   }}
                 >
                   <div className="bg-green-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-xl whitespace-nowrap">
@@ -817,7 +817,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
           {/* 範囲選択ボックス */}
           {selectionBox && (
             <div
-              className="absolute pointer-events-none z-40"
+              className="absolute pointer-events-none z-30"
               style={{
                 left: `${selectionBox.left}px`,
                 top: `${selectionBox.top}px`,

@@ -265,7 +265,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
         width: `${Math.max(displayPosition.width, 4)}px`,
         top: `${barTop}px`,
         height: `${barHeight}px`,
-        zIndex: isDragging ? 10000 : (isHovered ? 9999 : 10)
+        zIndex: isDragging ? 30 : (isHovered ? 25 : 10)
       }}
       onMouseEnter={() => !isDragging && setIsHovered(true)}
       onMouseLeave={() => !isDragging && setIsHovered(false)}
@@ -300,8 +300,14 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
       </div>
 
       {/* ホバー時のツールチップ（ドラッグ中は非表示） */}
-      {isHovered && !isDragging && (
-        <div className={`absolute top-full left-0 mt-2 z-[9999] min-w-[220px] rounded-xl border bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none ${isStage ? 'border-slate-300' : 'border-slate-200'}`}>
+      {isHovered && !isDragging && (() => {
+        // タスクバーが左端付近の場合はタイムラインの左端（PJ名/タスク名のすぐ右）に固定表示
+        const tooltipLeft = position.left < 240 ? -position.left + 8 : 0;
+        return (
+        <div
+          className={`absolute top-full mt-2 z-[9999] min-w-[220px] rounded-xl border bg-white/95 px-4 py-3 text-xs text-slate-600 shadow-xl backdrop-blur pointer-events-none ${isStage ? 'border-slate-300' : 'border-slate-200'}`}
+          style={{ left: `${tooltipLeft}px` }}
+        >
           {/* 工程/タスクのラベル */}
           <div className="flex items-center gap-2 mb-1">
             <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${isStage ? 'bg-slate-100 text-slate-700' : 'bg-slate-100 text-slate-600'}`}>
@@ -333,7 +339,8 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* リサイズハンドル（インタラクティブモード時のみ） */}
       {interactive && position.width > 40 && (

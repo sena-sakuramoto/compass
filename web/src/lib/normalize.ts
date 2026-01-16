@@ -396,10 +396,42 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     },
   ],
   tasks: [
+    // P-0001 工程
+    {
+      id: 'S001',
+      projectId: 'P-0001',
+      type: 'stage',
+      タスク名: '設計フェーズ',
+      担当者: '櫻本 聖成',
+      assignee: '櫻本 聖成',
+      優先度: '高',
+      ステータス: '進行中',
+      予定開始日: '2025-09-01',
+      期限: '2025-09-18',
+      start: '2025-09-01',
+      end: '2025-09-18',
+      progress: 0.4,
+    },
+    {
+      id: 'S002',
+      projectId: 'P-0001',
+      type: 'stage',
+      タスク名: '施工フェーズ',
+      担当者: '山田 次郎',
+      assignee: '山田 次郎',
+      優先度: '高',
+      ステータス: '未着手',
+      予定開始日: '2025-09-20',
+      期限: '2025-10-01',
+      start: '2025-09-20',
+      end: '2025-10-01',
+      progress: 0,
+    },
     // P-0001 タスク
     {
       id: 'T001',
       projectId: 'P-0001',
+      parentId: 'S001',
       タスク名: '基本設計_レイアウト案',
       タスク種別: '設計',
       担当者: '櫻本 聖成',
@@ -419,6 +451,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     {
       id: 'T002',
       projectId: 'P-0001',
+      parentId: 'S001',
       タスク名: '設備レイアウト調整',
       タスク種別: '設備',
       担当者: '中村',
@@ -438,6 +471,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     {
       id: 'T003',
       projectId: 'P-0001',
+      parentId: 'S001',
       タスク名: '電気設備設計',
       タスク種別: '設備',
       担当者: '高橋 健一',
@@ -454,6 +488,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     {
       id: 'T004',
       projectId: 'P-0001',
+      parentId: 'S002',
       タスク名: '内装仕上げ確認',
       タスク種別: '施工',
       担当者: '山田 次郎',
