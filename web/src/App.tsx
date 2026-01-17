@@ -2959,6 +2959,11 @@ type FocusIdentity = {
 
 const normalizeIdentityToken = (value?: string | null) => (value ?? '').trim().toLowerCase();
 const normalizeIdentityComparable = (value?: string | null) => normalizeIdentityToken(value).replace(/\s+/g, '');
+const areSameIdSet = (left: string[], right: string[]) => {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((id) => rightSet.has(id));
+};
 
 const addIdentityToken = (tokens: Set<string>, value?: string | null) => {
   const normalized = normalizeIdentityToken(value);
@@ -3760,6 +3765,8 @@ function App() {
   const focusAppliedRef = useRef(false);
   const lastFocusUidRef = useRef<string | null>(null);
   const focusMemberLoadRequestedRef = useRef<Set<string>>(new Set());
+  const focusAutoFilterActiveRef = useRef(false);
+  const focusAutoProjectIdsRef = useRef<string[] | null>(null);
   const remoteLoadStartedRef = useRef(false);
   const remoteLoadCompletedRef = useRef(false);
 
@@ -3783,6 +3790,8 @@ function App() {
       lastFocusUidRef.current = currentUid;
       focusAppliedRef.current = false;
       focusMemberLoadRequestedRef.current = new Set();
+      focusAutoFilterActiveRef.current = false;
+      focusAutoProjectIdsRef.current = null;
     }
   }, [user?.uid]);
 
@@ -3819,11 +3828,6 @@ function App() {
     if (focusAppliedRef.current) return;
     if (loading) return;
     if (canSync && !remoteLoadCompletedRef.current) return;
-    const focusMembersReady = state.projects.length > 0 && state.projects.every((project) => {
-      const hasMemberNames = Array.isArray(project.memberNames) && project.memberNames.length > 0;
-      return hasMemberNames || allProjectMembers.has(project.id);
-    });
-    if (!focusMembersReady) return;
     if (projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
       return;
     }
@@ -3832,6 +3836,8 @@ function App() {
     setProjectFilter(focusProjectIds);
     setExpandedProjectIds(new Set(focusProjectIds));
     focusAppliedRef.current = true;
+    focusAutoFilterActiveRef.current = true;
+    focusAutoProjectIdsRef.current = focusProjectIds;
   }, [
     focusIdentity,
     focusProjectIds,
@@ -3840,11 +3846,29 @@ function App() {
     statusFilter,
     search,
     state.tasks.length,
-    state.projects,
-    allProjectMembers,
+    state.projects.length,
     loading,
     canSync,
   ]);
+
+  useEffect(() => {
+    if (!focusIdentity) return;
+    if (!focusAutoFilterActiveRef.current) return;
+    if (projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
+      focusAutoFilterActiveRef.current = false;
+      return;
+    }
+    if (focusProjectIds.length === 0) return;
+    const lastApplied = focusAutoProjectIdsRef.current ?? [];
+    if (!areSameIdSet(projectFilter, lastApplied)) {
+      focusAutoFilterActiveRef.current = false;
+      return;
+    }
+    if (areSameIdSet(lastApplied, focusProjectIds)) return;
+    setProjectFilter(focusProjectIds);
+    setExpandedProjectIds(new Set(focusProjectIds));
+    focusAutoProjectIdsRef.current = focusProjectIds;
+  }, [focusIdentity, focusProjectIds, projectFilter, assigneeFilter, statusFilter, search]);
 
   const normalizeTaskStatus = useCallback((value?: string | null) => {
     const normalized = (value ?? '').trim();
