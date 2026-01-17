@@ -261,7 +261,20 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     scrollTopRef.current = scrollTop;
   }, [scrollTop]);
 
-  const findStageAtPosition = useCallback((clientY: number): string | null => {
+  const findStageAtPosition = useCallback((clientX: number, clientY: number): string | null => {
+    if (typeof document !== 'undefined' && document.elementsFromPoint) {
+      const elements = document.elementsFromPoint(clientX, clientY);
+      for (const el of elements) {
+        if (!(el instanceof HTMLElement)) continue;
+        const barEl = el.closest('.gantt-task-bar') as HTMLElement | null;
+        if (!barEl) continue;
+        const taskId = barEl.dataset.taskId;
+        if (!taskId) continue;
+        const stageMatch = stagesListRef.current.find(stage => stage.id === taskId);
+        if (stageMatch) return stageMatch.id;
+      }
+    }
+
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
     const y = clientY - rect.top + scrollTopRef.current;
@@ -284,18 +297,18 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     hoveredStageIdRef.current = null;
   }, []);
 
-  const handleSingleTaskDragMove = useCallback((clientY: number) => {
+  const handleSingleTaskDragMove = useCallback((clientX: number, clientY: number) => {
     if (!onBatchAssignToStage) return;
-    const stageId = findStageAtPosition(clientY);
+    const stageId = findStageAtPosition(clientX, clientY);
     if (stageId !== hoveredStageIdRef.current) {
       hoveredStageIdRef.current = stageId;
       setHoveredStageId(stageId);
     }
   }, [findStageAtPosition, onBatchAssignToStage]);
 
-  const handleSingleTaskDrop = useCallback((task: GanttTask, clientY: number) => {
+  const handleSingleTaskDrop = useCallback((task: GanttTask, clientX: number, clientY: number) => {
     setIsDraggingTask(false);
-    const stageIdAtDrop = onBatchAssignToStage ? findStageAtPosition(clientY) : null;
+    const stageIdAtDrop = onBatchAssignToStage ? findStageAtPosition(clientX, clientY) : null;
     let assigned = false;
 
     if (stageIdAtDrop && onBatchAssignToStage && task.type !== 'stage') {
@@ -318,7 +331,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
       // 工程の上にホバーしているかチェック
       if (onBatchAssignToStage) {
-        const stageId = findStageAtPosition(e.clientY);
+        const stageId = findStageAtPosition(e.clientX, e.clientY);
         if (stageId !== hoveredStageIdRef.current) {
           hoveredStageIdRef.current = stageId;
           setHoveredStageId(stageId);
@@ -327,7 +340,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     };
 
     const handleUp = (e: MouseEvent) => {
-      const stageIdAtDrop = onBatchAssignToStage ? findStageAtPosition(e.clientY) : null;
+      const stageIdAtDrop = onBatchAssignToStage ? findStageAtPosition(e.clientX, e.clientY) : null;
 
       // 工程の上でドロップした場合
       if (stageIdAtDrop && onBatchAssignToStage) {
@@ -834,7 +847,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                   onSelectionDragStart={handleSelectionDragStart}
                   onStageDragStart={onBatchAssignToStage && task.type !== 'stage' ? handleSingleTaskDragStart : undefined}
                   onStageHover={onBatchAssignToStage && task.type !== 'stage' ? handleSingleTaskDragMove : undefined}
-                  onStageDrop={onBatchAssignToStage && task.type !== 'stage' ? (clientY) => handleSingleTaskDrop(task, clientY) : undefined}
+                  onStageDrop={onBatchAssignToStage && task.type !== 'stage' ? (clientX, clientY) => handleSingleTaskDrop(task, clientX, clientY) : undefined}
                   interactive={interactive}
                   isSelected={isSelected}
                   selectedCount={selectedTaskIds.size}

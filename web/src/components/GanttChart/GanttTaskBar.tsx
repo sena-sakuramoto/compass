@@ -18,8 +18,8 @@ interface GanttTaskBarProps {
   onSelect?: (taskId: string, isCtrlPressed: boolean) => void;
   onSelectionDragStart?: (e: React.MouseEvent) => void;
   onStageDragStart?: () => void;
-  onStageHover?: (clientY: number) => void;
-  onStageDrop?: (clientY: number) => boolean;
+  onStageHover?: (clientX: number, clientY: number) => void;
+  onStageDrop?: (clientX: number, clientY: number) => boolean;
   interactive?: boolean;
   isSelected?: boolean;
   selectedCount?: number;
@@ -205,7 +205,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     setPreviewPosition({ left, width, top: position.top, height: position.height });
 
     if (dragMode === 'move' && onStageHover && !isStage) {
-      onStageHover(e.clientY);
+      onStageHover(e.clientX, e.clientY);
     }
   };
 
@@ -213,7 +213,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   const handleMouseUp = (e: MouseEvent) => {
     if (isDragging) {
       const assignedToStage =
-        dragMode === 'move' && onStageDrop && !isStage ? onStageDrop(e.clientY) : false;
+        dragMode === 'move' && onStageDrop && !isStage ? onStageDrop(e.clientX, e.clientY) : false;
 
       // 日付が変更されている場合のみ保存
       const hasChanged =
