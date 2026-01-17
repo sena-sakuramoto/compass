@@ -783,6 +783,10 @@ export async function listNotifications(params?: { limit?: number; unreadOnly?: 
   return request<InAppNotification[]>(`/notifications${suffix}`);
 }
 
+export async function listUserProjects(userId: string) {
+  return request<Array<{ projectId: string; member: ProjectMember; project?: Project | null }>>(`/users/${userId}/projects`);
+}
+
 // ==================== 組織セットアップ API ====================
 
 export async function createOrgForStripeSubscriber(payload: { orgId: string; orgName: string }) {

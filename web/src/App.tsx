@@ -47,6 +47,7 @@ import {
   updateStage,
   deleteStage,
   listActivityLogs,
+  listUserProjects,
   ApiError,
   getCurrentUser,
   getBillingAccess,
@@ -3678,6 +3679,8 @@ function App() {
     return map;
   }, [state.projects]);
 
+  const [focusUserProjectIds, setFocusUserProjectIds] = useState<string[]>([]);
+
   const focusIdentity = useMemo(() => buildFocusIdentity(user), [user]);
   const focusProjectIds = useMemo(() => {
     if (!focusIdentity) return [];
@@ -3690,6 +3693,14 @@ function App() {
         return;
       }
       ids.add(task.projectId);
+    });
+
+    focusUserProjectIds.forEach((projectId) => {
+      const project = projectMap[projectId];
+      if (!showArchivedProjects && project && isArchivedProjectStatus(calculateProjectStatus(project))) {
+        return;
+      }
+      ids.add(projectId);
     });
 
     state.projects.forEach((project) => {
@@ -3707,7 +3718,7 @@ function App() {
       if (nameDiff !== 0) return nameDiff;
       return a.localeCompare(b);
     });
-  }, [focusIdentity, state.tasks, state.projects, allProjectMembers, showArchivedProjects, projectMap]);
+  }, [focusIdentity, state.tasks, state.projects, allProjectMembers, focusUserProjectIds, showArchivedProjects, projectMap]);
 
   const printProjectOptions = useMemo(() => {
     const projectIds = Array.from(new Set(state.tasks.map((task) => task.projectId)));
@@ -3764,9 +3775,9 @@ function App() {
   );
   const focusAppliedRef = useRef(false);
   const lastFocusUidRef = useRef<string | null>(null);
-  const focusMemberLoadRequestedRef = useRef<Set<string>>(new Set());
   const focusAutoFilterActiveRef = useRef(false);
   const focusAutoProjectIdsRef = useRef<string[] | null>(null);
+  const focusUserProjectsLoadedRef = useRef(false);
   const remoteLoadStartedRef = useRef(false);
   const remoteLoadCompletedRef = useRef(false);
 
@@ -3789,39 +3800,35 @@ function App() {
     if (lastFocusUidRef.current !== currentUid) {
       lastFocusUidRef.current = currentUid;
       focusAppliedRef.current = false;
-      focusMemberLoadRequestedRef.current = new Set();
       focusAutoFilterActiveRef.current = false;
       focusAutoProjectIdsRef.current = null;
+      focusUserProjectsLoadedRef.current = false;
+      setFocusUserProjectIds([]);
     }
   }, [user?.uid]);
 
   useEffect(() => {
-    if (!focusIdentity) return;
-    if (projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
+    if (!user || !canSync) {
+      setFocusUserProjectIds([]);
+      focusUserProjectsLoadedRef.current = false;
       return;
     }
-    if (state.projects.length === 0) return;
-    const missingProjects = state.projects.filter((project) => {
-      const hasMemberNames = Array.isArray(project.memberNames) && project.memberNames.length > 0;
-      if (hasMemberNames) return false;
-      return !allProjectMembers.has(project.id);
-    });
-    if (missingProjects.length === 0) return;
-    missingProjects.forEach((project) => {
-      if (focusMemberLoadRequestedRef.current.has(project.id)) return;
-      focusMemberLoadRequestedRef.current.add(project.id);
-      loadProjectMembersForProject(project.id);
-    });
-  }, [
-    focusIdentity,
-    projectFilter,
-    assigneeFilter,
-    statusFilter,
-    search,
-    state.projects,
-    allProjectMembers,
-    loadProjectMembersForProject,
-  ]);
+    if (focusUserProjectsLoadedRef.current) return;
+    focusUserProjectsLoadedRef.current = true;
+
+    listUserProjects(user.uid)
+      .then((projects) => {
+        const explicitProjectIds = projects
+          .filter((item) => item.member?.status === 'active' && item.member?.invitedBy !== 'system')
+          .map((item) => item.projectId)
+          .filter(Boolean);
+        setFocusUserProjectIds(explicitProjectIds);
+      })
+      .catch((error) => {
+        console.warn('[App] Failed to load user project memberships:', error);
+        setFocusUserProjectIds([]);
+      });
+  }, [user, canSync]);
 
   useEffect(() => {
     if (!focusIdentity) return;
