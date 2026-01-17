@@ -2911,21 +2911,21 @@ function buildDangerTasks(
   projectMap: Record<string, Project>,
   currentUser?: { displayName?: string | null; email?: string | null } | null
 ): DangerTaskInfo[] {
+  if (!currentUser) return [];
+  const userName = (currentUser.displayName || '').trim().toLowerCase();
+  const userEmail = (currentUser.email || '').trim().toLowerCase();
+  if (!userName && !userEmail) return [];
   const today = startOfDay(new Date());
   return tasks
     .filter((task) => {
       if (task.type === 'stage') return false;
       if (task.ステータス === '完了') return false;
-      if (currentUser) {
-        const taskAssignee = (task.assignee || task.担当者 || '').trim().toLowerCase();
-        const taskEmail = (task.担当者メール || '').trim().toLowerCase();
-        const userName = (currentUser.displayName || '').trim().toLowerCase();
-        const userEmail = (currentUser.email || '').trim().toLowerCase();
-        // 名前またはメールアドレスで一致判定
-        const nameMatch = taskAssignee && userName && taskAssignee === userName;
-        const emailMatch = taskEmail && userEmail && taskEmail === userEmail;
-        if (!nameMatch && !emailMatch) return false;
-      }
+      const taskAssignee = (task.assignee || task.担当者 || '').trim().toLowerCase();
+      const taskEmail = (task.担当者メール || '').trim().toLowerCase();
+      // 名前またはメールアドレスで一致判定
+      const nameMatch = taskAssignee && userName && taskAssignee === userName;
+      const emailMatch = taskEmail && userEmail && taskEmail === userEmail;
+      if (!nameMatch && !emailMatch) return false;
       return true;
     })
     .map((task) => {
@@ -3722,12 +3722,18 @@ function App() {
   );
 
   useEffect(() => {
+    if (!user) {
+      dangerModalShownRef.current = false;
+      setShowDangerModal(false);
+      setDangerModalTasks([]);
+      return;
+    }
     if (!dangerTasks.length) return;
     if (dangerModalShownRef.current) return;
     dangerModalShownRef.current = true;
     setDangerModalTasks(dangerTasks.slice(0, 8));
     setShowDangerModal(true);
-  }, [dangerTasks]);
+  }, [dangerTasks, user]);
 
   const filteredTasks = useMemo(() => {
     // pendingの変更を適用してから、フィルタリング
