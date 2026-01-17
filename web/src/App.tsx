@@ -3775,10 +3775,9 @@ function App() {
       return;
     }
     if (state.tasks.length === 0 && state.projects.length === 0) return;
-    if (focusProjectIds.length > 0) {
-      setProjectFilter(focusProjectIds);
-      setExpandedProjectIds(new Set(focusProjectIds));
-    }
+    if (focusProjectIds.length === 0) return;
+    setProjectFilter(focusProjectIds);
+    setExpandedProjectIds(new Set(focusProjectIds));
     focusAppliedRef.current = true;
   }, [
     focusIdentity,
