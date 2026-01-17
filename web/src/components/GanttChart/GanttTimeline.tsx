@@ -76,6 +76,9 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   expandedStageIds = new Set(),
   expandedProjectIds = new Set()
 }) => {
+  // デバッグログ
+  console.log('[DEBUG] GanttTimeline props: hasOnBatchAssignToStage=' + !!onBatchAssignToStage);
+
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null);
@@ -781,7 +784,14 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
           {/* タスクバーとマイルストーン */}
           {(() => {
-            console.log('[DEBUG] GanttTimeline rendering tasks, selectedTaskIds:', Array.from(selectedTaskIds), 'size:', selectedTaskIds.size);
+            const tasksWithPosition = tasks.filter(t => taskPositions.get(t.id));
+            const nonMilestoneWithPosition = tasksWithPosition.filter(t => !t.milestone);
+            console.log('[DEBUG] GanttTimeline withPosition=' + tasksWithPosition.length + ' nonMilestoneWithPosition=' + nonMilestoneWithPosition.length);
+            if (nonMilestoneWithPosition.length > 0) {
+              nonMilestoneWithPosition.slice(0, 3).forEach(t => {
+                console.log('[DEBUG] Non-milestone with position: id=' + t.id + ' type=' + t.type);
+              });
+            }
             return null;
           })()}
           {tasks.map((task, index) => {
@@ -804,8 +814,14 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                   containerWidth={containerWidth}
                     onClick={onTaskClick}
                     onSelect={onTaskSelection}
+                    onSelectionDragStart={handleSelectionDragStart}
+                    onStageDragStart={onBatchAssignToStage && task.type !== 'stage' ? handleSingleTaskDragStart : undefined}
+                    onStageHover={onBatchAssignToStage && task.type !== 'stage' ? handleSingleTaskDragMove : undefined}
+                    onStageDrop={onBatchAssignToStage && task.type !== 'stage' ? (clientX, clientY) => handleSingleTaskDrop(task, clientX, clientY) : undefined}
                     onUpdate={handleTaskUpdateWithBatch}
                     interactive={interactive}
+                    isSelected={isSelected}
+                    selectedCount={selectedTaskIds.size}
                   />
                   {/* 選択されたマイルストーンのハイライト */}
                   {isSelected && (
@@ -829,6 +845,10 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
             }
 
             // 通常のタスクバー
+            const willPassStageDragStart = onBatchAssignToStage && task.type !== 'stage';
+            if (index < 3) {
+              console.log('[DEBUG] GanttTimeline rendering GanttTaskBar: taskId=' + task.id + ' type=' + task.type + ' milestone=' + task.milestone + ' willPassStageDragStart=' + willPassStageDragStart);
+            }
             return (
               <div
                 key={task.id}
@@ -845,9 +865,9 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                   onUpdate={handleTaskUpdateWithBatch}
                   onCopy={onTaskCopy}
                   onSelectionDragStart={handleSelectionDragStart}
-                  onStageDragStart={onBatchAssignToStage && task.type !== 'stage' ? handleSingleTaskDragStart : undefined}
-                  onStageHover={onBatchAssignToStage && task.type !== 'stage' ? handleSingleTaskDragMove : undefined}
-                  onStageDrop={onBatchAssignToStage && task.type !== 'stage' ? (clientX, clientY) => handleSingleTaskDrop(task, clientX, clientY) : undefined}
+                  onStageDragStart={willPassStageDragStart ? handleSingleTaskDragStart : undefined}
+                  onStageHover={willPassStageDragStart ? handleSingleTaskDragMove : undefined}
+                  onStageDrop={willPassStageDragStart ? (clientX, clientY) => handleSingleTaskDrop(task, clientX, clientY) : undefined}
                   interactive={interactive}
                   isSelected={isSelected}
                   selectedCount={selectedTaskIds.size}
@@ -893,16 +913,18 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
             const stagePosition = taskPositions.get(hoveredStageId);
             if (!stagePosition) return null;
             const stage = stagesList.find(s => s.id === hoveredStageId);
+            const stageBarHeight = 38;
+            const stageBarTop = stagePosition.top + (stagePosition.height - stageBarHeight) / 2;
             return (
               <>
                 {/* 工程行のハイライト */}
                 <div
                   className="absolute pointer-events-none"
                   style={{
-                    left: '0px',
-                    top: `${stagePosition.top}px`,
-                    width: `${containerWidth}px`,
-                    height: `${stagePosition.height}px`,
+                    left: `${stagePosition.left}px`,
+                    top: `${stageBarTop}px`,
+                    width: `${stagePosition.width}px`,
+                    height: `${stageBarHeight}px`,
                     backgroundColor: 'rgba(34, 197, 94, 0.12)',
                     border: '2px solid rgba(34, 197, 94, 0.6)',
                     borderRadius: '10px',
@@ -915,7 +937,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                   className="absolute pointer-events-none"
                   style={{
                     left: `${stagePosition.left + stagePosition.width / 2}px`,
-                    top: `${stagePosition.top - 36}px`,
+                    top: `${stageBarTop - 36}px`,
                     transform: 'translateX(-50%)',
                     zIndex: 35,
                   }}

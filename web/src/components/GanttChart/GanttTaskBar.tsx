@@ -42,6 +42,10 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   isSelected = false,
   selectedCount = 0
 }) => {
+  // デバッグログ（タスクのみ、工程は除外）
+  if (task.type !== 'stage') {
+    console.log('[DEBUG] GanttTaskBar props: taskId=' + task.id + ' type=' + task.type + ' hasOnStageDragStart=' + !!onStageDragStart);
+  }
   // レンダリング時にログ出力（選択されている場合のみ）
   if (isSelected) {
     console.log('[DEBUG] GanttTaskBar rendering selected task:', task.name, { isSelected, selectedCount, hasOnSelectionDragStart: !!onSelectionDragStart });

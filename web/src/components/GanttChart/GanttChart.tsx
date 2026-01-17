@@ -666,7 +666,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             selectedTaskIds={selectedTaskIds}
             onTaskSelection={handleTaskSelection}
             onBatchMove={handleBatchMove}
-            onBatchAssignToStage={onTaskBatchUpdate ? handleBatchAssignToStage : undefined}
+            onBatchAssignToStage={(() => {
+              console.log('[DEBUG] GanttChart onBatchAssignToStage check: hasOnTaskBatchUpdate=' + !!onTaskBatchUpdate);
+              return onTaskBatchUpdate ? handleBatchAssignToStage : undefined;
+            })()}
             onClearSelection={handleClearSelection}
             onBatchEdit={onTaskBatchUpdate ? handleBatchEdit : undefined}
             onViewModeToggle={handleViewModeToggle}

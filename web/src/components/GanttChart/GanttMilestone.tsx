@@ -11,8 +11,14 @@ interface GanttMilestoneProps {
   containerWidth: number;
   onClick?: (task: GanttTask) => void;
   onSelect?: (taskId: string, isCtrlPressed: boolean) => void;
+  onSelectionDragStart?: (e: React.MouseEvent) => void;
+  onStageDragStart?: () => void;
+  onStageHover?: (clientX: number, clientY: number) => void;
+  onStageDrop?: (clientX: number, clientY: number) => boolean;
   onUpdate?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   interactive?: boolean;
+  isSelected?: boolean;
+  selectedCount?: number;
 }
 
 const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
@@ -22,13 +28,20 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
   containerWidth,
   onClick,
   onSelect,
+  onSelectionDragStart,
+  onStageDragStart,
+  onStageHover,
+  onStageDrop,
   onUpdate,
-  interactive = false
+  interactive = false,
+  isSelected = false,
+  selectedCount = 0
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
   const dragStartX = useRef(0);
+  const dragStartY = useRef(0);
   const dragStartLeft = useRef(0);
   const hasDragged = useRef(false);
 
@@ -62,6 +75,12 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
 
   // ドラッグ開始
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (isSelected && selectedCount >= 1 && onSelectionDragStart) {
+      hasDragged.current = true;
+      onSelectionDragStart(e);
+      return;
+    }
+
     if (!interactive || !onUpdate) return;
 
     e.preventDefault();
@@ -70,7 +89,11 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
     setIsDragging(true);
     hasDragged.current = false;
     dragStartX.current = e.clientX;
+    dragStartY.current = e.clientY;
     dragStartLeft.current = position.left;
+    if (onStageDragStart) {
+      onStageDragStart();
+    }
   };
 
   // ドラッグ処理
@@ -79,11 +102,15 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
 
     const handleMouseMove = (e: MouseEvent) => {
       const deltaX = e.clientX - dragStartX.current;
+      const deltaY = e.clientY - dragStartY.current;
       // 5px以上動いたらドラッグとみなす
-      if (Math.abs(deltaX) > 5) {
+      if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
         hasDragged.current = true;
       }
       setDragOffset(deltaX);
+      if (onStageHover) {
+        onStageHover(e.clientX, e.clientY);
+      }
     };
 
     const handleMouseUp = (e: MouseEvent) => {
@@ -93,11 +120,12 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
         return;
       }
 
+      const assignedToStage = onStageDrop ? onStageDrop(e.clientX, e.clientY) : false;
       const deltaX = e.clientX - dragStartX.current;
       const totalDays = Math.floor((dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24));
       const deltaDays = Math.round((deltaX / containerWidth) * totalDays);
 
-      if (deltaDays !== 0) {
+      if (!assignedToStage && deltaDays !== 0) {
         const newDate = new Date(task.startDate);
         newDate.setDate(newDate.getDate() + deltaDays);
         onUpdate(task, newDate, newDate);
@@ -211,6 +239,8 @@ export const GanttMilestone = React.memo(GanttMilestoneComponent, (prevProps, ne
     prevProps.task.status === nextProps.task.status &&
     prevProps.task.endDate.getTime() === nextProps.task.endDate.getTime() &&
     prevProps.position.left === nextProps.position.left &&
-    prevProps.position.top === nextProps.position.top
+    prevProps.position.top === nextProps.position.top &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.selectedCount === nextProps.selectedCount
   );
 });
