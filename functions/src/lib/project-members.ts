@@ -504,6 +504,7 @@ export async function listUserProjects(
     return [];
   }
 
+  const normalizedEmail = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
   const orgAccessMap = new Map<string, { accessLevel: 'full' | 'project-specific'; projects?: string[] }>();
   const organizations = (user as any).organizations as Record<string, any> | undefined;
   if (organizations && typeof organizations === 'object') {
@@ -534,6 +535,8 @@ export async function listUserProjects(
   const membersSnapshot = await query.get();
 
   const explicitProjects: Array<{ projectId: string; member: ProjectMember; docId?: string }> = [];
+  const explicitMemberDocIds = new Set<string>();
+  const memberDocUpdates = new Map<string, FirebaseFirestore.UpdateData>();
 
   for (const memberDoc of membersSnapshot.docs) {
     const member = memberDoc.data() as ProjectMember;
@@ -542,6 +545,42 @@ export async function listUserProjects(
       member,
       docId: memberDoc.id,
     });
+    explicitMemberDocIds.add(memberDoc.id);
+  }
+
+  if (normalizedEmail) {
+    const emailSnapshot = await db
+      .collection('project_members')
+      .where('email', '==', normalizedEmail)
+      .get();
+
+    for (const memberDoc of emailSnapshot.docs) {
+      if (explicitMemberDocIds.has(memberDoc.id)) continue;
+      const member = memberDoc.data() as ProjectMember;
+      explicitProjects.push({
+        projectId: member.projectId,
+        member,
+        docId: memberDoc.id,
+      });
+      explicitMemberDocIds.add(memberDoc.id);
+
+      if (member.userId !== userId) {
+        const updates: FirebaseFirestore.UpdateData = {
+          userId,
+          updatedAt: Timestamp.now(),
+        };
+        if (member.status === 'invited') {
+          updates.status = 'active';
+          updates.joinedAt = Timestamp.now();
+        }
+        memberDocUpdates.set(memberDoc.id, updates);
+        member.userId = userId;
+        if (member.status === 'invited') {
+          member.status = 'active';
+          member.joinedAt = Timestamp.now();
+        }
+      }
+    }
   }
 
   const legacyMembers = explicitProjects.filter(({ member }) => !member.projectOrgId);
@@ -575,24 +614,30 @@ export async function listUserProjects(
       member.orgId;
 
     if (!member.projectOrgId && resolvedOrgId && docId) {
-      updates.push(
-        db.collection('project_members').doc(docId).update({
-          projectOrgId: resolvedOrgId,
-          updatedAt: Timestamp.now(),
-        })
-      );
+      const currentUpdates = memberDocUpdates.get(docId) ?? {};
+      memberDocUpdates.set(docId, {
+        ...currentUpdates,
+        projectOrgId: resolvedOrgId,
+        updatedAt: Timestamp.now(),
+      });
       member.projectOrgId = resolvedOrgId;
     }
   });
 
   // バックフィル処理はfire-and-forget（待たない）
+  memberDocUpdates.forEach((data, docId) => {
+    updates.push(db.collection('project_members').doc(docId).update(data));
+  });
+
   if (updates.length > 0) {
-    Promise.allSettled(updates).then(results => {
-      const failed = results.filter((result) => result.status === 'rejected');
-      if (failed.length > 0) {
-        console.warn('[listUserProjects] Failed to backfill projectOrgId:', failed.length);
-      }
-    }).catch(() => {});
+    Promise.allSettled(updates)
+      .then(results => {
+        const failed = results.filter((result) => result.status === 'rejected');
+        if (failed.length > 0) {
+          console.warn('[listUserProjects] Failed to backfill project members:', failed.length);
+        }
+      })
+      .catch(() => {});
   }
 
   // 同組織のメンバーの場合、全プロジェクトへのアクセスを追加
