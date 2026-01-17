@@ -42,14 +42,6 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   isSelected = false,
   selectedCount = 0
 }) => {
-  // デバッグログ（タスクのみ、工程は除外）
-  if (task.type !== 'stage') {
-    console.log('[DEBUG] GanttTaskBar props: taskId=' + task.id + ' type=' + task.type + ' hasOnStageDragStart=' + !!onStageDragStart);
-  }
-  // レンダリング時にログ出力（選択されている場合のみ）
-  if (isSelected) {
-    console.log('[DEBUG] GanttTaskBar rendering selected task:', task.name, { isSelected, selectedCount, hasOnSelectionDragStart: !!onSelectionDragStart });
-  }
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragMode, setDragMode] = useState<DragMode>(null);
@@ -94,10 +86,8 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
   // ドラッグ開始
   const handleMouseDown = (e: React.MouseEvent, mode: DragMode) => {
-    console.log('[DEBUG] GanttTaskBar handleMouseDown', { isSelected, selectedCount, mode, hasOnSelectionDragStart: !!onSelectionDragStart });
     // 選択中のタスクは親（GanttTimeline）のドラッグ処理に委譲（工程へのドロップを可能にする）
     if (isSelected && selectedCount >= 1 && mode === 'move' && onSelectionDragStart) {
-      console.log('[DEBUG] Calling onSelectionDragStart');
       hasDragged.current = true;
       onSelectionDragStart(e);
       return;
@@ -292,6 +282,9 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     const target = event.target as HTMLElement | null;
     return Boolean(target?.closest('[data-resize-handle="start"], [data-resize-handle="end"]'));
   };
+  const dimOpacity = task.isDimmed && !isDragging ? 0.35 : 1;
+  const baseOpacity = task.status === 'completed' ? 0.5 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1;
+  const barOpacity = baseOpacity * dimOpacity;
 
   return (
     <div
@@ -321,7 +314,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
           }`}
         style={{
           backgroundColor: color,
-          opacity: task.status === 'completed' ? 0.5 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1
+          opacity: barOpacity
         }}
       >
         {/* 進捗バー */}
@@ -414,6 +407,7 @@ export const GanttTaskBar = React.memo(GanttTaskBarComponent, (prevProps, nextPr
     prevProps.task.progress === nextProps.task.progress &&
     prevProps.task.startDate.getTime() === nextProps.task.startDate.getTime() &&
     prevProps.task.endDate.getTime() === nextProps.task.endDate.getTime() &&
+    prevProps.task.isDimmed === nextProps.task.isDimmed &&
     prevProps.position.left === nextProps.position.left &&
     prevProps.position.width === nextProps.position.width &&
     prevProps.position.top === nextProps.position.top &&

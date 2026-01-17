@@ -48,6 +48,7 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
   // ステータスに応じた色を取得
   const overdue = isOverdue(task);
   const color = overdue ? '#dc2626' : '#f97316'; // オレンジ色
+  const dimOpacity = task.isDimmed && !isDragging ? 0.45 : 1;
 
   // マイルストーンの高さとトップ位置（行の中央に配置）
   const milestoneSize = 20; // ダイヤモンドのサイズ
@@ -171,7 +172,8 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
           boxShadow: isHovered
             ? '0 4px 12px rgba(249, 115, 22, 0.4)'
             : '0 2px 4px rgba(249, 115, 22, 0.3)',
-          border: '2px solid white'
+          border: '2px solid white',
+          opacity: dimOpacity
         }}
       />
 
@@ -179,7 +181,7 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
       {position.left > 100 && (
         <div
           className="absolute left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-xs font-medium text-slate-700 pointer-events-none"
-          style={{ zIndex: 5 }}
+          style={{ zIndex: 5, opacity: dimOpacity }}
         >
           {task.name}
         </div>
@@ -238,6 +240,7 @@ export const GanttMilestone = React.memo(GanttMilestoneComponent, (prevProps, ne
     prevProps.task.id === nextProps.task.id &&
     prevProps.task.status === nextProps.task.status &&
     prevProps.task.endDate.getTime() === nextProps.task.endDate.getTime() &&
+    prevProps.task.isDimmed === nextProps.task.isDimmed &&
     prevProps.position.left === nextProps.position.left &&
     prevProps.position.top === nextProps.position.top &&
     prevProps.isSelected === nextProps.isSelected &&

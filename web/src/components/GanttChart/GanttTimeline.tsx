@@ -76,9 +76,6 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   expandedStageIds = new Set(),
   expandedProjectIds = new Set()
 }) => {
-  // デバッグログ
-  console.log('[DEBUG] GanttTimeline props: hasOnBatchAssignToStage=' + !!onBatchAssignToStage);
-
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null);
@@ -235,10 +232,8 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
   // 選択タスクのドラッグ移動開始
   const handleSelectionDragStart = (e: React.MouseEvent) => {
-    console.log('[DEBUG] handleSelectionDragStart called, selectedTaskIds:', selectedTaskIds.size);
     if (selectedTaskIds.size === 0) return;
 
-    console.log('[DEBUG] Starting drag selection');
     setIsDraggingSelection(true);
     dragStartX.current = e.clientX;
     dragStartY.current = e.clientY;
@@ -545,9 +540,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
           const maxY = Math.max(selectionStart.y, end.y);
 
           // 選択範囲が小さすぎる場合は無視（クリックと区別）
-          console.log('[DEBUG] Range selection box:', { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY });
           if (maxX - minX >= 5 || maxY - minY >= 5) {
-            console.log('[DEBUG] Range selection valid, checking tasks');
             let selectedCount = 0;
             tasks.forEach((task) => {
               const position = taskPositions.get(task.id);
@@ -565,12 +558,10 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                 taskTop <= maxY;
 
               if (isInSelection) {
-                console.log('[DEBUG] Task in selection:', task.name, task.id);
                 selectedCount++;
                 onTaskSelection(task.id, true);
               }
             });
-            console.log('[DEBUG] Total tasks selected:', selectedCount);
           }
         }
       }
@@ -783,25 +774,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
           )}
 
           {/* タスクバーとマイルストーン */}
-          {(() => {
-            const tasksWithPosition = tasks.filter(t => taskPositions.get(t.id));
-            const nonMilestoneWithPosition = tasksWithPosition.filter(t => !t.milestone);
-            console.log('[DEBUG] GanttTimeline withPosition=' + tasksWithPosition.length + ' nonMilestoneWithPosition=' + nonMilestoneWithPosition.length);
-            if (nonMilestoneWithPosition.length > 0) {
-              nonMilestoneWithPosition.slice(0, 3).forEach(t => {
-                console.log('[DEBUG] Non-milestone with position: id=' + t.id + ' type=' + t.type);
-              });
-            }
-            return null;
-          })()}
-          {tasks.map((task, index) => {
+          {tasks.map((task) => {
             const position = taskPositions.get(task.id);
             if (!position) return null;
 
             const isSelected = selectedTaskIds.has(task.id);
-            if (isSelected) {
-              console.log('[DEBUG] GanttTimeline: task isSelected=true', task.id, task.name);
-            }
 
             // マイルストーンの場合は専用コンポーネントで表示
             if (task.milestone) {
@@ -846,9 +823,6 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
             // 通常のタスクバー
             const willPassStageDragStart = onBatchAssignToStage && task.type !== 'stage';
-            if (index < 3) {
-              console.log('[DEBUG] GanttTimeline rendering GanttTaskBar: taskId=' + task.id + ' type=' + task.type + ' milestone=' + task.milestone + ' willPassStageDragStart=' + willPassStageDragStart);
-            }
             return (
               <div
                 key={task.id}

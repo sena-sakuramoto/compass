@@ -202,6 +202,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
               const cannotComplete = !isCompleted && incompleteDeps.length > 0;
               const isHighlighted = highlightedTaskIds.has(task.id);
               const isStage = task.type === 'stage';
+              const isDimmed = !isStage && task.isDimmed;
 
               // 親工程が折りたたまれている場合、子タスクは非表示
               if (task.parentId && !expandedStageIds.has(task.parentId)) {
@@ -300,11 +301,13 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
               // - 担当者表示
               // ========================================
               const hasParent = !!task.parentId;
+              const rowOpacityClass = isDimmed ? 'opacity-40' : isCompleted ? 'opacity-60' : '';
+              const taskNameClass = isCompleted ? 'line-through text-slate-400' : isDimmed ? 'text-slate-400' : 'text-slate-700';
               return (
                 <div
                   key={task.id}
                   id={`task-row-${task.id}`}
-                  className={`flex items-center border-b border-slate-100 transition-all ${isCompleted ? 'opacity-60' : ''
+                  className={`flex items-center border-b border-slate-100 transition-all ${rowOpacityClass
                     } ${isHighlighted ? 'bg-amber-100 animate-pulse' : 'hover:bg-slate-50'
                     }`}
                   style={{
@@ -368,8 +371,7 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
 
                   {/* タスク名 */}
                   <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskClick?.(task)}>
-                    <div className={`text-sm text-slate-700 truncate ${isCompleted ? 'line-through text-slate-400' : ''
-                      }`}>
+                    <div className={`text-sm truncate ${taskNameClass}`}>
                       {task.name}
                     </div>
                   </div>

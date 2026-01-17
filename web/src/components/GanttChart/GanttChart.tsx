@@ -457,7 +457,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
 
   // 複数タスク選択のハンドラ
   const handleTaskSelection = (taskId: string, isCtrlPressed: boolean) => {
-    console.log('[DEBUG] handleTaskSelection called', { taskId, isCtrlPressed });
     if (isCtrlPressed) {
       // Ctrlキーが押されている場合は追加/削除
       setSelectedTaskIds(prev => {
@@ -467,12 +466,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
         } else {
           newSet.add(taskId);
         }
-        console.log('[DEBUG] selectedTaskIds updated (ctrl):', Array.from(newSet));
         return newSet;
       });
     } else {
       // 単一選択
-      console.log('[DEBUG] selectedTaskIds updated (single):', [taskId]);
       setSelectedTaskIds(new Set([taskId]));
     }
   };
@@ -666,10 +663,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             selectedTaskIds={selectedTaskIds}
             onTaskSelection={handleTaskSelection}
             onBatchMove={handleBatchMove}
-            onBatchAssignToStage={(() => {
-              console.log('[DEBUG] GanttChart onBatchAssignToStage check: hasOnTaskBatchUpdate=' + !!onTaskBatchUpdate);
-              return onTaskBatchUpdate ? handleBatchAssignToStage : undefined;
-            })()}
+            onBatchAssignToStage={onTaskBatchUpdate ? handleBatchAssignToStage : undefined}
             onClearSelection={handleClearSelection}
             onBatchEdit={onTaskBatchUpdate ? handleBatchEdit : undefined}
             onViewModeToggle={handleViewModeToggle}

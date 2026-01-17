@@ -1,7 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-// デバッグ用 - 起動時にログ出力
-console.log('[APP DEBUG] App.tsx loaded at', new Date().toISOString());
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1333,6 +1330,7 @@ function SchedulePage({
   onRequestPeople,
   onRequestProjectMembers,
   projectFilter,
+  assigneeFilter,
   printPanelOpen,
   printProjectIds,
   printPaperSize,
@@ -1378,6 +1376,7 @@ function SchedulePage({
   onRequestPeople?: () => void;
   onRequestProjectMembers?: (projectId: string) => void;
   projectFilter: string[];
+  assigneeFilter: string[];
   printPanelOpen: boolean;
   printProjectIds: string[];
   printPaperSize: 'a3' | 'a4';
@@ -1402,6 +1401,8 @@ function SchedulePage({
   const jumpToTodayRef = useRef<(() => void) | null>(null);
   const today = new Date();
   const todayLabel = formatDate(today);
+  const focusIdentity = useMemo(() => buildFocusIdentity(user), [user]);
+  const shouldDimOtherAssignees = Boolean(focusIdentity) && assigneeFilter.length === 0;
 
   // 初回スクロールはGanttChart内で処理するため、ここでは不要
   // jumpToTodayRefは「今日」ボタン用に保持
@@ -1447,11 +1448,6 @@ function SchedulePage({
       const ratio = computeProgress(task.progress, task.ステータス);
       return clampPct(ratio * 100);
     };
-
-    // ガントチャート用：filteredTasksWithStages プロップを使用（工程を含む）
-    // デバッグ: filteredTasksWithStages の工程を確認
-    const stagesInFilteredTasks = filteredTasksWithStages.filter(t => t.type === 'stage');
-    console.log('[newGanttTasks] Stages in filteredTasksWithStages:', stagesInFilteredTasks.length, stagesInFilteredTasks.map(s => ({ name: s.タスク名, type: s.type })));
 
     const tasks = filteredTasksWithStages
       .filter((task) => {
@@ -1504,6 +1500,8 @@ function SchedulePage({
         // マイルストーンフラグが明示的にtrueの場合のみマイルストーンとして扱う
         const isMilestone = task['マイルストーン'] === true || task['milestone'] === true;
         const progress = progressOf(task);
+        const isAssignedToFocus = focusIdentity ? isTaskAssignedToIdentity(task, focusIdentity) : false;
+        const isDimmed = shouldDimOtherAssignees && task.type !== 'stage' && !isAssignedToFocus;
 
         if (task.type === 'stage') {
           if (progress >= 100) {
@@ -1535,14 +1533,8 @@ function SchedulePage({
           },
           type: task.type === 'stage' ? 'stage' : 'task', // 工程かタスクかを区別
           parentId: task.parentId || null, // 親工程のID
+          isDimmed,
         };
-      })
-      .map((task) => {
-        // デバッグログ: 型情報を確認
-        if (task) {
-          console.log('[newGanttTasks] task:', task.name, 'type:', task.type);
-        }
-        return task;
       })
       .filter((task): task is GanttTask => task !== null);
 
@@ -1641,7 +1633,7 @@ function SchedulePage({
     });
 
     return sortedTasks;
-  }, [filteredTasksWithStages, projectMap, stageProgressMap]);
+  }, [filteredTasksWithStages, projectMap, stageProgressMap, focusIdentity, shouldDimOtherAssignees]);
 
   // 工程ベースのガントチャート用データ（削除：不要になったコード）
   /*
@@ -2960,6 +2952,74 @@ function buildDangerTasks(
     .sort((a, b) => a.daysDiff - b.daysDiff);
 }
 
+type FocusIdentity = {
+  uid?: string;
+  tokens: Set<string>;
+};
+
+const normalizeIdentityToken = (value?: string | null) => (value ?? '').trim().toLowerCase();
+const normalizeIdentityComparable = (value?: string | null) => normalizeIdentityToken(value).replace(/\s+/g, '');
+
+const addIdentityToken = (tokens: Set<string>, value?: string | null) => {
+  const normalized = normalizeIdentityToken(value);
+  if (!normalized) return;
+  tokens.add(normalized);
+  const collapsed = normalizeIdentityComparable(value);
+  if (collapsed && collapsed !== normalized) {
+    tokens.add(collapsed);
+  }
+};
+
+const buildFocusIdentity = (user: User | null): FocusIdentity | null => {
+  if (!user) return null;
+  const tokens = new Set<string>();
+  addIdentityToken(tokens, user.displayName ?? null);
+  addIdentityToken(tokens, user.email ?? null);
+  const emailLower = normalizeIdentityToken(user.email ?? null);
+  if (emailLower) {
+    const local = emailLower.split('@')[0];
+    if (local) addIdentityToken(tokens, local);
+  }
+  if (tokens.size === 0) return null;
+  return { uid: user.uid || undefined, tokens };
+};
+
+const matchesIdentityValue = (value: string | null | undefined, identity: FocusIdentity): boolean => {
+  const normalized = normalizeIdentityToken(value);
+  if (!normalized) return false;
+  if (identity.tokens.has(normalized)) return true;
+  const collapsed = normalizeIdentityComparable(value);
+  return collapsed ? identity.tokens.has(collapsed) : false;
+};
+
+const isTaskAssignedToIdentity = (task: Task, identity: FocusIdentity): boolean => {
+  if (matchesIdentityValue(task.assignee ?? task.担当者 ?? null, identity)) return true;
+  if (matchesIdentityValue(task.担当者メール ?? null, identity)) return true;
+  return false;
+};
+
+const isProjectInUserScope = (project: Project, identity: FocusIdentity, members?: ProjectMember[]): boolean => {
+  const memberMatch = members?.some((member) => {
+    if (identity.uid && member.userId === identity.uid) return true;
+    if (matchesIdentityValue(member.email ?? null, identity)) return true;
+    if (matchesIdentityValue(member.displayName ?? null, identity)) return true;
+    return false;
+  });
+  if (memberMatch) return true;
+
+  if (project.memberNames?.some((name) => matchesIdentityValue(name, identity))) return true;
+
+  const roleNames = [
+    project.LS担当者,
+    project.自社PM,
+    project.営業,
+    project.PM,
+    project.設計,
+    project.施工管理,
+  ];
+  return roleNames.some((name) => matchesIdentityValue(name ?? null, identity));
+};
+
 const EMPTY_PROJECT_MEMBERS: ProjectMember[] = [];
 const EMPTY_PROJECT_STAGES: Task[] = [];
 
@@ -3613,6 +3673,37 @@ function App() {
     return map;
   }, [state.projects]);
 
+  const focusIdentity = useMemo(() => buildFocusIdentity(user), [user]);
+  const focusProjectIds = useMemo(() => {
+    if (!focusIdentity) return [];
+    const ids = new Set<string>();
+
+    state.tasks.forEach((task) => {
+      if (!isTaskAssignedToIdentity(task, focusIdentity)) return;
+      const project = projectMap[task.projectId];
+      if (!showArchivedProjects && project && isArchivedProjectStatus(calculateProjectStatus(project))) {
+        return;
+      }
+      ids.add(task.projectId);
+    });
+
+    state.projects.forEach((project) => {
+      if (!showArchivedProjects && isArchivedProjectStatus(calculateProjectStatus(project))) return;
+      const members = allProjectMembers.get(project.id);
+      if (isProjectInUserScope(project, focusIdentity, members)) {
+        ids.add(project.id);
+      }
+    });
+
+    return Array.from(ids).sort((a, b) => {
+      const nameA = projectMap[a]?.物件名 || '';
+      const nameB = projectMap[b]?.物件名 || '';
+      const nameDiff = nameA.localeCompare(nameB, 'ja');
+      if (nameDiff !== 0) return nameDiff;
+      return a.localeCompare(b);
+    });
+  }, [focusIdentity, state.tasks, state.projects, allProjectMembers, showArchivedProjects, projectMap]);
+
   const printProjectOptions = useMemo(() => {
     const projectIds = Array.from(new Set(state.tasks.map((task) => task.projectId)));
     const options = projectIds.map((id) => {
@@ -3666,6 +3757,39 @@ function App() {
     () => buildDangerTasks(state.tasks, projectMap, user),
     [state.tasks, projectMap, user]
   );
+  const focusAppliedRef = useRef(false);
+  const lastFocusUidRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const currentUid = user?.uid ?? null;
+    if (lastFocusUidRef.current !== currentUid) {
+      lastFocusUidRef.current = currentUid;
+      focusAppliedRef.current = false;
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!focusIdentity) return;
+    if (focusAppliedRef.current) return;
+    if (projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
+      return;
+    }
+    if (state.tasks.length === 0 && state.projects.length === 0) return;
+    if (focusProjectIds.length > 0) {
+      setProjectFilter(focusProjectIds);
+      setExpandedProjectIds(new Set(focusProjectIds));
+    }
+    focusAppliedRef.current = true;
+  }, [
+    focusIdentity,
+    focusProjectIds,
+    projectFilter,
+    assigneeFilter,
+    statusFilter,
+    search,
+    state.tasks.length,
+    state.projects.length,
+  ]);
 
   const normalizeTaskStatus = useCallback((value?: string | null) => {
     const normalized = (value ?? '').trim();
@@ -3876,19 +4000,19 @@ function App() {
   }, []);
 
   const handleExpandAll = useCallback(() => {
-    const allProjectIds = new Set(filteredTasks.map(task => task.projectId).filter(Boolean) as string[]);
+    const allProjectIds = new Set(filteredTasksWithStages.map(task => task.projectId).filter(Boolean) as string[]);
     setExpandedProjectIds(allProjectIds);
-  }, [filteredTasks]);
+  }, [filteredTasksWithStages]);
 
   // 初回マウント時にすべて展開
   const initialExpandDoneRef = useRef(false);
   useEffect(() => {
-    if (!initialExpandDoneRef.current && filteredTasks.length > 0) {
-      const allProjectIds = new Set(filteredTasks.map(task => task.projectId).filter(Boolean) as string[]);
+    if (!initialExpandDoneRef.current && filteredTasksWithStages.length > 0) {
+      const allProjectIds = new Set(filteredTasksWithStages.map(task => task.projectId).filter(Boolean) as string[]);
       setExpandedProjectIds(allProjectIds);
       initialExpandDoneRef.current = true;
     }
-  }, [filteredTasks]);
+  }, [filteredTasksWithStages]);
 
 
   const filtersProps: FiltersProps = {
@@ -5456,6 +5580,7 @@ function App() {
                 onRequestPeople={ensurePeopleLoaded}
                 onRequestProjectMembers={loadProjectMembersForProject}
                 projectFilter={projectFilter}
+                assigneeFilter={assigneeFilter}
                 printPanelOpen={printPanelOpen}
                 printProjectIds={printProjectIds}
                 printPaperSize={printPaperSize}
@@ -5581,6 +5706,7 @@ function App() {
                 onStageClick={handleStageClick}
                 stageProgressMap={stageProgressMap}
                 projectFilter={projectFilter}
+                assigneeFilter={assigneeFilter}
                 printPanelOpen={printPanelOpen}
                 printProjectIds={printProjectIds}
                 printPaperSize={printPaperSize}
