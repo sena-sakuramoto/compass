@@ -504,6 +504,23 @@ export async function listUserProjects(
     return [];
   }
 
+  const orgAccessMap = new Map<string, { accessLevel: 'full' | 'project-specific'; projects?: string[] }>();
+  const organizations = (user as any).organizations as Record<string, any> | undefined;
+  if (organizations && typeof organizations === 'object') {
+    Object.entries(organizations).forEach(([orgKey, access]) => {
+      if (!orgKey || !access || typeof access !== 'object') return;
+      const accessLevel = access.accessLevel === 'project-specific' ? 'project-specific' : 'full';
+      const projects = Array.isArray(access.projects)
+        ? access.projects.map((id: any) => String(id)).filter(Boolean)
+        : undefined;
+      orgAccessMap.set(orgKey, { accessLevel, projects });
+    });
+  }
+
+  if (user.orgId && !orgAccessMap.has(user.orgId)) {
+    orgAccessMap.set(user.orgId, { accessLevel: 'full' });
+  }
+
   // 明示的に招待されているプロジェクトを取得
   let query = db
     .collection('project_members')
@@ -579,27 +596,11 @@ export async function listUserProjects(
   }
 
   // 同組織のメンバーの場合、全プロジェクトへのアクセスを追加
-  const targetOrgId = orgId || user.orgId;
-
-  // 組織の全プロジェクトを取得
-  const projectsSnapshot = await db
-    .collection('orgs')
-    .doc(targetOrgId)
-    .collection('projects')
-    .get();
-
   const now = Timestamp.now();
   const explicitProjectIds = new Set(explicitProjects.map(p => p.projectId));
+  const targetOrgIds = orgId ? [orgId] : Array.from(orgAccessMap.keys());
 
-  // 明示的に招待されていないプロジェクトに対して、暗黙的なメンバーシップを追加
-  for (const projectDoc of projectsSnapshot.docs) {
-    const projectId = projectDoc.id;
-
-    // すでに明示的なメンバーシップがある場合はスキップ
-    if (explicitProjectIds.has(projectId)) {
-      continue;
-    }
-
+  const buildImplicitMember = (projectId: string, projectOrgId: string): ProjectMember => {
     // 役職に基づいてデフォルトのプロジェクトロールを決定
     let defaultProjectRole: ProjectRole = 'viewer';
     if (user.role === 'super_admin' || user.role === 'admin') {
@@ -613,11 +614,10 @@ export async function listUserProjects(
       defaultProjectRole = 'viewer';
     }
 
-    // 暗黙的なメンバーシップを作成（Firestoreには保存しない、メモリ上のみ）
-    const implicitMember: ProjectMember = {
+    return {
       id: `${projectId}_${userId}`,
       projectId,
-      projectOrgId: targetOrgId,
+      projectOrgId,
       userId,
       email: user.email,
       displayName: user.displayName,
@@ -633,11 +633,48 @@ export async function listUserProjects(
       createdAt: now,
       updatedAt: now,
     };
+  };
 
-    explicitProjects.push({
-      projectId,
-      member: implicitMember,
-    });
+  for (const targetOrgId of targetOrgIds) {
+    const access = orgAccessMap.get(targetOrgId);
+    if (!access) continue;
+
+    if (access.accessLevel === 'project-specific' && Array.isArray(access.projects) && access.projects.length > 0) {
+      for (const projectId of access.projects) {
+        if (explicitProjectIds.has(projectId)) continue;
+        const implicitMember = buildImplicitMember(projectId, targetOrgId);
+        explicitProjects.push({
+          projectId,
+          member: implicitMember,
+        });
+        explicitProjectIds.add(projectId);
+      }
+      continue;
+    }
+
+    // 組織の全プロジェクトを取得
+    const projectsSnapshot = await db
+      .collection('orgs')
+      .doc(targetOrgId)
+      .collection('projects')
+      .get();
+
+    // 明示的に招待されていないプロジェクトに対して、暗黙的なメンバーシップを追加
+    for (const projectDoc of projectsSnapshot.docs) {
+      const projectId = projectDoc.id;
+
+      // すでに明示的なメンバーシップがある場合はスキップ
+      if (explicitProjectIds.has(projectId)) {
+        continue;
+      }
+
+      const implicitMember = buildImplicitMember(projectId, targetOrgId);
+      explicitProjects.push({
+        projectId,
+        member: implicitMember,
+      });
+      explicitProjectIds.add(projectId);
+    }
   }
 
   // プロジェクト情報を含めて返す
