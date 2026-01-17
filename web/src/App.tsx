@@ -3819,7 +3819,7 @@ function App() {
     listUserProjects(user.uid)
       .then((projects) => {
         const explicitProjectIds = projects
-          .filter((item) => item.member?.status === 'active' && item.member?.invitedBy !== 'system')
+          .filter((item) => item.member?.status === 'active')
           .map((item) => item.projectId)
           .filter(Boolean);
         setFocusUserProjectIds(explicitProjectIds);
@@ -3861,7 +3861,7 @@ function App() {
   useEffect(() => {
     if (!focusIdentity) return;
     if (!focusAutoFilterActiveRef.current) return;
-    if (projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
+    if (assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
       focusAutoFilterActiveRef.current = false;
       return;
     }
