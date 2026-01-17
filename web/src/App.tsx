@@ -3759,18 +3759,71 @@ function App() {
   );
   const focusAppliedRef = useRef(false);
   const lastFocusUidRef = useRef<string | null>(null);
+  const focusMemberLoadRequestedRef = useRef<Set<string>>(new Set());
+  const remoteLoadStartedRef = useRef(false);
+  const remoteLoadCompletedRef = useRef(false);
+
+  useEffect(() => {
+    if (!canSync) {
+      remoteLoadCompletedRef.current = true;
+      return;
+    }
+    if (loading) {
+      remoteLoadStartedRef.current = true;
+      return;
+    }
+    if (!loading && remoteLoadStartedRef.current) {
+      remoteLoadCompletedRef.current = true;
+    }
+  }, [loading, canSync]);
 
   useEffect(() => {
     const currentUid = user?.uid ?? null;
     if (lastFocusUidRef.current !== currentUid) {
       lastFocusUidRef.current = currentUid;
       focusAppliedRef.current = false;
+      focusMemberLoadRequestedRef.current = new Set();
     }
   }, [user?.uid]);
 
   useEffect(() => {
     if (!focusIdentity) return;
+    if (projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
+      return;
+    }
+    if (state.projects.length === 0) return;
+    const missingProjects = state.projects.filter((project) => {
+      const hasMemberNames = Array.isArray(project.memberNames) && project.memberNames.length > 0;
+      if (hasMemberNames) return false;
+      return !allProjectMembers.has(project.id);
+    });
+    if (missingProjects.length === 0) return;
+    missingProjects.forEach((project) => {
+      if (focusMemberLoadRequestedRef.current.has(project.id)) return;
+      focusMemberLoadRequestedRef.current.add(project.id);
+      loadProjectMembersForProject(project.id);
+    });
+  }, [
+    focusIdentity,
+    projectFilter,
+    assigneeFilter,
+    statusFilter,
+    search,
+    state.projects,
+    allProjectMembers,
+    loadProjectMembersForProject,
+  ]);
+
+  useEffect(() => {
+    if (!focusIdentity) return;
     if (focusAppliedRef.current) return;
+    if (loading) return;
+    if (canSync && !remoteLoadCompletedRef.current) return;
+    const focusMembersReady = state.projects.length > 0 && state.projects.every((project) => {
+      const hasMemberNames = Array.isArray(project.memberNames) && project.memberNames.length > 0;
+      return hasMemberNames || allProjectMembers.has(project.id);
+    });
+    if (!focusMembersReady) return;
     if (projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
       return;
     }
@@ -3787,7 +3840,10 @@ function App() {
     statusFilter,
     search,
     state.tasks.length,
-    state.projects.length,
+    state.projects,
+    allProjectMembers,
+    loading,
+    canSync,
   ]);
 
   const normalizeTaskStatus = useCallback((value?: string | null) => {
