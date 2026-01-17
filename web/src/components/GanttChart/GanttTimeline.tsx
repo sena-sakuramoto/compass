@@ -80,12 +80,14 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null);
   const [isDraggingSelection, setIsDraggingSelection] = useState(false);
+  const [isDraggingTask, setIsDraggingTask] = useState(false);
   const [dragPreviewOffset, setDragPreviewOffset] = useState(0);
   const [hoveredStageId, setHoveredStageId] = useState<string | null>(null);
   const dragStartX = useRef<number>(0);
   const dragStartY = useRef<number>(0);
   const hoveredStageIdRef = useRef<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollTopRef = useRef<number>(scrollTop);
   const touchStateRef = useRef<{
     initialDistance: number;
     lastDistance: number;
@@ -255,10 +257,14 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   }, [tasks]);
 
   // マウス位置から工程を検出（refを使用して常に最新の位置情報を参照）
+  useEffect(() => {
+    scrollTopRef.current = scrollTop;
+  }, [scrollTop]);
+
   const findStageAtPosition = useCallback((clientY: number): string | null => {
     if (!containerRef.current) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    const y = clientY - rect.top;
+    const y = clientY - rect.top + scrollTopRef.current;
 
     const positions = taskPositionsRef.current;
     const stages = stagesListRef.current;
@@ -271,6 +277,36 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     }
     return null;
   }, []);
+
+  const handleSingleTaskDragStart = useCallback(() => {
+    setIsDraggingTask(true);
+    setHoveredStageId(null);
+    hoveredStageIdRef.current = null;
+  }, []);
+
+  const handleSingleTaskDragMove = useCallback((clientY: number) => {
+    if (!onBatchAssignToStage) return;
+    const stageId = findStageAtPosition(clientY);
+    if (stageId !== hoveredStageIdRef.current) {
+      hoveredStageIdRef.current = stageId;
+      setHoveredStageId(stageId);
+    }
+  }, [findStageAtPosition, onBatchAssignToStage]);
+
+  const handleSingleTaskDrop = useCallback((task: GanttTask, clientY: number) => {
+    setIsDraggingTask(false);
+    const stageIdAtDrop = onBatchAssignToStage ? findStageAtPosition(clientY) : null;
+    let assigned = false;
+
+    if (stageIdAtDrop && onBatchAssignToStage && task.type !== 'stage') {
+      onBatchAssignToStage([task.id], stageIdAtDrop);
+      assigned = true;
+    }
+
+    setHoveredStageId(null);
+    hoveredStageIdRef.current = null;
+    return assigned;
+  }, [findStageAtPosition, onBatchAssignToStage]);
 
   // グローバルイベントリスナー（選択タスクのドラッグ移動）
   useEffect(() => {
@@ -796,6 +832,9 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
                   onUpdate={handleTaskUpdateWithBatch}
                   onCopy={onTaskCopy}
                   onSelectionDragStart={handleSelectionDragStart}
+                  onStageDragStart={onBatchAssignToStage && task.type !== 'stage' ? handleSingleTaskDragStart : undefined}
+                  onStageHover={onBatchAssignToStage && task.type !== 'stage' ? handleSingleTaskDragMove : undefined}
+                  onStageDrop={onBatchAssignToStage && task.type !== 'stage' ? (clientY) => handleSingleTaskDrop(task, clientY) : undefined}
                   interactive={interactive}
                   isSelected={isSelected}
                   selectedCount={selectedTaskIds.size}
@@ -837,7 +876,7 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
           })}
 
           {/* ドラッグ中の工程ハイライト */}
-          {isDraggingSelection && hoveredStageId && (() => {
+          {(isDraggingSelection || isDraggingTask) && hoveredStageId && (() => {
             const stagePosition = taskPositions.get(hoveredStageId);
             if (!stagePosition) return null;
             const stage = stagesList.find(s => s.id === hoveredStageId);

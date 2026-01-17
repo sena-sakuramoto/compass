@@ -17,6 +17,9 @@ interface GanttTaskBarProps {
   onClick?: (task: GanttTask) => void;
   onSelect?: (taskId: string, isCtrlPressed: boolean) => void;
   onSelectionDragStart?: (e: React.MouseEvent) => void;
+  onStageDragStart?: () => void;
+  onStageHover?: (clientY: number) => void;
+  onStageDrop?: (clientY: number) => boolean;
   interactive?: boolean;
   isSelected?: boolean;
   selectedCount?: number;
@@ -32,6 +35,9 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   onClick,
   onSelect,
   onSelectionDragStart,
+  onStageDragStart,
+  onStageHover,
+  onStageDrop,
   interactive = false,
   isSelected = false,
   selectedCount = 0
@@ -46,6 +52,7 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   const [previewPosition, setPreviewPosition] = useState(position);
   const [isCopyMode, setIsCopyMode] = useState(false);
   const dragStartX = useRef<number>(0);
+  const dragStartY = useRef<number>(0);
   const hasDragged = useRef<boolean>(false);
   const originalStartDate = useRef<Date>(task.startDate);
   const originalEndDate = useRef<Date>(task.endDate);
@@ -105,8 +112,12 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     setDragMode(mode);
     hasDragged.current = false;
     dragStartX.current = e.clientX;
+    dragStartY.current = e.clientY;
     originalStartDate.current = task.startDate;
     originalEndDate.current = task.endDate;
+    if (mode === 'move' && onStageDragStart && !isStage) {
+      onStageDragStart();
+    }
   };
 
   // ドラッグ中 - プレビューのみ更新、保存はしない
@@ -117,10 +128,11 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     // スロットリングは削除して、常に最新の位置を反映
 
     const deltaX = e.clientX - dragStartX.current;
+    const deltaY = e.clientY - dragStartY.current;
     const deltaDays = pixelsToDays(deltaX);
 
     // ドラッグしたことを記録
-    if (Math.abs(deltaX) > 3) {
+    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
       hasDragged.current = true;
     }
 
@@ -191,17 +203,24 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
     const width = Math.max((duration + 1) * dayWidth - 1, 1);
 
     setPreviewPosition({ left, width, top: position.top, height: position.height });
+
+    if (dragMode === 'move' && onStageHover && !isStage) {
+      onStageHover(e.clientY);
+    }
   };
 
   // ドラッグ終了 - この時点で保存
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: MouseEvent) => {
     if (isDragging) {
+      const assignedToStage =
+        dragMode === 'move' && onStageDrop && !isStage ? onStageDrop(e.clientY) : false;
+
       // 日付が変更されている場合のみ保存
       const hasChanged =
         pendingStartDate.current.getTime() !== originalStartDate.current.getTime() ||
         pendingEndDate.current.getTime() !== originalEndDate.current.getTime();
 
-      if (hasChanged) {
+      if (!assignedToStage && hasChanged) {
         if (isCopyMode && onCopy) {
           // コピーモード：新しいタスクを作成
           onCopy(task, pendingStartDate.current, pendingEndDate.current);
