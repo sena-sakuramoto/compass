@@ -32,9 +32,12 @@ export default function NotificationsPage() {
   const handleMarkAsRead = async (notificationId: string) => {
     try {
       await markNotificationAsRead(notificationId);
-      setNotifications(prev =>
-        prev.map(n => (n.id === notificationId ? { ...n, read: true } : n))
-      );
+      setNotifications(prev => {
+        if (filterUnread) {
+          return prev.filter(n => n.id !== notificationId);
+        }
+        return prev.map(n => (n.id === notificationId ? { ...n, read: true } : n));
+      });
     } catch (error) {
       console.error('Failed to mark as read:', error);
     }
@@ -43,7 +46,7 @@ export default function NotificationsPage() {
   const handleMarkAllAsRead = async () => {
     try {
       await markAllNotificationsAsRead();
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setNotifications(prev => (filterUnread ? [] : prev.map(n => ({ ...n, read: true }))));
     } catch (error) {
       console.error('Failed to mark all as read:', error);
     }

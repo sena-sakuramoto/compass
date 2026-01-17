@@ -327,9 +327,14 @@ export function NotificationBell() {
   };
 
   const handleNotificationDelete = async (notificationId: string) => {
+    const target = notifications.find((notification) => notification.id === notificationId);
+    const wasUnread = Boolean(target && !target.read);
     try {
       await deleteNotification(notificationId);
       setNotifications(prev => prev.filter((n) => n.id !== notificationId));
+      if (wasUnread) {
+        setUnreadCount((count) => Math.max(0, count - 1));
+      }
     } catch (error) {
       console.error('Failed to delete notification:', error);
     }

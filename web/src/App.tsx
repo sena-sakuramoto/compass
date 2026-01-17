@@ -2960,6 +2960,8 @@ type FocusIdentity = {
 
 const normalizeIdentityToken = (value?: string | null) => (value ?? '').trim().toLowerCase();
 const normalizeIdentityComparable = (value?: string | null) => normalizeIdentityToken(value).replace(/\s+/g, '');
+const MY_PROJECTS_FILTER_VALUE = '__my_projects__';
+const PROJECT_FILTER_STORAGE_KEY = 'compass_project_filter_v1';
 const areSameIdSet = (left: string[], right: string[]) => {
   if (left.length !== right.length) return false;
   const rightSet = new Set(right);
@@ -3062,6 +3064,7 @@ function App() {
   const dangerModalShownRef = useRef(false);
   const [allActivityLogs, setAllActivityLogs] = useState<Map<string, any[]>>(new Map());
   const loadedActivityLogsRef = useRef<Set<string>>(new Set()); // 既に読み込んだプロジェクトIDを追跡
+  const projectFilterHydratedRef = useRef(false);
   const [projectFilter, setProjectFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
@@ -3720,6 +3723,9 @@ function App() {
     });
   }, [focusIdentity, state.tasks, state.projects, allProjectMembers, focusUserProjectIds, showArchivedProjects, projectMap]);
 
+  const projectFilterHasMy = projectFilter.includes(MY_PROJECTS_FILTER_VALUE);
+  const effectiveProjectFilter = projectFilterHasMy ? focusProjectIds : projectFilter;
+
   const printProjectOptions = useMemo(() => {
     const projectIds = Array.from(new Set(state.tasks.map((task) => task.projectId)));
     const options = projectIds.map((id) => {
@@ -3745,11 +3751,11 @@ function App() {
 
   const openPrintPanel = useCallback(() => {
     // プロジェクトフィルターがある場合のみそれを使用、なければ空
-    const defaults = projectFilter.length > 0 ? projectFilter : [];
+    const defaults = effectiveProjectFilter.length > 0 ? effectiveProjectFilter : [];
     setPrintProjectIds(defaults);
     setPrintProjectSearch('');
     setPrintPanelOpen(true);
-  }, [projectFilter]);
+  }, [effectiveProjectFilter]);
 
   const handlePrintSubmit = useCallback(() => {
     if (printProjectIds.length === 0) {
@@ -3803,9 +3809,46 @@ function App() {
       focusAutoFilterActiveRef.current = false;
       focusAutoProjectIdsRef.current = null;
       focusUserProjectsLoadedRef.current = false;
+      projectFilterHydratedRef.current = false;
       setFocusUserProjectIds([]);
     }
   }, [user?.uid]);
+
+  useEffect(() => {
+    projectFilterHydratedRef.current = false;
+    if (typeof window === 'undefined') return;
+    if (!user?.uid) {
+      setProjectFilter([]);
+      projectFilterHydratedRef.current = true;
+      return;
+    }
+    const storageKey = `${PROJECT_FILTER_STORAGE_KEY}:${user.uid}`;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setProjectFilter(parsed.filter((item) => typeof item === 'string' && item.trim().length > 0));
+        }
+      }
+    } catch (error) {
+      console.warn('[App] Failed to restore project filter:', error);
+    } finally {
+      projectFilterHydratedRef.current = true;
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!user?.uid) return;
+    if (!projectFilterHydratedRef.current) return;
+    const storageKey = `${PROJECT_FILTER_STORAGE_KEY}:${user.uid}`;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(projectFilter));
+    } catch (error) {
+      console.warn('[App] Failed to persist project filter:', error);
+    }
+  }, [projectFilter, user?.uid]);
 
   useEffect(() => {
     if (!user || !canSync) {
@@ -3835,6 +3878,7 @@ function App() {
     if (focusAppliedRef.current) return;
     if (loading) return;
     if (canSync && !remoteLoadCompletedRef.current) return;
+    if (!projectFilterHydratedRef.current) return;
     if (projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
       return;
     }
@@ -3965,7 +4009,9 @@ function App() {
       }
 
       // 配列が空の場合は全て表示、配列に値がある場合は含まれているかチェック
-      const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
+      const projectMatch = projectFilterHasMy
+        ? effectiveProjectFilter.includes(task.projectId)
+        : effectiveProjectFilter.length === 0 || effectiveProjectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
       // タスクのステータスは「完了/未完了」でフィルター
       const isCompleted = task.ステータス === '完了';
@@ -3987,7 +4033,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, deletedTasks, projectFilter, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
+  }, [state.tasks, pending, deletedTasks, effectiveProjectFilter, projectFilterHasMy, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
 
   // ガントチャート用：工程（stage）も含むフィルタ済みタスク
   const filteredTasksWithStages = useMemo(() => {
@@ -4005,7 +4051,9 @@ function App() {
         if (project && isArchivedProjectStatus(calculateProjectStatus(project))) return false;
       }
 
-      const projectMatch = projectFilter.length === 0 || projectFilter.includes(task.projectId);
+      const projectMatch = projectFilterHasMy
+        ? effectiveProjectFilter.includes(task.projectId)
+        : effectiveProjectFilter.length === 0 || effectiveProjectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
       // タスクのステータスは「完了/未完了」でフィルター
       const isCompleted = task.ステータス === '完了';
@@ -4027,11 +4075,12 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, deletedTasks, projectFilter, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
+  }, [state.tasks, pending, deletedTasks, effectiveProjectFilter, projectFilterHasMy, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
 
   const projectOptions = useMemo(
     () => [
       { value: 'all', label: 'すべてのプロジェクト' },
+      { value: MY_PROJECTS_FILTER_VALUE, label: '自分参加のみ' },
       ...state.projects.map((project) => ({ value: project.id, label: project.物件名 || project.id })),
     ],
     [state.projects]
@@ -4073,6 +4122,21 @@ function App() {
   const hasActiveFilters =
     projectFilter.length > 0 || assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim() !== '';
 
+  const handleProjectFilterChange = useCallback((value: string | string[]) => {
+    const nextValues = Array.isArray(value) ? value : [];
+    const hasMyOnly = nextValues.includes(MY_PROJECTS_FILTER_VALUE);
+    const wasMyOnly = projectFilter.includes(MY_PROJECTS_FILTER_VALUE);
+    if (hasMyOnly && wasMyOnly) {
+      setProjectFilter(nextValues.filter((item) => item !== MY_PROJECTS_FILTER_VALUE));
+      return;
+    }
+    if (hasMyOnly) {
+      setProjectFilter([MY_PROJECTS_FILTER_VALUE]);
+      return;
+    }
+    setProjectFilter(nextValues);
+  }, [projectFilter]);
+
   const resetFilters = () => {
     setProjectFilter([]);
     setAssigneeFilter([]);
@@ -4109,7 +4173,7 @@ function App() {
     assignee: assigneeFilter,
     status: statusFilter,
     query: search,
-    onProjectChange: (value) => setProjectFilter(Array.isArray(value) ? value : []),
+    onProjectChange: handleProjectFilterChange,
     onAssigneeChange: (value) => setAssigneeFilter(Array.isArray(value) ? value : []),
     onStatusChange: (value) => setStatusFilter(Array.isArray(value) ? value : []),
     onQueryChange: setSearch,
