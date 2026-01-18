@@ -90,7 +90,7 @@ export function getStatusColor(status: string): string {
     case '保留':
       return 'bg-purple-100 text-purple-700';
     case '失注':
-      return 'bg-red-100 text-red-700';
+      return 'bg-gray-200 text-gray-500';
     default:
       return 'bg-gray-100 text-gray-700';
   }

@@ -211,6 +211,16 @@ export function isOverdue(task: GanttTask): boolean {
   return endDateStr < todayStr;
 }
 
+// 期限が近いかどうかを判定（3日以内）
+export function isDueSoon(task: GanttTask): boolean {
+  if (task.status === 'completed') return false;
+  const today = startOfDay(new Date());
+  const endDate = startOfDay(task.endDate);
+  const daysUntilDue = differenceInDays(endDate, today);
+  // 0〜3日以内（今日〜3日後まで）
+  return daysUntilDue >= 0 && daysUntilDue <= 3;
+}
+
 // 依存関係の解決
 export interface DependencyConnection {
   from: GanttTask;

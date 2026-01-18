@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { addDays, differenceInDays } from 'date-fns';
 import type { GanttTask } from './types';
-import { getStatusColor, isOverdue } from './utils';
+import { getStatusColor, isOverdue, isDueSoon } from './utils';
 
 type DragMode = 'move' | 'resize-start' | 'resize-end' | null;
 
@@ -61,9 +61,16 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
   // ステータスに応じた色を取得
   const overdue = isOverdue(task);
+  const dueSoon = isDueSoon(task);
   // 工程はシンプルなグレー系、タスクは通常の色
+  // 優先順位: 期限超過（赤）> 期限3日以内（黄）> 通常
   const stageColor = '#64748b'; // slate-500
-  const color = isStage ? stageColor : (overdue ? '#dc2626' : getStatusColor(task.status));
+  const getTaskColor = () => {
+    if (overdue) return '#dc2626'; // 赤
+    if (dueSoon) return '#eab308'; // 黄色
+    return getStatusColor(task.status);
+  };
+  const color = isStage ? stageColor : getTaskColor();
 
   // バーの高さ（工程は大きく、タスクは少し小さく）
   const barHeight = isStage ? 38 : 28;
@@ -367,6 +374,13 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
             <div className="mt-2">
               <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
                 期限超過
+              </span>
+            </div>
+          )}
+          {dueSoon && !overdue && (
+            <div className="mt-2">
+              <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-semibold text-yellow-700">
+                期限間近
               </span>
             </div>
           )}

@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import type { GanttTask } from './types';
-import { getStatusColor, isOverdue } from './utils';
+import { getStatusColor, isOverdue, isDueSoon } from './utils';
 
 interface GanttMilestoneProps {
   task: GanttTask;
@@ -46,8 +46,15 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
   const hasDragged = useRef(false);
 
   // ステータスに応じた色を取得
+  // 優先順位: 期限超過（赤）> 期限3日以内（黄）> 通常（オレンジ）
   const overdue = isOverdue(task);
-  const color = overdue ? '#dc2626' : '#f97316'; // オレンジ色
+  const dueSoon = isDueSoon(task);
+  const getMilestoneColor = () => {
+    if (overdue) return '#dc2626'; // 赤
+    if (dueSoon) return '#eab308'; // 黄色
+    return '#f97316'; // オレンジ
+  };
+  const color = getMilestoneColor();
   const dimOpacity = task.isDimmed && !isDragging ? 0.45 : 1;
 
   // マイルストーンの高さとトップ位置（行の中央に配置）
@@ -163,15 +170,15 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
       onMouseDown={handleMouseDown}
       onClick={handleClick}
     >
-      {/* オレンジのひし形のマイルストーン */}
+      {/* ひし形のマイルストーン */}
       <div
         className="w-full h-full cursor-pointer transition-all duration-200"
         style={{
           transform: isHovered ? 'rotate(45deg) scale(1.2)' : 'rotate(45deg) scale(1)',
-          backgroundColor: overdue ? '#dc2626' : '#f97316', // オレンジ色 (期限超過は赤)
+          backgroundColor: color,
           boxShadow: isHovered
-            ? '0 4px 12px rgba(249, 115, 22, 0.4)'
-            : '0 2px 4px rgba(249, 115, 22, 0.3)',
+            ? `0 4px 12px ${dueSoon && !overdue ? 'rgba(234, 179, 8, 0.4)' : 'rgba(249, 115, 22, 0.4)'}`
+            : `0 2px 4px ${dueSoon && !overdue ? 'rgba(234, 179, 8, 0.3)' : 'rgba(249, 115, 22, 0.3)'}`,
           border: '2px solid white',
           opacity: dimOpacity
         }}
@@ -195,11 +202,11 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
               className="w-3 h-3"
               style={{
                 transform: 'rotate(45deg)',
-                backgroundColor: overdue ? '#dc2626' : '#f97316',
+                backgroundColor: color,
                 border: '1px solid white'
               }}
             />
-            <div className="text-sm font-semibold text-orange-800">◆ マイルストーン</div>
+            <div className={`text-sm font-semibold ${dueSoon && !overdue ? 'text-yellow-700' : 'text-orange-800'}`}>◆ マイルストーン</div>
           </div>
           <div className="mt-2 text-sm font-medium text-slate-800">{task.name}</div>
           <div className="mt-1 text-[11px] text-slate-500">
@@ -217,6 +224,13 @@ const GanttMilestoneComponent: React.FC<GanttMilestoneProps> = ({
             <div className="mt-2">
               <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
                 期限超過
+              </span>
+            </div>
+          )}
+          {dueSoon && !overdue && (
+            <div className="mt-2">
+              <span className="rounded-full bg-yellow-100 px-2 py-0.5 text-[10px] font-semibold text-yellow-700">
+                期限間近
               </span>
             </div>
           )}
