@@ -34,6 +34,7 @@ export interface TaskModalProps extends ModalProps {
     マイルストーン?: boolean;
     優先度: string;
     ステータス: string;
+    進捗率?: number;
     ['工数見積(h)']?: number;
     担当者メール?: string;
     parentId?: string | null;
@@ -69,6 +70,7 @@ export function TaskModal({
   const [durationDays, setDurationDays] = useState<number>(1);
   const [priority, setPriority] = useState('中');
   const [status, setStatus] = useState('未着手');
+  const [progress, setProgress] = useState(0);
   const [estimate, setEstimate] = useState(4);
   const [notifyStart, setNotifyStart] = useState(true);
   const [notifyDayBefore, setNotifyDayBefore] = useState(true);
@@ -97,6 +99,7 @@ export function TaskModal({
     setAssigneeEmail('');
     setPriority('中');
     setStatus('未着手');
+    setProgress(0);
     setEstimate(4);
     setNotifyStart(true);
     setNotifyDayBefore(true);
@@ -129,6 +132,8 @@ export function TaskModal({
 
       setPriority(editingTask.優先度 || '中');
       setStatus(editingTask.ステータス || '未着手');
+      const existingProgress = editingTask.progress ?? editingTask.進捗率 ?? 0;
+      setProgress(existingProgress > 1 ? existingProgress : existingProgress * 100);
       const existingEstimate = editingTask['工数見積(h)'];
       setEstimate(existingEstimate != null ? clampToSingleDecimal(existingEstimate) : 4);
 
@@ -312,6 +317,7 @@ export function TaskModal({
         期限: endDate ? format(endDate, 'yyyy-MM-dd') : undefined,
         優先度: priority,
         ステータス: status,
+        進捗率: progress / 100,
         ['工数見積(h)']: estimate,
         担当者メール: assigneeEmail || undefined,
         マイルストーン: isMilestone,
@@ -331,6 +337,7 @@ export function TaskModal({
         マイルストーン?: boolean;
         優先度: string;
         ステータス: string;
+        進捗率?: number;
         ['工数見積(h)']?: number;
         担当者メール?: string;
         parentId?: string | null;
@@ -588,7 +595,12 @@ export function TaskModal({
             <select
               className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              onChange={(e) => {
+                const newStatus = e.target.value;
+                setStatus(newStatus);
+                // 完了に変更したら進捗を100%に
+                if (newStatus === '完了') setProgress(100);
+              }}
             >
               <option value="未着手">未着手</option>
               <option value="進行中">進行中</option>
@@ -597,6 +609,24 @@ export function TaskModal({
               <option value="完了">完了</option>
             </select>
           </div>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-slate-500">進捗率: {Math.round(progress)}%</label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+            value={progress}
+            onChange={(e) => {
+              const newProgress = Number(e.target.value);
+              setProgress(newProgress);
+              // 100%にしたら完了に、0%にしたら未着手に自動変更
+              if (newProgress === 100 && status !== '完了') setStatus('完了');
+              else if (newProgress === 0 && status === '完了') setStatus('未着手');
+            }}
+          />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>

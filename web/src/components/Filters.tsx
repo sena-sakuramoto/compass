@@ -1,4 +1,4 @@
-import { Search, Filter, X, ChevronRight, ChevronDown } from 'lucide-react';
+import { Search, Filter, X, ChevronRight, ChevronDown, Eye, EyeOff } from 'lucide-react';
 import React, { useState } from 'react';
 import { MultiSelect } from './MultiSelect';
 
@@ -42,6 +42,9 @@ interface FiltersProps {
   // 折畳/展開機能
   onCollapseAll?: () => void;
   onExpandAll?: () => void;
+  // 自分以外を薄くする機能
+  dimOthersEnabled?: boolean;
+  onDimOthersToggle?: () => void;
 }
 
 const baseSelectClass = 'rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-800';
@@ -71,6 +74,8 @@ export function Filters(props: FiltersProps) {
     stacked = false,
     onCollapseAll,
     onExpandAll,
+    dimOthersEnabled = false,
+    onDimOthersToggle,
   } = props;
 
   const [showQuickFilters, setShowQuickFilters] = useState(false);
@@ -301,30 +306,41 @@ export function Filters(props: FiltersProps) {
         {typeof resultCount === 'number' ? (
           <div className="text-xs text-slate-500">表示件数: {resultCount}</div>
         ) : <div />}
-        {(onCollapseAll || onExpandAll) && (
-          <div className="flex items-center gap-1">
-            {onCollapseAll && (
-              <button
-                onClick={onCollapseAll}
-                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 transition"
-                title="すべて折りたたむ"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-                折畳
-              </button>
-            )}
-            {onExpandAll && (
-              <button
-                onClick={onExpandAll}
-                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 transition"
-                title="すべて展開"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-                展開
-              </button>
-            )}
-          </div>
-        )}
+        <div className="flex items-center gap-1">
+          {onDimOthersToggle && (
+            <button
+              onClick={onDimOthersToggle}
+              className={`p-1 rounded transition ${
+                dimOthersEnabled
+                  ? 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+                  : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+              }`}
+              title="自分以外を薄くする (M)"
+            >
+              {dimOthersEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+            </button>
+          )}
+          {onCollapseAll && (
+            <button
+              onClick={onCollapseAll}
+              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition"
+              title="すべて折りたたむ"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+              折
+            </button>
+          )}
+          {onExpandAll && (
+            <button
+              onClick={onExpandAll}
+              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition"
+              title="すべて展開"
+            >
+              <ChevronDown className="w-3.5 h-3.5" />
+              展
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

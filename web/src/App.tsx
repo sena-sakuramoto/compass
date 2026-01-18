@@ -1054,6 +1054,8 @@ interface FiltersProps {
   resultCount?: number;
   onCollapseAll?: () => void;
   onExpandAll?: () => void;
+  dimOthersEnabled?: boolean;
+  onDimOthersToggle?: () => void;
 }
 
 interface ProjectWithDerived extends Project {
@@ -1351,6 +1353,7 @@ function SchedulePage({
   user,
   expandedProjectIds,
   onToggleProject,
+  dimOthersEnabled,
 }: {
   filteredTasks: Task[];
   filteredTasksWithStages: Task[];
@@ -1397,13 +1400,14 @@ function SchedulePage({
   user: User | null;
   expandedProjectIds?: Set<string>;
   onToggleProject?: (projectId: string) => void;
+  dimOthersEnabled?: boolean;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const jumpToTodayRef = useRef<(() => void) | null>(null);
   const today = new Date();
   const todayLabel = formatDate(today);
   const focusIdentity = useMemo(() => buildFocusIdentity(user), [user]);
-  const shouldDimOtherAssignees = Boolean(focusIdentity) && assigneeFilter.length === 0;
+  const shouldDimOtherAssignees = (dimOthersEnabled ?? false) && Boolean(focusIdentity) && assigneeFilter.length === 0;
 
   // 初回スクロールはGanttChart内で処理するため、ここでは不要
   // jumpToTodayRefは「今日」ボタン用に保持
@@ -3069,6 +3073,14 @@ function App() {
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [search, setSearch] = useState('');
+  const [dimOthersEnabled, setDimOthersEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return localStorage.getItem('dimOthersEnabled') === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('due');
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
@@ -3674,6 +3686,36 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo, canUndo, canRedo, pushToast]);
 
+  // Mキーで「自分以外を薄くする」トグル
+  const toggleDimOthers = useCallback(() => {
+    setDimOthersEnabled((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('dimOthersEnabled', String(next));
+      } catch {
+        // ignore
+      }
+      pushToast({ tone: 'info', title: next ? '自分以外を薄く表示' : '全員同じ濃さで表示' });
+      return next;
+    });
+  }, [pushToast]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 入力中は無視
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // Mキーで薄くするトグル（修飾キーなし）
+      if (e.key === 'm' || e.key === 'M') {
+        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          toggleDimOthers();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleDimOthers]);
+
   const projectMap = useMemo(() => {
     const map: Record<string, Project> = {};
     state.projects.forEach((project) => {
@@ -3683,35 +3725,19 @@ function App() {
   }, [state.projects]);
 
   const [focusUserProjectIds, setFocusUserProjectIds] = useState<string[]>([]);
+  const [focusUserProjectsReady, setFocusUserProjectsReady] = useState(false);
 
   const focusIdentity = useMemo(() => buildFocusIdentity(user), [user]);
   const focusProjectIds = useMemo(() => {
-    if (!focusIdentity) return [];
     const ids = new Set<string>();
 
-    state.tasks.forEach((task) => {
-      if (!isTaskAssignedToIdentity(task, focusIdentity)) return;
-      const project = projectMap[task.projectId];
-      if (!showArchivedProjects && project && isArchivedProjectStatus(calculateProjectStatus(project))) {
-        return;
-      }
-      ids.add(task.projectId);
-    });
-
+    // APIから取得したユーザーのプロジェクトIDを追加
     focusUserProjectIds.forEach((projectId) => {
       const project = projectMap[projectId];
       if (!showArchivedProjects && project && isArchivedProjectStatus(calculateProjectStatus(project))) {
         return;
       }
       ids.add(projectId);
-    });
-
-    state.projects.forEach((project) => {
-      if (!showArchivedProjects && isArchivedProjectStatus(calculateProjectStatus(project))) return;
-      const members = allProjectMembers.get(project.id);
-      if (isProjectInUserScope(project, focusIdentity, members)) {
-        ids.add(project.id);
-      }
     });
 
     return Array.from(ids).sort((a, b) => {
@@ -3721,10 +3747,26 @@ function App() {
       if (nameDiff !== 0) return nameDiff;
       return a.localeCompare(b);
     });
-  }, [focusIdentity, state.tasks, state.projects, allProjectMembers, focusUserProjectIds, showArchivedProjects, projectMap]);
+  }, [focusUserProjectIds, showArchivedProjects, projectMap]);
 
   const projectFilterHasMy = projectFilter.includes(MY_PROJECTS_FILTER_VALUE);
-  const effectiveProjectFilter = projectFilterHasMy ? focusProjectIds : projectFilter;
+  const effectiveProjectFilter = projectFilterHasMy
+    ? (focusUserProjectsReady ? focusProjectIds : [])
+    : projectFilter;
+  const myProjectsFilterActive = projectFilterHasMy && focusUserProjectsReady;
+
+  // 「自分参加のみ」フィルタが有効になったら、そのプロジェクトだけ展開
+  const myProjectsExpandAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!myProjectsFilterActive) {
+      myProjectsExpandAppliedRef.current = false;
+      return;
+    }
+    if (myProjectsExpandAppliedRef.current) return;
+    if (focusProjectIds.length === 0) return;
+    myProjectsExpandAppliedRef.current = true;
+    setExpandedProjectIds(new Set(focusProjectIds));
+  }, [myProjectsFilterActive, focusProjectIds]);
 
   const printProjectOptions = useMemo(() => {
     const projectIds = Array.from(new Set(state.tasks.map((task) => task.projectId)));
@@ -3811,6 +3853,7 @@ function App() {
       focusUserProjectsLoadedRef.current = false;
       projectFilterHydratedRef.current = false;
       setFocusUserProjectIds([]);
+      setFocusUserProjectsReady(false);
     }
   }, [user?.uid]);
 
@@ -3830,6 +3873,9 @@ function App() {
         if (Array.isArray(parsed)) {
           setProjectFilter(parsed.filter((item) => typeof item === 'string' && item.trim().length > 0));
         }
+      } else {
+        // 初回ログイン時はデフォルトで「自分参加のみ」を有効に
+        setProjectFilter([MY_PROJECTS_FILTER_VALUE]);
       }
     } catch (error) {
       console.warn('[App] Failed to restore project filter:', error);
@@ -3850,9 +3896,28 @@ function App() {
     }
   }, [projectFilter, user?.uid]);
 
+  // ローカルストレージから即座にキャッシュを読み込む
+  useEffect(() => {
+    if (!user?.uid) return;
+    const cacheKey = `focusUserProjectIds:${user.uid}`;
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setFocusUserProjectIds(parsed);
+          setFocusUserProjectsReady(true);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [user?.uid]);
+
   useEffect(() => {
     if (!user || !canSync) {
       setFocusUserProjectIds([]);
+      setFocusUserProjectsReady(false);
       focusUserProjectsLoadedRef.current = false;
       return;
     }
@@ -3861,15 +3926,32 @@ function App() {
 
     listUserProjects(user.uid)
       .then((projects) => {
+        // 明示的に参加しているプロジェクトのみ
+        // - invitedBy !== 'system'（招待された）
+        // - role === 'owner'（オーナー）
         const explicitProjectIds = projects
-          .filter((item) => item.member?.status === 'active')
+          .filter((item) => {
+            if (item.member?.status !== 'active') return false;
+            if (item.member?.role === 'owner') return true;
+            if (item.member?.invitedBy && item.member.invitedBy !== 'system') return true;
+            return false;
+          })
           .map((item) => item.projectId)
           .filter(Boolean);
         setFocusUserProjectIds(explicitProjectIds);
+        setFocusUserProjectsReady(true);
+        // ローカルストレージにキャッシュ
+        const cacheKey = `focusUserProjectIds:${user.uid}`;
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(explicitProjectIds));
+        } catch (e) {
+          // ignore
+        }
       })
       .catch((error) => {
         console.warn('[App] Failed to load user project memberships:', error);
         setFocusUserProjectIds([]);
+        setFocusUserProjectsReady(true);
       });
   }, [user, canSync]);
 
@@ -4009,7 +4091,7 @@ function App() {
       }
 
       // 配列が空の場合は全て表示、配列に値がある場合は含まれているかチェック
-      const projectMatch = projectFilterHasMy
+      const projectMatch = myProjectsFilterActive
         ? effectiveProjectFilter.includes(task.projectId)
         : effectiveProjectFilter.length === 0 || effectiveProjectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
@@ -4033,7 +4115,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, deletedTasks, effectiveProjectFilter, projectFilterHasMy, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
+  }, [state.tasks, pending, deletedTasks, effectiveProjectFilter, myProjectsFilterActive, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
 
   // ガントチャート用：工程（stage）も含むフィルタ済みタスク
   const filteredTasksWithStages = useMemo(() => {
@@ -4051,7 +4133,7 @@ function App() {
         if (project && isArchivedProjectStatus(calculateProjectStatus(project))) return false;
       }
 
-      const projectMatch = projectFilterHasMy
+      const projectMatch = myProjectsFilterActive
         ? effectiveProjectFilter.includes(task.projectId)
         : effectiveProjectFilter.length === 0 || effectiveProjectFilter.includes(task.projectId);
       const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
@@ -4075,7 +4157,7 @@ function App() {
       const queryMatch = !query || haystack.includes(query);
       return projectMatch && assigneeMatch && statusMatch && queryMatch;
     });
-  }, [state.tasks, pending, deletedTasks, effectiveProjectFilter, projectFilterHasMy, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
+  }, [state.tasks, pending, deletedTasks, effectiveProjectFilter, myProjectsFilterActive, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
 
   const projectOptions = useMemo(
     () => [
@@ -4132,10 +4214,12 @@ function App() {
     }
     if (hasMyOnly) {
       setProjectFilter([MY_PROJECTS_FILTER_VALUE]);
+      // 自分参加のプロジェクトだけ展開
+      setExpandedProjectIds(new Set(focusProjectIds));
       return;
     }
     setProjectFilter(nextValues);
-  }, [projectFilter]);
+  }, [projectFilter, focusProjectIds]);
 
   const resetFilters = () => {
     setProjectFilter([]);
@@ -4182,6 +4266,8 @@ function App() {
     resultCount: filteredTasks.length,
     onCollapseAll: handleCollapseAll,
     onExpandAll: handleExpandAll,
+    dimOthersEnabled,
+    onDimOthersToggle: toggleDimOthers,
   };
 
   const filterChips = useMemo(() => {
@@ -4434,6 +4520,15 @@ function App() {
       normalizedUpdates.milestone = normalizedMilestone;
     }
 
+    // 進捗率の正規化（進捗率 ↔ progress を同期）
+    const hasJapaneseProgress = Object.prototype.hasOwnProperty.call(updates, '進捗率');
+    const hasEnglishProgress = Object.prototype.hasOwnProperty.call(updates, 'progress');
+    if (hasJapaneseProgress) {
+      normalizedUpdates.progress = updates.進捗率;
+    } else if (hasEnglishProgress && !hasJapaneseProgress) {
+      normalizedUpdates.進捗率 = updates.progress;
+    }
+
     const updatesWithTimestamp = {
       ...normalizedUpdates,
       updatedAt: new Date().toISOString(),
@@ -4507,7 +4602,10 @@ function App() {
       assignee: normalizedAssignee,
       マイルストーン: normalizedMilestone,
       milestone: normalizedMilestone,
+      進捗率: (payload as any).進捗率 ?? 0,
     };
+
+    const normalizedProgress = (payload as any).進捗率 ?? 0;
 
     if (!canSync) {
       const id = generateLocalId('task');
@@ -4530,7 +4628,8 @@ function App() {
         ['工数見積(h)']: payload['工数見積(h)'],
         '通知設定': payload['通知設定'],
         parentId: payload.parentId,
-        progress: 0,
+        progress: normalizedProgress,
+        進捗率: normalizedProgress,
         createdAt: now,
         updatedAt: now,
       };
@@ -4563,7 +4662,8 @@ function App() {
         parentId: payload.parentId,
         マイルストーン: normalizedMilestone,
         milestone: normalizedMilestone,
-        progress: 0,
+        progress: normalizedProgress,
+        進捗率: normalizedProgress,
         createdAt: now,
         updatedAt: now,
       };
@@ -5760,6 +5860,7 @@ function App() {
                     return newSet;
                   });
                 }}
+                dimOthersEnabled={dimOthersEnabled}
               />
             }
           />
@@ -5886,6 +5987,7 @@ function App() {
                     return newSet;
                   });
                 }}
+                dimOthersEnabled={dimOthersEnabled}
               />
             }
           />

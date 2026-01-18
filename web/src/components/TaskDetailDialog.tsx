@@ -21,6 +21,7 @@ export function TaskDetailDialog({
   onSeedReminders,
 }: TaskDetailDialogProps) {
   const [editing, setEditing] = useState(false);
+  const existingProgress = task.progress ?? task.進捗率 ?? 0;
   const [formData, setFormData] = useState({
     タスク名: task.タスク名,
     担当者: task.担当者 || '',
@@ -31,6 +32,7 @@ export function TaskDetailDialog({
     優先度: task.優先度 || '',
     '工数見積(h)': clampToSingleDecimal(task['工数見積(h)'] ?? 0),
     '工数実績(h)': clampToSingleDecimal(task['工数実績(h)'] ?? 0),
+    進捗率: existingProgress > 1 ? existingProgress : existingProgress * 100,
   });
 
   const [notificationSettings, setNotificationSettings] = useState<TaskNotificationSettings>(
@@ -45,6 +47,7 @@ export function TaskDetailDialog({
   const handleSave = async () => {
     await onUpdate({
       ...formData,
+      進捗率: formData.進捗率 / 100,
       '通知設定': notificationSettings,
     });
     setEditing(false);
@@ -157,7 +160,12 @@ export function TaskDetailDialog({
                 {editing ? (
                   <select
                     value={formData.ステータス}
-                    onChange={(e) => setFormData({ ...formData, ステータス: e.target.value })}
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      setFormData({ ...formData, ステータス: newStatus });
+                      // 完了にしたら進捗を100%に
+                      if (newStatus === '完了') setFormData(prev => ({ ...prev, ステータス: newStatus, 進捗率: 100 }));
+                    }}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-slate-500 focus:outline-none"
                   >
                     <option value="未着手">未着手</option>
@@ -191,6 +199,41 @@ export function TaskDetailDialog({
                   <p className="text-slate-900">{task.優先度 || '未設定'}</p>
                 )}
               </div>
+            </div>
+
+            {/* 進捗率 */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                進捗率: {Math.round(formData.進捗率)}%
+              </label>
+              {editing ? (
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  value={formData.進捗率}
+                  onChange={(e) => {
+                    const newProgress = Number(e.target.value);
+                    // 100%にしたら完了に、0%にしたら未着手に自動変更
+                    if (newProgress === 100 && formData.ステータス !== '完了') {
+                      setFormData({ ...formData, 進捗率: newProgress, ステータス: '完了' });
+                    } else if (newProgress === 0 && formData.ステータス === '完了') {
+                      setFormData({ ...formData, 進捗率: newProgress, ステータス: '未着手' });
+                    } else {
+                      setFormData({ ...formData, 進捗率: newProgress });
+                    }
+                  }}
+                />
+              ) : (
+                <div className="w-full bg-slate-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all"
+                    style={{ width: `${formData.進捗率}%` }}
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

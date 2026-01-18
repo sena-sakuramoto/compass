@@ -14,6 +14,9 @@ export const STATUS_PROGRESS: Record<string, number> = {
   引渡し完了: 1,
   保留: 0.2,
   失注: 0,
+  // タスク用ステータス
+  完了: 1,
+  進行中: 0.5,
 };
 
 // 完了済み・アーカイブ対象のステータス

@@ -48,9 +48,12 @@ function toneClasses(tone: ToastTone) {
 export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
   if (!toasts.length) return null;
 
+  // 新しい通知が上に表示されるように逆順にする
+  const reversedToasts = [...toasts].reverse();
+
   const toastContainer = (
     <div className="no-print toast-stack pointer-events-none fixed top-4 right-4 z-[9999] flex max-w-xs flex-col gap-3 sm:max-w-sm" style={{ position: 'fixed' }}>
-      {toasts.map((toast) => {
+      {reversedToasts.map((toast) => {
         const tone = toneClasses(toast.tone);
         return (
           <div

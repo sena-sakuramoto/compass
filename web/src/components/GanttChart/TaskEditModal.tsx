@@ -44,6 +44,7 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
   const [assigneeEmail, setAssigneeEmail] = useState('');
   const [tempStartDate, setTempStartDate] = useState<Date | null>(null);
   const [isMilestone, setIsMilestone] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [notifyStart, setNotifyStart] = useState(false);
   const [notifyDayBefore, setNotifyDayBefore] = useState(false);
   const [notifyDue, setNotifyDue] = useState(false);
@@ -61,6 +62,9 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
     }
     // マイルストーンの状態を復元
     setIsMilestone(task?.milestone || false);
+    // 進捗率を復元（0-1の値を0-100に変換）
+    const existingProgress = (task as any)?.progress ?? (task as any)?.進捗率 ?? 0;
+    setProgress(existingProgress > 1 ? existingProgress : existingProgress * 100);
     // 通知設定を復元
     setNotifyStart(task?.notificationSettings?.開始日 || false);
     setNotifyDayBefore(task?.notificationSettings?.期限前日 || false);
@@ -108,6 +112,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
       ...editedTask,
       assigneeEmail,
       milestone: isMilestone,
+      progress: progress / 100,
+      進捗率: progress / 100,
       parentId: stageId || null,
       notificationSettings: {
         開始日: notifyStart,
@@ -423,6 +429,8 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                     return;
                   }
                   setEditedTask({ ...editedTask, status: newStatus });
+                  // 完了にしたら進捗を100%に
+                  if (newStatus === 'completed') setProgress(100);
                 }}
                 className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
@@ -439,6 +447,29 @@ export const TaskEditModal: React.FC<TaskEditModalProps> = ({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* 進捗率 */}
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">進捗率: {Math.round(progress)}%</label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              value={progress}
+              onChange={(e) => {
+                const newProgress = Number(e.target.value);
+                setProgress(newProgress);
+                // 100%にしたら完了に、0%にしたら未着手に自動変更
+                if (newProgress === 100 && editedTask.status !== 'completed') {
+                  setEditedTask({ ...editedTask, status: 'completed' });
+                } else if (newProgress === 0 && editedTask.status === 'completed') {
+                  setEditedTask({ ...editedTask, status: 'not_started' });
+                }
+              }}
+            />
           </div>
 
           {/* 工数見積 */}
