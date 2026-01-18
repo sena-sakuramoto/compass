@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users } from 'lucide-react';
 import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, JobTitleType } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
 import { buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator } from '../lib/api';
+import { getOrgKey, getOrgLabel } from '../lib/org-utils';
 
 // 職種の選択肢
 const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
@@ -51,26 +52,19 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const [collaboratorsLoaded, setCollaboratorsLoaded] = useState(false);
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('');
   const [candidateType, setCandidateType] = useState<'user' | 'collaborator'>('user');
+  const [orgFilter, setOrgFilter] = useState('');
   const broadcastMemberUpdate = useCallback((members: ProjectMember[]) => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('project-members:updated', { detail: { projectId: project.id, members } }));
   }, [project.id]);
 
-  // デバッグ: コンポーネントのマウント/アンマウントを検知
-  useEffect(() => {
-    console.log('[ProjectMembersDialog] Component mounted');
-    console.log('[ProjectMembersDialog] Project:', project.id, project.物件名);
-    return () => console.log('[ProjectMembersDialog] Component unmounted');
-  }, []);
 
   useEffect(() => {
     loadMembers();
   }, [project.id]);
 
   useEffect(() => {
-    console.log('[ProjectMembers] showInviteForm changed:', showInviteForm);
     if (showInviteForm) {
-      console.log('[ProjectMembers] Loading data...');
       loadManageableUsers().catch(() => {
         /* errors handled inside */
       });
@@ -113,9 +107,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     if (!force && collaboratorsLoaded) return;
     try {
       setCollaboratorsLoading(true);
-      console.log('[ProjectMembers] Loading collaborators...');
       const data = await listCollaborators();
-      console.log('[ProjectMembers] Collaborators loaded:', data);
       setCollaborators(data.collaborators || []);
       setCollaboratorsLoaded(true);
 
@@ -123,7 +115,6 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         setSelectedCollaboratorId('');
       }
     } catch (err) {
-      console.error('[ProjectMembers] Error loading collaborators:', err);
       setCollaborators([]);
       setCollaboratorsLoaded(true);
     } finally {
@@ -405,8 +396,71 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     return user.getIdToken(true); // Force refresh token
   };
 
-  // デバッグ: レンダリング時のログ
-  console.log('[ProjectMembersDialog] Rendering - showInviteForm:', showInviteForm, 'collaborators:', collaborators.length, 'inputMode:', inputMode);
+  const orgFilterOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    manageableUsers.forEach((user) => {
+      const key = getOrgKey(user.orgId, user.orgName);
+      options.set(key, getOrgLabel(user.orgId, user.orgName));
+    });
+    collaborators
+      .filter((collaborator) => collaborator.linkedUser)
+      .forEach((collaborator) => {
+        const key = getOrgKey(collaborator.linkedUser?.orgId, collaborator.linkedUser?.orgName);
+        options.set(key, getOrgLabel(collaborator.linkedUser?.orgId, collaborator.linkedUser?.orgName));
+      });
+    const sorted = Array.from(options.entries()).sort((a, b) => a[1].localeCompare(b[1], 'ja'));
+    return [{ value: '', label: 'すべての組織' }, ...sorted.map(([value, label]) => ({ value, label }))];
+  }, [manageableUsers, collaborators]);
+
+  const filteredManageableUsers = useMemo(() => {
+    if (!orgFilter) return manageableUsers;
+    return manageableUsers.filter((user) => getOrgKey(user.orgId, user.orgName) === orgFilter);
+  }, [manageableUsers, orgFilter]);
+
+  const groupedManageableUsers = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; users: ManageableUserSummary[] }>();
+    filteredManageableUsers.forEach((user) => {
+      const key = getOrgKey(user.orgId, user.orgName);
+      const label = getOrgLabel(user.orgId, user.orgName);
+      const group = groups.get(key) ?? { key, label, users: [] };
+      group.users.push(user);
+      groups.set(key, group);
+    });
+    return Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label, 'ja'));
+  }, [filteredManageableUsers]);
+
+  const linkedCollaborators = useMemo(
+    () => collaborators.filter((collaborator) => collaborator.linkedUser),
+    [collaborators]
+  );
+  const externalCollaborators = useMemo(
+    () => collaborators.filter((collaborator) => !collaborator.linkedUser),
+    [collaborators]
+  );
+
+  const filteredLinkedCollaborators = useMemo(() => {
+    if (!orgFilter) return linkedCollaborators;
+    return linkedCollaborators.filter(
+      (collaborator) => getOrgKey(collaborator.linkedUser?.orgId, collaborator.linkedUser?.orgName) === orgFilter
+    );
+  }, [linkedCollaborators, orgFilter]);
+
+  const groupedLinkedCollaborators = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; collaborators: Collaborator[] }>();
+    filteredLinkedCollaborators.forEach((collaborator) => {
+      const key = getOrgKey(collaborator.linkedUser?.orgId, collaborator.linkedUser?.orgName);
+      const label = getOrgLabel(collaborator.linkedUser?.orgId, collaborator.linkedUser?.orgName);
+      const group = groups.get(key) ?? { key, label, collaborators: [] };
+      group.collaborators.push(collaborator);
+      groups.set(key, group);
+    });
+    return Array.from(groups.values()).sort((a, b) => a.label.localeCompare(b.label, 'ja'));
+  }, [filteredLinkedCollaborators]);
+
+  const filteredExternalCollaborators = useMemo(() => {
+    if (orgFilter) return [];
+    return externalCollaborators;
+  }, [externalCollaborators, orgFilter]);
 
   const getStatusBadge = (status: ProjectMember['status']) => {
     switch (status) {
@@ -501,10 +555,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
           {/* 招待ボタン */}
           {!showInviteForm && (
             <button
-              onClick={() => {
-                console.log('[ProjectMembersDialog] Invite button clicked');
-                setShowInviteForm(true);
-              }}
+              onClick={() => setShowInviteForm(true)}
               className="mb-6 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <UserPlus className="w-4 h-4" />
@@ -571,51 +622,109 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                         <span>読み込み中...</span>
                       </div>
-                    ) : manageableUsers.length === 0 && collaborators.length === 0 ? (
+                    ) : groupedManageableUsers.length === 0 && groupedLinkedCollaborators.length === 0 && filteredExternalCollaborators.length === 0 ? (
                       <p className="text-sm text-gray-500">
                         追加可能なユーザーが見つかりません。メールアドレスを直接入力してください。
                       </p>
                     ) : (
                       <div className="space-y-3">
-                        {manageableUsers.length > 0 && (
+                        {orgFilterOptions.length > 1 && (
+                          <div className="flex items-center gap-2">
+                            <label className="text-xs font-medium text-gray-600">組織で絞り込み</label>
+                            <select
+                              value={orgFilter}
+                              onChange={(e) => setOrgFilter(e.target.value)}
+                              className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              {orgFilterOptions.map((option) => (
+                                <option key={option.value || 'all'} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        {groupedManageableUsers.length > 0 && (
                           <div>
                             <p className="text-xs font-medium text-gray-700 mb-1">社内メンバー</p>
-                            <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-40 overflow-y-auto bg-white">
-                              {manageableUsers.map(user => {
-                                const isSelected = selectedCandidateId === user.id;
-                                return (
-                                  <button
-                                    key={user.id}
-                                    type="button"
-                                    onClick={() => handleCandidateSelect(user)}
-                                    className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-gray-50'}`}
-                                  >
-                                    <div className="flex items-center justify-between gap-4">
-                                      <div>
-                                        <p className="font-medium text-gray-900 truncate">{user.displayName}</p>
-                                        <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                                      </div>
-                                      <div className="text-xs text-gray-500 text-right min-w-[120px]">
-                                        <span>{ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}</span>
-                                        {(user.department || user.jobTitle) && (
-                                          <p className="mt-0.5 text-gray-400 truncate">
-                                            {[user.department, user.jobTitle].filter(Boolean).join(' / ')}
-                                          </p>
-                                        )}
-                                        {isSelected && <span className="block text-blue-600 font-semibold">選択中</span>}
-                                      </div>
-                                    </div>
-                                  </button>
-                                );
-                              })}
+                            <div className="space-y-2">
+                              {groupedManageableUsers.map((group) => (
+                                <div key={group.key}>
+                                  <div className="mb-1 text-xs font-semibold text-gray-500">{group.label}</div>
+                                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-40 overflow-y-auto bg-white">
+                                    {group.users.map(user => {
+                                      const isSelected = selectedCandidateId === user.id;
+                                      return (
+                                        <button
+                                          key={user.id}
+                                          type="button"
+                                          onClick={() => handleCandidateSelect(user)}
+                                          className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-gray-50'}`}
+                                        >
+                                          <div className="flex items-center justify-between gap-4">
+                                            <div>
+                                              <p className="font-medium text-gray-900 truncate">{user.displayName}</p>
+                                              <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                                            </div>
+                                            <div className="text-xs text-gray-500 text-right min-w-[120px]">
+                                              <span>{ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}</span>
+                                              {(user.department || user.jobTitle) && (
+                                                <p className="mt-0.5 text-gray-400 truncate">
+                                                  {[user.department, user.jobTitle].filter(Boolean).join(' / ')}
+                                                </p>
+                                              )}
+                                              {isSelected && <span className="block text-blue-600 font-semibold">選択中</span>}
+                                            </div>
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         )}
-                        {collaborators.length > 0 && (
+                        {groupedLinkedCollaborators.length > 0 && (
+                          <div>
+                            <p className="text-xs font-medium text-gray-700 mb-1">協力業者（Compassユーザー）</p>
+                            <div className="space-y-2">
+                              {groupedLinkedCollaborators.map((group) => (
+                                <div key={group.key}>
+                                  <div className="mb-1 text-xs font-semibold text-gray-500">{group.label}</div>
+                                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-40 overflow-y-auto bg-white">
+                                    {group.collaborators.map(collaborator => {
+                                      const isSelected = selectedCollaboratorId === collaborator.id;
+                                      return (
+                                        <button
+                                          key={collaborator.id}
+                                          type="button"
+                                          onClick={() => handleCollaboratorSelect(collaborator)}
+                                          className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-gray-50 border-l-4 border-gray-600' : 'hover:bg-gray-50'}`}
+                                        >
+                                          <div className="flex items-center justify-between gap-4">
+                                            <div className="flex-1 min-w-0">
+                                              <p className="font-medium text-gray-900 truncate">{collaborator.name}</p>
+                                              {collaborator.email && (
+                                                <p className="text-xs text-gray-500 truncate">{collaborator.email}</p>
+                                              )}
+                                            </div>
+                                            {isSelected && <span className="text-xs text-gray-600 font-semibold whitespace-nowrap">選択中</span>}
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {filteredExternalCollaborators.length > 0 && (
                           <div>
                             <p className="text-xs font-medium text-gray-700 mb-1">協力者</p>
                             <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-40 overflow-y-auto bg-white">
-                              {collaborators.map(collaborator => {
+                              {filteredExternalCollaborators.map(collaborator => {
                                 const isSelected = selectedCollaboratorId === collaborator.id;
                                 return (
                                   <button
@@ -629,12 +738,6 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                                         <p className="font-medium text-gray-900 truncate">{collaborator.name}</p>
                                         {collaborator.email && (
                                           <p className="text-xs text-gray-500 truncate">{collaborator.email}</p>
-                                        )}
-                                        {collaborator.linkedUser && (
-                                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                            <Building2 className="w-3 h-3" />
-                                            {collaborator.linkedUser.orgName}
-                                          </span>
                                         )}
                                       </div>
                                       {isSelected && <span className="text-xs text-gray-600 font-semibold whitespace-nowrap">選択中</span>}

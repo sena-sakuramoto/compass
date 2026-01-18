@@ -12,7 +12,7 @@ import {
 import { ProjectMemberInput } from '../lib/auth-types';
 import { canManageProjectMembers } from '../lib/access-control';
 import { getUser, listUsers } from '../lib/users';
-import { getProject } from '../lib/firestore';
+import { getProject, db } from '../lib/firestore';
 import { resolveAuthHeader, verifyToken } from '../lib/auth';
 import { validateEmail, validateProjectRole } from '../lib/validation';
 import { getProjectForUser, getEffectiveOrgId } from '../lib/access-helpers';
@@ -122,13 +122,35 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const [members, users] = await Promise.all([
-      listProjectMembers(projectOrgId, projectId),
-      listUsers({
-        orgId: effectiveOrgId,  // 有効な組織のユーザーのみ取得
-        isActive: true
-      }),
-    ]);
+    const members = await listProjectMembers(projectOrgId, projectId);
+    const orgIds = new Set<string>();
+    orgIds.add(projectOrgId);
+    if (effectiveOrgId) {
+      orgIds.add(effectiveOrgId);
+    }
+    members.forEach((member) => {
+      if (member.orgId) orgIds.add(member.orgId);
+      if (member.projectOrgId) orgIds.add(member.projectOrgId);
+    });
+
+    const orgIdList = Array.from(orgIds);
+    const orgDocs = await db.getAll(...orgIdList.map((orgId) => db.collection('orgs').doc(orgId)));
+    const orgNameById = new Map<string, string>();
+    orgDocs.forEach((docSnap, index) => {
+      const orgId = orgIdList[index];
+      const orgData = docSnap.data();
+      const orgName = orgData?.name || orgData?.組織名 || orgId;
+      orgNameById.set(orgId, orgName);
+    });
+
+    const usersByOrg = await Promise.all(
+      orgIdList.map((orgId) =>
+        listUsers({
+          orgId,
+          isActive: true,
+        })
+      )
+    );
 
     const memberUserIds = new Set(members.map(member => member.userId));
     const memberEmails = new Set(
@@ -137,7 +159,16 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
         .filter(Boolean) as string[]
     );
 
-    const candidates = users
+    const candidates = usersByOrg
+      .flatMap((users, index) => {
+        const orgId = orgIdList[index];
+        const orgName = orgNameById.get(orgId) || orgId;
+        return users.map((user) => ({
+          ...user,
+          orgId,
+          orgName,
+        }));
+      })
       .filter(user => {
         if (!user.isActive) return false;
         if (memberUserIds.has(user.id)) return false;
@@ -151,8 +182,14 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
         role: user.role,
         jobTitle: user.jobTitle ?? null,
         department: user.department ?? null,
+        orgId: user.orgId,
+        orgName: (user as any).orgName ?? user.orgId,
       }))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'ja'));
+      .sort((a, b) => {
+        const orgDiff = (a.orgName || a.orgId).localeCompare((b.orgName || b.orgId), 'ja');
+        if (orgDiff !== 0) return orgDiff;
+        return a.displayName.localeCompare(b.displayName, 'ja');
+      });
 
     res.json({ users: candidates });
   } catch (error) {

@@ -115,6 +115,8 @@ export interface ManageableUserSummary {
   role: string;
   jobTitle?: string | null;
   department?: string | null;
+  orgId?: string;
+  orgName?: string;
 }
 
 export interface SnapshotPayload {
