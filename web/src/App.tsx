@@ -122,7 +122,8 @@ import {
   Area as WorkloadArea,
   Line as WorkloadLine,
 } from 'recharts';
-import { useFirebaseAuth } from './lib/firebaseClient';
+import { useFirebaseAuth, saveDemoUserProfile, getDemoUserProfile, type DemoUserProfile } from './lib/firebaseClient';
+import { DemoLoginScreen } from './components/DemoLoginScreen';
 import { useJapaneseHolidaySet } from './lib/japaneseHolidays';
 import { getCachedSnapshot, cacheSnapshot, cacheProjectMembers, getAllCachedProjectMembers } from './lib/idbCache';
 import type { User } from 'firebase/auth';
@@ -297,7 +298,11 @@ function AppLayout({
           </div>
           {!authSupported ? (
             <div className="bg-amber-50 text-amber-700">
-              <div className="mx-auto max-w-6xl px-4 py-2 text-xs">Firebase Auth が未設定です。ローカルデータとして表示しています。</div>
+              <div className="mx-auto max-w-6xl px-4 py-2 text-xs">
+                {DEMO_MODE
+                  ? 'デモモードで表示しています。追加・編集は可能ですが保存されず、リロードで初期状態に戻ります。'
+                  : 'Firebase Auth が未設定です。ローカルデータとして表示しています。'}
+              </div>
             </div>
           ) : authReady && !user ? (
             <div className="bg-slate-900 text-slate-100">
@@ -318,8 +323,29 @@ function AppLayout({
           ) : null}
         </header>
         {offline ? (
-          <div className="flex-shrink-0 border-b border-slate-200 bg-slate-100/80">
-            <div className="mx-auto max-w-7xl px-4 py-2 text-[11px] text-slate-600">ローカルモードで閲覧中です。編集内容はブラウザに保存されます。</div>
+          <div className={`flex-shrink-0 border-b ${DEMO_MODE ? 'border-indigo-200 bg-gradient-to-r from-indigo-50 to-blue-50' : 'border-slate-200 bg-slate-100/80'}`}>
+            <div className="mx-auto max-w-7xl px-4 py-2">
+              {DEMO_MODE ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[11px] text-indigo-700">
+                    デモモードで閲覧中です。追加・編集は可能ですが保存されず、リロードで初期状態に戻ります。
+                  </p>
+                  <a
+                    href="https://buy.stripe.com/eVa7w47Ei9SZ2uQcNv"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm hover:from-indigo-700 hover:to-blue-700 transition"
+                  >
+                    <Rocket className="h-3 w-3" />
+                    正式版を購入 → AI×建築サークルに参加
+                  </a>
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-600">
+                  ローカルモードで閲覧中です。編集内容はブラウザに保存されます。
+                </p>
+              )}
+            </div>
           </div>
         ) : null}
         <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 lg:px-8">
@@ -534,7 +560,7 @@ function HeaderActions({
         <span className="text-xs text-slate-400">Firebase Auth 未設定</span>
       )}
       {!canSync ? (
-        <span className="text-[11px] font-semibold text-slate-400">ローカルモード</span>
+        <span className="text-[11px] font-semibold text-slate-400">{DEMO_MODE ? 'デモモード' : 'ローカルモード'}</span>
       ) : null}
       {authError && user ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] text-rose-700">{authError}</div>
@@ -3034,6 +3060,7 @@ const isProjectInUserScope = (project: Project, identity: FocusIdentity, members
 
 const EMPTY_PROJECT_MEMBERS: ProjectMember[] = [];
 const EMPTY_PROJECT_STAGES: Task[] = [];
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
 function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
@@ -3094,6 +3121,9 @@ function App() {
   const [emailAuthInput, setEmailAuthInput] = useState({ email: '', password: '' });
   const [emailAuthLoading, setEmailAuthLoading] = useState(false);
   const [emailAuthError, setEmailAuthError] = useState<string | null>(null);
+  const [demoProfile, setDemoProfile] = useState<DemoUserProfile | null>(null);
+  const [demoProfileLoading, setDemoProfileLoading] = useState(false);
+  const [demoProfileChecked, setDemoProfileChecked] = useState(false);
   const peopleLoadInFlightRef = useRef(false);
   const peopleCacheKey = useMemo(
     () => (user?.uid ? `compass_people_cache_${user.uid}` : 'compass_people_cache_guest'),
@@ -3153,7 +3183,7 @@ function App() {
   // 楽観的更新のためのPending Overlayストア
   const { addPending, ackPending, rollbackPending, pending, deletedTasks, addPendingProject, ackPendingProject, rollbackPendingProject, pendingProjects } = usePendingOverlay();
 
-  const canSync = authSupported && Boolean(user);
+  const canSync = !DEMO_MODE && authSupported && Boolean(user);
 
   // 起動時にIndexedDBキャッシュからProject Membersを読み込む
   useEffect(() => {
@@ -3247,6 +3277,12 @@ function App() {
   }, [dismissToast]);
 
   const refreshBillingAccess = useCallback(async () => {
+    // デモモードでは課金チェックをスキップ
+    if (DEMO_MODE) {
+      setBillingAccess({ allowed: true, reason: 'demo', planType: 'demo' });
+      setBillingChecking(false);
+      return;
+    }
     if (!authReady || !authSupported || !user) {
       setBillingAccess(null);
       setBillingChecking(false);
@@ -3337,7 +3373,7 @@ function App() {
 
   const loading = useRemoteData(
     setState,
-    authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
+    !DEMO_MODE && authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
   );
 
   const canEdit = true;
@@ -3606,6 +3642,13 @@ function App() {
       return;
     }
 
+    // デモモードではユーザーロールのフェッチをスキップ
+    if (DEMO_MODE) {
+      setCurrentUserRole('viewer');
+      setRoleChecking(false);
+      return;
+    }
+
     const fetchUserRole = async () => {
       try {
         setRoleChecking(true);
@@ -3647,6 +3690,41 @@ function App() {
     };
 
     fetchUserRole();
+  }, [user]);
+
+  // デモモード: ユーザーのプロフィールを確認
+  useEffect(() => {
+    if (!DEMO_MODE || !user) {
+      setDemoProfileChecked(true);
+      return;
+    }
+
+    const checkDemoProfile = async () => {
+      try {
+        const profile = await getDemoUserProfile(user.uid);
+        setDemoProfile(profile);
+      } catch (error) {
+        console.warn('Failed to check demo profile:', error);
+      } finally {
+        setDemoProfileChecked(true);
+      }
+    };
+
+    checkDemoProfile();
+  }, [user]);
+
+  // デモモード: プロフィール保存ハンドラ
+  const handleDemoProfileComplete = useCallback(async (profile: DemoUserProfile) => {
+    if (!user) return;
+    setDemoProfileLoading(true);
+    try {
+      await saveDemoUserProfile(user, profile);
+      setDemoProfile(profile);
+    } catch (error) {
+      console.error('Failed to save demo profile:', error);
+    } finally {
+      setDemoProfileLoading(false);
+    }
   }, [user]);
 
   const generateLocalId = useCallback((prefix: string) => {
@@ -5761,6 +5839,21 @@ function App() {
           </div>
         </div>
       </>
+    );
+  }
+
+  // デモモード: ログインまたはプロフィール未完了の場合はログイン画面を表示
+  if (DEMO_MODE && authSupported && (!user || (demoProfileChecked && !demoProfile))) {
+    return (
+      <DemoLoginScreen
+        user={user}
+        authReady={authReady}
+        authSupported={authSupported}
+        onSignIn={signIn}
+        onProfileComplete={handleDemoProfileComplete}
+        profileLoading={demoProfileLoading}
+        existingProfile={demoProfile}
+      />
     );
   }
 

@@ -24,6 +24,14 @@ service cloud.firestore {
       return user != null && user.role == 'project_manager';
     }
 
+    // ===== デモユーザーコレクション（リード獲得用） =====
+
+    match /demo_users/{userId} {
+      // 認証済みユーザーは自分のドキュメントを作成・更新可能
+      allow read, create, update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
     // ===== ユーザーコレクション =====
 
     match /users/{userId} {

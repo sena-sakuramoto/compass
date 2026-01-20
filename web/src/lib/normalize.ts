@@ -1,5 +1,5 @@
 import { STATUS_PROGRESS } from './constants';
-import { calculateDuration, formatDate, parseDate } from './date';
+import { DAY_MS, calculateDuration, formatDate, parseDate } from './date';
 import type { SnapshotPayload, Project, Task, Person } from './types';
 
 export function toNumber(value: unknown): number {
@@ -231,6 +231,52 @@ export function normalizeSnapshot(payload: SnapshotPayload): SnapshotPayload {
   };
 }
 
+function shiftDateValue(value: unknown, offsetDays: number): unknown {
+  if (!value) return value;
+  const date = parseDate(typeof value === 'string' || value instanceof Date ? value : null);
+  if (!date) return value;
+  const shifted = new Date(date.getTime() + offsetDays * DAY_MS);
+  return formatDate(shifted);
+}
+
+function shiftFields<T extends Record<string, unknown>>(item: T, fields: string[], offsetDays: number): T {
+  const updates: Record<string, unknown> = {};
+  fields.forEach((field) => {
+    if (field in item) {
+      const next = shiftDateValue(item[field], offsetDays);
+      updates[field] = next;
+    }
+  });
+  return { ...item, ...updates } as T;
+}
+
+export function shiftSnapshotDates(payload: SnapshotPayload, referenceDate: Date = new Date()): SnapshotPayload {
+  const anchor = parseDate(payload.generated_at) ?? referenceDate;
+  const offsetDays = Math.round((referenceDate.getTime() - anchor.getTime()) / DAY_MS);
+
+  const projectFields = [
+    '開始日',
+    '予定完了日',
+    '現地調査日',
+    '着工日',
+    '竣工予定日',
+    '引渡し予定日',
+    'レイアウト確定日',
+    '基本設計完了日',
+    '設計施工現調日',
+    '見積確定日',
+    '中間検査日',
+  ];
+  const taskFields = ['予定開始日', '期限', '実績開始日', '実績完了日', 'start', 'end', 'scheduleStart', 'scheduleEnd'];
+
+  return {
+    ...payload,
+    generated_at: formatDate(referenceDate),
+    projects: (payload.projects ?? []).map((project) => shiftFields(project as unknown as Record<string, unknown>, projectFields, offsetDays) as unknown as Project),
+    tasks: (payload.tasks ?? []).map((task) => shiftFields(task as unknown as Record<string, unknown>, taskFields, offsetDays) as unknown as Task),
+  };
+}
+
 export const SAMPLE_SNAPSHOT: SnapshotPayload = {
   generated_at: '2025-10-04 15:19:48',
   projects: [
@@ -249,6 +295,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2025-10-01',
       引渡し予定日: '2025-10-06',
       '所在地/現地': '新宿区',
+      施工費: 42000000,
     },
     {
       id: 'P-0002',
@@ -265,6 +312,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2025-11-10',
       引渡し予定日: '2025-11-15',
       '所在地/現地': '渋谷区',
+      施工費: 56000000,
     },
     {
       id: 'P-0003',
@@ -281,6 +329,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2025-12-15',
       引渡し予定日: '2025-12-20',
       '所在地/現地': '豊島区',
+      施工費: 38000000,
     },
     {
       id: 'P-0004',
@@ -297,6 +346,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2026-01-25',
       引渡し予定日: '2026-01-31',
       '所在地/現地': '横浜市',
+      施工費: 72000000,
     },
     {
       id: 'P-0005',
@@ -313,6 +363,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2025-10-25',
       引渡し予定日: '2025-10-31',
       '所在地/現地': '品川区',
+      施工費: 98000000,
     },
     {
       id: 'P-0006',
@@ -329,6 +380,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2025-11-25',
       引渡し予定日: '2025-11-30',
       '所在地/現地': '台東区',
+      施工費: 46000000,
     },
     {
       id: 'P-0007',
@@ -345,6 +397,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2026-02-20',
       引渡し予定日: '2026-02-28',
       '所在地/現地': '港区',
+      施工費: 84000000,
     },
     {
       id: 'P-0008',
@@ -361,6 +414,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2025-10-10',
       引渡し予定日: '2025-10-15',
       '所在地/現地': '中央区',
+      施工費: 64000000,
     },
     {
       id: 'P-0009',
@@ -377,6 +431,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2025-12-25',
       引渡し予定日: '2025-12-31',
       '所在地/現地': '渋谷区',
+      施工費: 52000000,
     },
     {
       id: 'P-0010',
@@ -393,6 +448,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       竣工予定日: '2026-03-25',
       引渡し予定日: '2026-03-31',
       '所在地/現地': '千代田区',
+      施工費: 110000000,
     },
   ],
   tasks: [
@@ -427,6 +483,51 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       end: '2025-10-01',
       progress: 0,
     },
+    {
+      id: 'S003',
+      projectId: 'P-0002',
+      type: 'stage',
+      タスク名: '設計フェーズ',
+      担当者: '櫻本 聖成',
+      assignee: '櫻本 聖成',
+      優先度: '高',
+      ステータス: '進行中',
+      予定開始日: '2025-09-01',
+      期限: '2025-10-05',
+      start: '2025-09-01',
+      end: '2025-10-05',
+      progress: 0.35,
+    },
+    {
+      id: 'S004',
+      projectId: 'P-0002',
+      type: 'stage',
+      タスク名: '施工フェーズ',
+      担当者: '山田 次郎',
+      assignee: '山田 次郎',
+      優先度: '高',
+      ステータス: '未着手',
+      予定開始日: '2025-10-10',
+      期限: '2025-11-10',
+      start: '2025-10-10',
+      end: '2025-11-10',
+      progress: 0,
+    },
+    {
+      id: 'S005',
+      projectId: 'P-0003',
+      type: 'stage',
+      タスク名: '企画・設計フェーズ',
+      担当者: '櫻本 聖成',
+      assignee: '櫻本 聖成',
+      優先度: '中',
+      ステータス: '進行中',
+      予定開始日: '2025-09-15',
+      期限: '2025-11-20',
+      start: '2025-09-15',
+      end: '2025-11-20',
+      progress: 0.25,
+    },
     // P-0001 タスク
     {
       id: 'T001',
@@ -449,6 +550,93 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       progress: 0.625,
     },
     {
+      id: 'T053',
+      projectId: 'P-0001',
+      parentId: 'S001',
+      タスク名: '寸法チェック・動線整理',
+      タスク種別: '設計',
+      担当者: '中村',
+      assignee: '中村',
+      優先度: '中',
+      ステータス: '進行中',
+      予定開始日: '2025-09-02',
+      期限: '2025-09-04',
+      ['工数見積(h)']: 6,
+      ['工数実績(h)']: 3,
+      '依存タスク': ['T001'],
+      start: '2025-09-02',
+      end: '2025-09-04',
+      progress: 0.5,
+    },
+    {
+      id: 'T054',
+      projectId: 'P-0001',
+      parentId: 'S001',
+      タスク名: '素材・仕上げ選定',
+      タスク種別: '設計',
+      担当者: '佐藤 美咲',
+      assignee: '佐藤 美咲',
+      優先度: '中',
+      ステータス: '未着手',
+      予定開始日: '2025-09-04',
+      期限: '2025-09-08',
+      ['工数見積(h)']: 10,
+      '依存タスク': ['T053'],
+      start: '2025-09-04',
+      end: '2025-09-08',
+    },
+    {
+      id: 'T055',
+      projectId: 'P-0001',
+      parentId: 'S001',
+      タスク名: '什器詳細図',
+      タスク種別: '設計',
+      担当者: '櫻本 聖成',
+      assignee: '櫻本 聖成',
+      優先度: '高',
+      ステータス: '未着手',
+      予定開始日: '2025-09-07',
+      期限: '2025-09-10',
+      ['工数見積(h)']: 8,
+      '依存タスク': ['T054'],
+      start: '2025-09-07',
+      end: '2025-09-10',
+    },
+    {
+      id: 'T056',
+      projectId: 'P-0001',
+      parentId: 'S001',
+      タスク名: '照明計画',
+      タスク種別: '設備',
+      担当者: '高橋 健一',
+      assignee: '高橋 健一',
+      優先度: '中',
+      ステータス: '未着手',
+      予定開始日: '2025-09-08',
+      期限: '2025-09-12',
+      ['工数見積(h)']: 12,
+      '依存タスク': ['T054'],
+      start: '2025-09-08',
+      end: '2025-09-12',
+    },
+    {
+      id: 'T057',
+      projectId: 'P-0001',
+      parentId: 'S001',
+      タスク名: '実施設計チェック',
+      タスク種別: '設計',
+      担当者: '中村',
+      assignee: '中村',
+      優先度: '高',
+      ステータス: '未着手',
+      予定開始日: '2025-09-12',
+      期限: '2025-09-15',
+      ['工数見積(h)']: 6,
+      '依存タスク': ['T055', 'T056'],
+      start: '2025-09-12',
+      end: '2025-09-15',
+    },
+    {
       id: 'T002',
       projectId: 'P-0001',
       parentId: 'S001',
@@ -462,6 +650,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       期限: '2025-09-12',
       ['工数見積(h)']: 12,
       ['工数実績(h)']: 0,
+      '依存タスク': ['T001'],
       依頼元: 'LS',
       start: '2025-09-05',
       end: '2025-09-12',
@@ -482,6 +671,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       期限: '2025-09-18',
       ['工数見積(h)']: 20,
       ['工数実績(h)']: 0,
+      '依存タスク': ['T002', 'T056'],
       start: '2025-09-10',
       end: '2025-09-18',
     },
@@ -498,6 +688,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       予定開始日: '2025-09-20',
       期限: '2025-09-28',
       ['工数見積(h)']: 8,
+      '依存タスク': ['T003'],
       start: '2025-09-20',
       end: '2025-09-28',
     },
@@ -505,6 +696,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     {
       id: 'T005',
       projectId: 'P-0002',
+      parentId: 'S003',
       タスク名: '現地調査・測量',
       タスク種別: '調査',
       担当者: '山田 次郎',
@@ -522,6 +714,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     {
       id: 'T006',
       projectId: 'P-0002',
+      parentId: 'S003',
       タスク名: '基本設計作成',
       タスク種別: '設計',
       担当者: '櫻本 聖成',
@@ -532,13 +725,49 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       期限: '2025-09-15',
       ['工数見積(h)']: 24,
       ['工数実績(h)']: 16,
+      '依存タスク': ['T005'],
       start: '2025-09-06',
       end: '2025-09-15',
       progress: 0.67,
     },
     {
+      id: 'T058',
+      projectId: 'P-0002',
+      parentId: 'S003',
+      タスク名: '厨房設備計画',
+      タスク種別: '設備',
+      担当者: '高橋 健一',
+      assignee: '高橋 健一',
+      優先度: '高',
+      ステータス: '未着手',
+      予定開始日: '2025-09-10',
+      期限: '2025-09-18',
+      ['工数見積(h)']: 14,
+      '依存タスク': ['T006'],
+      start: '2025-09-10',
+      end: '2025-09-18',
+    },
+    {
+      id: 'T059',
+      projectId: 'P-0002',
+      parentId: 'S003',
+      タスク名: 'サイン計画・外装サンプル',
+      タスク種別: '設計',
+      担当者: '佐藤 美咲',
+      assignee: '佐藤 美咲',
+      優先度: '中',
+      ステータス: '未着手',
+      予定開始日: '2025-09-12',
+      期限: '2025-09-20',
+      ['工数見積(h)']: 10,
+      '依存タスク': ['T006'],
+      start: '2025-09-12',
+      end: '2025-09-20',
+    },
+    {
       id: 'T007',
       projectId: 'P-0002',
+      parentId: 'S003',
       タスク名: '実施設計作成',
       タスク種別: '設計',
       担当者: '中村',
@@ -548,12 +777,14 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       予定開始日: '2025-09-16',
       期限: '2025-09-30',
       ['工数見積(h)']: 40,
+      '依存タスク': ['T006', 'T058', 'T059'],
       start: '2025-09-16',
       end: '2025-09-30',
     },
     {
       id: 'T008',
       projectId: 'P-0002',
+      parentId: 'S003',
       タスク名: '施工業者選定',
       タスク種別: '発注',
       担当者: '田中 太郎',
@@ -563,13 +794,32 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       予定開始日: '2025-09-20',
       期限: '2025-10-05',
       ['工数見積(h)']: 16,
+      '依存タスク': ['T006'],
       start: '2025-09-20',
       end: '2025-10-05',
       progress: 0.3,
     },
     {
+      id: 'T060',
+      projectId: 'P-0002',
+      parentId: 'S003',
+      タスク名: '施工図レビュー',
+      タスク種別: '設計',
+      担当者: '櫻本 聖成',
+      assignee: '櫻本 聖成',
+      優先度: '中',
+      ステータス: '未着手',
+      予定開始日: '2025-09-28',
+      期限: '2025-10-02',
+      ['工数見積(h)']: 8,
+      '依存タスク': ['T007'],
+      start: '2025-09-28',
+      end: '2025-10-02',
+    },
+    {
       id: 'T009',
       projectId: 'P-0002',
+      parentId: 'S004',
       タスク名: '内装工事',
       タスク種別: '施工',
       担当者: '高橋 健一',
@@ -579,6 +829,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       予定開始日: '2025-10-10',
       期限: '2025-11-05',
       ['工数見積(h)']: 80,
+      '依存タスク': ['T007', 'T008', 'T060'],
       start: '2025-10-10',
       end: '2025-11-05',
     },
@@ -586,6 +837,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     {
       id: 'T010',
       projectId: 'P-0003',
+      parentId: 'S005',
       タスク名: '要件ヒアリング',
       タスク種別: '企画',
       担当者: '高橋 健一',
@@ -602,6 +854,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     {
       id: 'T011',
       projectId: 'P-0003',
+      parentId: 'S005',
       タスク名: 'コンセプト設計',
       タスク種別: '設計',
       担当者: '櫻本 聖成',
@@ -611,12 +864,14 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       予定開始日: '2025-09-25',
       期限: '2025-10-10',
       ['工数見積(h)']: 32,
+      '依存タスク': ['T010'],
       start: '2025-09-25',
       end: '2025-10-10',
     },
     {
       id: 'T012',
       projectId: 'P-0003',
+      parentId: 'S005',
       タスク名: '見積取得',
       タスク種別: '発注',
       担当者: '佐藤 美咲',
@@ -626,12 +881,14 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       予定開始日: '2025-10-15',
       期限: '2025-10-25',
       ['工数見積(h)']: 16,
+      '依存タスク': ['T011'],
       start: '2025-10-15',
       end: '2025-10-25',
     },
     {
       id: 'T013',
       projectId: 'P-0003',
+      parentId: 'S005',
       タスク名: '詳細設計',
       タスク種別: '設計',
       担当者: '中村',
@@ -641,6 +898,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       予定開始日: '2025-10-28',
       期限: '2025-11-20',
       ['工数見積(h)']: 48,
+      '依存タスク': ['T011', 'T012'],
       start: '2025-10-28',
       end: '2025-11-20',
     },
@@ -721,6 +979,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       期限: '2025-09-15',
       ['工数見積(h)']: 80,
       ['工数実績(h)']: 60,
+      '依存タスク': ['T017'],
       start: '2025-08-25',
       end: '2025-09-15',
       progress: 0.75,
@@ -738,6 +997,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       期限: '2025-09-30',
       ['工数見積(h)']: 60,
       ['工数実績(h)']: 30,
+      '依存タスク': ['T018'],
       start: '2025-09-10',
       end: '2025-09-30',
       progress: 0.5,
@@ -754,6 +1014,7 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       予定開始日: '2025-10-01',
       期限: '2025-10-20',
       ['工数見積(h)']: 80,
+      '依存タスク': ['T018', 'T019'],
       start: '2025-10-01',
       end: '2025-10-20',
     },
@@ -1467,11 +1728,11 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
     },
   ],
   people: [
-    { id: 'PERSON001', 氏名: '櫻本 聖成', 役割: 'PM/設計統括', メール: 's.sakuramoto@archi-prisma.co.jp' },
-    { id: 'PERSON002', 氏名: '中村', 役割: '管理建築士/設計', メール: 's.nakamura@archi-prisma.co.jp' },
-    { id: 'PERSON003', 氏名: '山田 次郎', 役割: '設計/施工管理', メール: 'j.yamada@archi-prisma.co.jp' },
-    { id: 'PERSON004', 氏名: '高橋 健一', 役割: '設備設計', メール: 'k.takahashi@archi-prisma.co.jp' },
-    { id: 'PERSON005', 氏名: '田中 太郎', 役割: '営業/発注管理', メール: 't.tanaka@archi-prisma.co.jp' },
-    { id: 'PERSON006', 氏名: '佐藤 美咲', 役割: 'コーディネーター', メール: 'm.sato@archi-prisma.co.jp' },
+    { id: 'PERSON001', 氏名: '櫻本 聖成', 役割: 'PM/設計統括', メール: 's.sakuramoto@archi-prisma.co.jp', '稼働時間/日(h)': 7.5 },
+    { id: 'PERSON002', 氏名: '中村', 役割: '管理建築士/設計', メール: 's.nakamura@archi-prisma.co.jp', '稼働時間/日(h)': 7 },
+    { id: 'PERSON003', 氏名: '山田 次郎', 役割: '設計/施工管理', メール: 'j.yamada@archi-prisma.co.jp', '稼働時間/日(h)': 7 },
+    { id: 'PERSON004', 氏名: '高橋 健一', 役割: '設備設計', メール: 'k.takahashi@archi-prisma.co.jp', '稼働時間/日(h)': 6.5 },
+    { id: 'PERSON005', 氏名: '田中 太郎', 役割: '営業/発注管理', メール: 't.tanaka@archi-prisma.co.jp', '稼働時間/日(h)': 6 },
+    { id: 'PERSON006', 氏名: '佐藤 美咲', 役割: 'コーディネーター', メール: 'm.sato@archi-prisma.co.jp', '稼働時間/日(h)': 6 },
   ],
 };

@@ -69,6 +69,72 @@ type AuthState = {
   error: string | null;
 };
 
+/**
+ * デモユーザーのプロフィールをFirestoreに保存
+ */
+export type DemoUserProfile = {
+  jobTitle: string;
+  ageRange: string;
+  position: string;
+  company: string;
+};
+
+export async function saveDemoUserProfile(
+  user: User,
+  profile: DemoUserProfile
+): Promise<void> {
+  try {
+    const firestore = await import('firebase/firestore');
+    const db = firestore.getFirestore();
+    const demoUserRef = firestore.doc(db, 'demo_users', user.uid);
+
+    const userData = {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: (user as unknown as { photoURL?: string }).photoURL ?? null,
+      ...profile,
+      createdAt: firestore.serverTimestamp(),
+      updatedAt: firestore.serverTimestamp(),
+    };
+
+    await (firestore.setDoc as (ref: unknown, data: unknown, options?: { merge?: boolean }) => Promise<void>)(demoUserRef, userData, { merge: true });
+
+    console.log('Demo user profile saved:', user.email);
+  } catch (error) {
+    console.error('Failed to save demo user profile:', error);
+    throw error;
+  }
+}
+
+/**
+ * デモユーザーのプロフィールをFirestoreから取得
+ */
+export async function getDemoUserProfile(
+  userId: string
+): Promise<DemoUserProfile | null> {
+  try {
+    const firestore = await import('firebase/firestore');
+    const db = firestore.getFirestore();
+    const demoUserRef = firestore.doc(db, 'demo_users', userId);
+    const docSnap = await firestore.getDoc(demoUserRef);
+
+    if (docSnap.exists()) {
+      const data = docSnap.data() as Record<string, unknown>;
+      return {
+        jobTitle: (data.jobTitle as string) || '',
+        ageRange: (data.ageRange as string) || '',
+        position: (data.position as string) || '',
+        company: (data.company as string) || '',
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to get demo user profile:', error);
+    return null;
+  }
+}
+
 export function useFirebaseAuth() {
   const supported = useMemo(() => isConfigValid, []);
   const [state, setState] = useState<AuthState>({ user: null, ready: !supported, error: null });

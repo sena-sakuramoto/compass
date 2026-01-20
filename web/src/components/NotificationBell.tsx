@@ -14,6 +14,7 @@ import { useFirebaseAuth } from '../lib/firebaseClient';
 import { resolveApiBase } from '../lib/apiBase';
 
 const BASE_URL = resolveApiBase();
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
 interface ProjectInvitation {
   projectId: string;
@@ -41,7 +42,7 @@ export function NotificationBell() {
   const location = useLocation();
 
   useEffect(() => {
-    if (!user) {
+    if (!user || DEMO_MODE) {
       setUnreadCount(0);
       setInvitations([]);
       setNotifications([]);
