@@ -142,7 +142,7 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, 
       >
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b border-slate-200 px-6 py-[10px]">
-            <img src="/compass-logo.png" alt="Compass" className="h-6" />
+            <img src="/compass-logo.png" alt="Compass" className="h-[15px]" />
             <button
               onClick={() => setIsConfigMode((prev) => !prev)}
               className="rounded-lg p-2 transition hover:bg-slate-100"

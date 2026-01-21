@@ -56,8 +56,24 @@ export function NotificationBell() {
     };
 
     tick();
-    const interval = setInterval(tick, 30000);
-    return () => clearInterval(interval);
+    let interval = setInterval(tick, 60000);
+
+    // タブが非表示の間はポーリング停止（コスト削減）
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        clearInterval(interval);
+      } else {
+        tick(); // タブ復帰時に即座に更新
+        interval = setInterval(tick, 60000);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [user]);
 
   // 外部クリックで閉じる

@@ -304,7 +304,7 @@ function AppLayout({
                   : 'Firebase Auth が未設定です。ローカルデータとして表示しています。'}
               </div>
             </div>
-          ) : authReady && !user ? (
+          ) : authReady && !user && !DEMO_MODE ? (
             <div className="bg-slate-900 text-slate-100">
               <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2 text-xs">
                 <span>Google でサインインすると、Firestore にリアルタイム同期されます。</span>
@@ -322,29 +322,12 @@ function AppLayout({
             </div>
           ) : null}
         </header>
-        {offline ? (
-          <div className={`flex-shrink-0 border-b ${DEMO_MODE ? 'border-indigo-200 bg-gradient-to-r from-indigo-50 to-blue-50' : 'border-slate-200 bg-slate-100/80'}`}>
+        {offline && !DEMO_MODE ? (
+          <div className="flex-shrink-0 border-b border-slate-200 bg-slate-100/80">
             <div className="mx-auto max-w-7xl px-4 py-2">
-              {DEMO_MODE ? (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] text-indigo-700">
-                    デモモードで閲覧中です。追加・編集は可能ですが保存されず、リロードで初期状態に戻ります。
-                  </p>
-                  <a
-                    href="https://buy.stripe.com/eVa7w47Ei9SZ2uQcNv"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-indigo-600 to-blue-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm hover:from-indigo-700 hover:to-blue-700 transition"
-                  >
-                    <Rocket className="h-3 w-3" />
-                    正式版を購入 → AI×建築サークルに参加
-                  </a>
-                </div>
-              ) : (
-                <p className="text-[11px] text-slate-600">
-                  ローカルモードで閲覧中です。編集内容はブラウザに保存されます。
-                </p>
-              )}
+              <p className="text-[11px] text-slate-600">
+                ローカルモードで閲覧中です。編集内容はブラウザに保存されます。
+              </p>
             </div>
           </div>
         ) : null}
@@ -526,7 +509,7 @@ function HeaderActions({
         <FileSpreadsheet className="h-4 w-4" /> Excel読み込み
       </button>
       <div className="h-6 w-px bg-slate-200" />
-      {authSupported ? (
+      {authSupported && !DEMO_MODE ? (
         user ? (
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2">
@@ -556,9 +539,9 @@ function HeaderActions({
             Googleでサインイン
           </button>
         )
-      ) : (
+      ) : !DEMO_MODE ? (
         <span className="text-xs text-slate-400">Firebase Auth 未設定</span>
-      )}
+      ) : null}
       {!canSync ? (
         <span className="text-[11px] font-semibold text-slate-400">{DEMO_MODE ? 'デモモード' : 'ローカルモード'}</span>
       ) : null}
@@ -625,8 +608,8 @@ function BottomBar({
               </button>
             </div>
 
-            {/* サインインボタン */}
-            {authSupported && !user && (
+            {/* サインインボタン（デモモードでは非表示） */}
+            {authSupported && !user && !DEMO_MODE && (
               <button
                 type="button"
                 className="w-full flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
@@ -678,10 +661,10 @@ function BottomBar({
               </button>
             </div>
 
-            {/* メッセージ */}
+            {/* メッセージ（デモモードでは別メッセージ） */}
             {!canEdit && (
               <p className="text-center text-xs text-slate-500">
-                編集はローカル表示のみです。サインインすると同期されます。
+                {DEMO_MODE ? 'デモモードです。編集内容は保存されません。' : '編集はローカル表示のみです。サインインすると同期されます。'}
               </p>
             )}
             {authError && user && (
@@ -3276,6 +3259,20 @@ function App() {
     }
   }, [dismissToast]);
 
+  // デモモード: 初回だけトースト通知を表示
+  const demoToastShownRef = useRef(false);
+  useEffect(() => {
+    if (DEMO_MODE && !demoToastShownRef.current) {
+      demoToastShownRef.current = true;
+      pushToast({
+        tone: 'info',
+        title: 'デモモード',
+        description: '編集内容は保存されません。リロードで初期状態に戻ります。',
+        duration: 5000,
+      });
+    }
+  }, [pushToast]);
+
   const refreshBillingAccess = useCallback(async () => {
     // デモモードでは課金チェックをスキップ
     if (DEMO_MODE) {
@@ -5502,8 +5499,8 @@ function App() {
     );
   }
 
-  // 未認証
-  if (authSupported && !user) {
+  // 未認証（デモモードではスキップ）
+  if (authSupported && !user && !DEMO_MODE) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center max-w-md p-8 bg-white rounded-lg shadow-lg">
@@ -5842,20 +5839,8 @@ function App() {
     );
   }
 
-  // デモモード: ログインまたはプロフィール未完了の場合はログイン画面を表示
-  if (DEMO_MODE && authSupported && (!user || (demoProfileChecked && !demoProfile))) {
-    return (
-      <DemoLoginScreen
-        user={user}
-        authReady={authReady}
-        authSupported={authSupported}
-        onSignIn={signIn}
-        onProfileComplete={handleDemoProfileComplete}
-        profileLoading={demoProfileLoading}
-        existingProfile={demoProfile}
-      />
-    );
-  }
+  // デモモード: ログイン不要で直接アプリ表示（リード獲得はGA等で対応）
+  // ※ 以前はここでDemoLoginScreenを表示していたが、ログイン不要化のため削除
 
   return (
     <>

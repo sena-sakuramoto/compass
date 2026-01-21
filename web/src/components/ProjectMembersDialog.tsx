@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users } from 'lucide-react';
 import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, JobTitleType } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
-import { buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator } from '../lib/api';
+import { buildAuthHeaders, type Collaborator } from '../lib/api';
 import { getOrgKey, getOrgLabel } from '../lib/org-utils';
+import { useManageableUsers, useCollaborators, useInvalidateProjectMembers } from '../hooks/useProjectMembers';
 
 // 職種の選択肢
 const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
@@ -42,17 +43,32 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [manageableUsers, setManageableUsers] = useState<ManageableUserSummary[]>([]);
-  const [manageableLoading, setManageableLoading] = useState(false);
-  const [manageableLoaded, setManageableLoaded] = useState(false);
-  const [manageableError, setManageableError] = useState<string | null>(null);
   const [selectedCandidateId, setSelectedCandidateId] = useState('');
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
-  const [collaboratorsLoading, setCollaboratorsLoading] = useState(false);
-  const [collaboratorsLoaded, setCollaboratorsLoaded] = useState(false);
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('');
   const [candidateType, setCandidateType] = useState<'user' | 'collaborator'>('user');
   const [orgFilter, setOrgFilter] = useState('');
+
+  // React Query でキャッシュ（5分間有効、API呼び出し90%削減）
+  const {
+    data: manageableUsers = [],
+    isLoading: manageableLoading,
+    error: manageableQueryError,
+    refetch: refetchManageableUsers,
+  } = useManageableUsers(project.id, showInviteForm);
+
+  const {
+    data: collaborators = [],
+    isLoading: collaboratorsLoading,
+    refetch: refetchCollaborators,
+  } = useCollaborators(showInviteForm);
+
+  const { invalidateAll } = useInvalidateProjectMembers();
+
+  const manageableError = manageableQueryError
+    ? manageableQueryError instanceof Error && manageableQueryError.message.toLowerCase().includes('forbidden')
+      ? 'このプロジェクトのメンバーを管理する権限がありません。'
+      : '候補の取得に失敗しました。'
+    : null;
   const broadcastMemberUpdate = useCallback((members: ProjectMember[]) => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('project-members:updated', { detail: { projectId: project.id, members } }));
@@ -62,65 +78,6 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   useEffect(() => {
     loadMembers();
   }, [project.id]);
-
-  useEffect(() => {
-    if (showInviteForm) {
-      loadManageableUsers().catch(() => {
-        /* errors handled inside */
-      });
-      loadCollaborators().catch(() => {
-        /* errors handled inside */
-      });
-    }
-  }, [showInviteForm]);
-
-  const loadManageableUsers = async (force = false): Promise<void> => {
-    if (manageableLoading) return;
-    if (!force && manageableLoaded) return;
-    try {
-      setManageableLoading(true);
-      setManageableError(null);
-
-      const users = await listManageableProjectUsers(project.id);
-      setManageableUsers(users);
-      setManageableLoaded(true);
-
-      if (selectedCandidateId && !users.some(user => user.id === selectedCandidateId)) {
-        setSelectedCandidateId('');
-      }
-    } catch (err) {
-      console.error('Error loading manageable users:', err);
-      if (err instanceof Error && err.message.toLowerCase().includes('forbidden')) {
-        setManageableError('このプロジェクトのメンバーを管理する権限がありません。');
-      } else {
-        setManageableError('候補の取得に失敗しました。');
-      }
-      setManageableUsers([]);
-      setManageableLoaded(true);
-    } finally {
-      setManageableLoading(false);
-    }
-  };
-
-  const loadCollaborators = async (force = false): Promise<void> => {
-    if (collaboratorsLoading) return;
-    if (!force && collaboratorsLoaded) return;
-    try {
-      setCollaboratorsLoading(true);
-      const data = await listCollaborators();
-      setCollaborators(data.collaborators || []);
-      setCollaboratorsLoaded(true);
-
-      if (selectedCollaboratorId && !data.collaborators.some(c => c.id === selectedCollaboratorId)) {
-        setSelectedCollaboratorId('');
-      }
-    } catch (err) {
-      setCollaborators([]);
-      setCollaboratorsLoaded(true);
-    } finally {
-      setCollaboratorsLoading(false);
-    }
-  };
 
   const loadMembers = async () => {
     try {
@@ -278,8 +235,8 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         return next;
       });
 
-      await loadManageableUsers(true);
-      await loadCollaborators(true);
+      // キャッシュを更新
+      invalidateAll(project.id);
 
       setSuccess('メンバーを追加/招待しました');
       setInviteEmail('');
@@ -316,8 +273,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         return next;
       });
 
-      await loadManageableUsers(true);
-      await loadCollaborators(true);
+      invalidateAll(project.id);
       setSuccess('メンバーを削除しました');
     } catch (err) {
       console.error('Error removing member:', err);
@@ -608,8 +564,11 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       </label>
                       <button
                         type="button"
-                        onClick={() => loadManageableUsers(true)}
-                        disabled={manageableLoading}
+                        onClick={() => {
+                          refetchManageableUsers();
+                          refetchCollaborators();
+                        }}
+                        disabled={manageableLoading || collaboratorsLoading}
                         className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
                       >
                         再読み込み
