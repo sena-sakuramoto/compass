@@ -18,6 +18,11 @@ export interface OrgBillingDoc {
     productNames?: string[];
     priceIds?: string[];
   };
+  // 席数管理
+  seatLimit?: number | null;           // 契約席数（Stripeのquantityから同期、またはサークル特典）
+  isCircleMember?: boolean | null;     // サークル会員かどうか
+  circleBaseSeats?: number | null;     // サークル特典の基本席数（デフォルト3）
+  additionalSeats?: number | null;     // 追加購入席数（Stripeのquantity）
 }
 
 export interface OrgBillingRecord extends OrgBillingDoc {
@@ -397,6 +402,134 @@ export interface BillingAccessResult {
   reason: string;
   planType: BillingPlanType;
   details?: Record<string, unknown>;
+}
+
+// サークル会員の基本席数
+export const CIRCLE_BASE_SEATS = 3;
+
+// サークル商品名のパターン（部分一致）
+const CIRCLE_PRODUCT_PATTERNS = [
+  'サークル',
+  'circle',
+  'Circle',
+  'AI×建築',
+];
+
+/**
+ * サークル会員かどうかを判定
+ */
+export function isCircleMember(billingDoc: OrgBillingDoc | null): boolean {
+  if (!billingDoc) return false;
+
+  // 明示的にisCircleMemberが設定されている場合はそれを使用
+  if (billingDoc.isCircleMember !== null && billingDoc.isCircleMember !== undefined) {
+    return billingDoc.isCircleMember;
+  }
+
+  // productNamesからサークル商品を検出
+  const productNames = billingDoc.stripeSnapshot?.productNames || [];
+  return productNames.some(name =>
+    CIRCLE_PRODUCT_PATTERNS.some(pattern => name.includes(pattern))
+  );
+}
+
+/**
+ * 組織の席数上限を取得
+ * 優先順位：
+ * 1. 明示的に設定されたseatLimit
+ * 2. サークル会員の場合: circleBaseSeats + additionalSeats
+ * 3. Stripe課金の場合: additionalSeats（quantity）
+ * 4. デフォルト: null（member-limits.tsのプラン上限を使用）
+ */
+export function getSeatLimit(billingDoc: OrgBillingDoc | null): number | null {
+  if (!billingDoc) return null;
+
+  // 明示的にseatLimitが設定されている場合
+  if (billingDoc.seatLimit !== null && billingDoc.seatLimit !== undefined) {
+    return billingDoc.seatLimit;
+  }
+
+  // サークル会員の場合
+  if (isCircleMember(billingDoc)) {
+    const baseSeats = billingDoc.circleBaseSeats ?? CIRCLE_BASE_SEATS;
+    const additionalSeats = billingDoc.additionalSeats ?? 0;
+    return baseSeats + additionalSeats;
+  }
+
+  // Stripe課金でquantityがある場合
+  if (billingDoc.additionalSeats !== null && billingDoc.additionalSeats !== undefined) {
+    return billingDoc.additionalSeats;
+  }
+
+  return null;
+}
+
+/**
+ * 席数情報を取得（APIレスポンス用）
+ */
+export interface SeatInfo {
+  seatLimit: number | null;
+  isCircleMember: boolean;
+  circleBaseSeats: number;
+  additionalSeats: number;
+  source: 'explicit' | 'circle' | 'stripe' | 'plan_default';
+}
+
+export function getSeatInfo(billingDoc: OrgBillingDoc | null): SeatInfo {
+  if (!billingDoc) {
+    return {
+      seatLimit: null,
+      isCircleMember: false,
+      circleBaseSeats: CIRCLE_BASE_SEATS,
+      additionalSeats: 0,
+      source: 'plan_default',
+    };
+  }
+
+  const isCircle = isCircleMember(billingDoc);
+  const baseSeats = billingDoc.circleBaseSeats ?? CIRCLE_BASE_SEATS;
+  const additional = billingDoc.additionalSeats ?? 0;
+
+  // 明示的にseatLimitが設定されている場合
+  if (billingDoc.seatLimit !== null && billingDoc.seatLimit !== undefined) {
+    return {
+      seatLimit: billingDoc.seatLimit,
+      isCircleMember: isCircle,
+      circleBaseSeats: baseSeats,
+      additionalSeats: additional,
+      source: 'explicit',
+    };
+  }
+
+  // サークル会員の場合
+  if (isCircle) {
+    return {
+      seatLimit: baseSeats + additional,
+      isCircleMember: true,
+      circleBaseSeats: baseSeats,
+      additionalSeats: additional,
+      source: 'circle',
+    };
+  }
+
+  // Stripe課金でquantityがある場合
+  if (additional > 0) {
+    return {
+      seatLimit: additional,
+      isCircleMember: false,
+      circleBaseSeats: baseSeats,
+      additionalSeats: additional,
+      source: 'stripe',
+    };
+  }
+
+  return {
+    seatLimit: null,
+    isCircleMember: false,
+    circleBaseSeats: baseSeats,
+    additionalSeats: 0,
+    source: 'plan_default',
+  };
 }
 
 export function evaluateBillingAccess(user: User, billingDoc: OrgBillingDoc | null): BillingAccessResult {

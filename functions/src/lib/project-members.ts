@@ -536,7 +536,7 @@ export async function listUserProjects(
 
   const explicitProjects: Array<{ projectId: string; member: ProjectMember; docId?: string }> = [];
   const explicitMemberDocIds = new Set<string>();
-  const memberDocUpdates = new Map<string, FirebaseFirestore.UpdateData>();
+  const memberDocUpdates = new Map<string, FirebaseFirestore.UpdateData<any>>();
 
   for (const memberDoc of membersSnapshot.docs) {
     const member = memberDoc.data() as ProjectMember;
@@ -565,7 +565,7 @@ export async function listUserProjects(
       explicitMemberDocIds.add(memberDoc.id);
 
       if (member.userId !== userId) {
-        const updates: FirebaseFirestore.UpdateData = {
+        const updates: FirebaseFirestore.UpdateData<any> = {
           userId,
           updatedAt: Timestamp.now(),
         };

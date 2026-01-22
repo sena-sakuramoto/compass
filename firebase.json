@@ -3,29 +3,54 @@
     "source": "functions",
     "runtime": "nodejs20"
   },
-  "hosting": {
-    "site": "compass-31e9e",
-    "public": "web/dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "headers": [
-      {
-        "source": "**/*.@(js|css)",
-        "headers": [
-          { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
-        ]
-      }
-    ],
-    "rewrites": [
-      {
-        "source": "/api/**",
-        "run": {
-          "serviceId": "api",
-          "region": "asia-northeast1"
+  "hosting": [
+    {
+      "site": "compass-31e9e",
+      "public": "web/dist",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "headers": [
+        {
+          "source": "**/*.@(js|css)",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+          ]
         }
-      },
-      { "source": "**", "destination": "/index.html" }
-    ]
-  },
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "api",
+            "region": "asia-northeast1"
+          }
+        },
+        { "source": "**", "destination": "/index.html" }
+      ]
+    },
+    {
+      "site": "compass-demo",
+      "public": "web/dist",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "headers": [
+        {
+          "source": "**/*.@(js|css)",
+          "headers": [
+            { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+          ]
+        }
+      ],
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "api",
+            "region": "asia-northeast1"
+          }
+        },
+        { "source": "**", "destination": "/index.html" }
+      ]
+    }
+  ],
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"

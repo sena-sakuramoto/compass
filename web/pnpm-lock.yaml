@@ -26,6 +26,9 @@ importers:
       framer-motion:
         specifier: ^10.18.0
         version: 10.18.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      idb-keyval:
+        specifier: ^6.2.2
+        version: 6.2.2
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@18.3.1)
@@ -41,6 +44,9 @@ importers:
       react-hot-toast:
         specifier: ^2.6.0
         version: 2.6.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      react-resizable-panels:
+        specifier: ^4.3.0
+        version: 4.4.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-router-dom:
         specifier: ^6.25.1
         version: 6.30.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1079,6 +1085,9 @@ packages:
   http-parser-js@0.5.10:
     resolution: {integrity: sha512-Pysuw9XpUq5dVc/2SMHpuTY01RFl8fttgcyunjL7eEMhGM3cI4eOmiCycJDVCo/7O7ClfQD3SaI6ftDzqOXYMA==}
 
+  idb-keyval@6.2.2:
+    resolution: {integrity: sha512-yjD9nARJ/jb1g+CvD0tlhUHOrJ9Sy0P8T9MF3YaLlHnSRpwPfpTX0XIvpmw3gAJUmEu3FiICLBDPXVwyEvrleg==}
+
   idb@7.1.1:
     resolution: {integrity: sha512-gchesWBzyvGHRO9W8tzUWFDycow5gwjvFKfyV9FF32Y7F50yZMp7mP+T2mJIWFx49zicqyC4uefHM17o6xKIVQ==}
 
@@ -1299,6 +1308,12 @@ packages:
   react-refresh@0.17.0:
     resolution: {integrity: sha512-z6F7K9bV85EfseRCp2bzrpyQ0Gkw1uLoCel9XBVWPg/TjRj94SkJzUTGfOa4bs7iJvBWtQG0Wq7wnI0syw3EBQ==}
     engines: {node: '>=0.10.0'}
+
+  react-resizable-panels@4.4.1:
+    resolution: {integrity: sha512-dpM9oI6rGlAq7VYDeafSRA1JmkJv8aNuKySR+tZLQQLfaeqTnQLSM52EcoI/QdowzsjVUCk6jViKS0xHWITVRQ==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
 
   react-router-dom@6.30.2:
     resolution: {integrity: sha512-l2OwHn3UUnEVUqc6/1VMmR1cvZryZ3j3NzapC2eUXO1dB0sYp5mvwdjiXhpUbRb21eFow3qSxpP8Yv6oAU824Q==}
@@ -2584,6 +2599,8 @@ snapshots:
 
   http-parser-js@0.5.10: {}
 
+  idb-keyval@6.2.2: {}
+
   idb@7.1.1: {}
 
   internmap@2.0.3: {}
@@ -2761,6 +2778,11 @@ snapshots:
   react-is@18.3.1: {}
 
   react-refresh@0.17.0: {}
+
+  react-resizable-panels@4.4.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   react-router-dom@6.30.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:

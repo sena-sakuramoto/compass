@@ -43,7 +43,23 @@ export const syncStripeCustomers = onDocumentWritten(
       console.log('[billing] No org billing doc for customer', customerId);
     } else {
       const subscription = (after.subscription as Record<string, unknown> | undefined) ?? {};
-      const updates = {
+
+      // quantityを取得（席数として使用）
+      // Stripeのサブスクリプションアイテムからquantityを取得
+      const items = (subscription.items as Record<string, unknown> | undefined);
+      const itemsData = (items?.data as Array<Record<string, unknown>> | undefined) ?? [];
+      const quantity = itemsData.length > 0
+        ? (itemsData[0].quantity as number | undefined) ?? null
+        : (after.quantity ?? subscription.quantity ?? null) as number | null;
+
+      // サークル会員かどうかを判定（商品名で判定）
+      const productNames = (after.productNames || []) as string[];
+      const CIRCLE_PRODUCT_PATTERNS = ['サークル', 'circle', 'Circle', 'AI×建築'];
+      const isCircleMember = productNames.some(name =>
+        CIRCLE_PRODUCT_PATTERNS.some(pattern => name.includes(pattern))
+      );
+
+      const updates: Record<string, any> = {
         subscriptionStatus: (after.status ?? after.subscriptionStatus ?? subscription.status ?? null) as string | null,
         subscriptionCurrentPeriodEnd:
           (after.currentPeriodEnd ?? after.subscriptionCurrentPeriodEnd ?? subscription.currentPeriodEnd ?? null) as number | null,
@@ -57,10 +73,25 @@ export const syncStripeCustomers = onDocumentWritten(
         entitled: (after.entitled ?? subscription.entitled ?? null) as boolean | null,
         lastStripeSyncAt: Date.now(),
         stripeSnapshot: {
-          productNames: after.productNames || [],
+          productNames: productNames,
           priceIds: after.priceIds || [],
         },
+        // 席数関連
+        isCircleMember: isCircleMember,
       };
+
+      // サークル会員の場合
+      if (isCircleMember) {
+        updates.circleBaseSeats = 3; // サークル特典の基本席数
+        updates.additionalSeats = quantity !== null ? Math.max(0, quantity - 1) : 0; // quantity=1が基本、それ以上が追加席
+        updates.seatLimit = 3 + updates.additionalSeats;
+      } else if (quantity !== null) {
+        // 通常課金の場合、quantityをそのまま席数として使用
+        updates.additionalSeats = quantity;
+        updates.seatLimit = quantity;
+      }
+
+      console.log('[billing] Syncing org billing', { customerId, updates });
       await Promise.all(query.docs.map((doc) => doc.ref.set(updates, { merge: true })));
     }
 

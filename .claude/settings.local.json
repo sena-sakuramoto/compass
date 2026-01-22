@@ -117,7 +117,13 @@
       "Bash(firebase hosting:sites:list:*)",
       "WebFetch(domain:compass-31e9e.web.app)",
       "Bash(gh issue create:*)",
-      "Bash(git stash drop:*)"
+      "Bash(git stash drop:*)",
+      "Bash(git -C \"D:\\\\senaa_dev\\\\compass\" log --oneline -15)",
+      "Bash(git -C \"D:\\\\senaa_dev\\\\compass\" show c297c2d --stat)",
+      "Bash(git -C \"D:\\\\senaa_dev\\\\compass\" show c297c2d)",
+      "Bash(pnpm run build:demo:*)",
+      "Bash(firebase functions:secrets:set:*)",
+      "Bash(pnpm dev:demo:*)"
     ],
     "deny": [],
     "ask": []

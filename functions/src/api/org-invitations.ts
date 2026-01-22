@@ -314,6 +314,7 @@ router.get('/stats', async (req: any, res, next) => {
         max: limits.maxMembers,
         available: limits.maxMembers - counts.members,
       },
+      seatInfo: limits.seatInfo || null,
     });
   } catch (err) {
     next(err);

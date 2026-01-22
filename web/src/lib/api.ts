@@ -697,6 +697,37 @@ export async function createBillingPortalSession(returnUrl?: string) {
   });
 }
 
+// 席数情報
+export interface SeatInfo {
+  seatLimit: number | null;
+  isCircleMember: boolean;
+  circleBaseSeats: number;
+  additionalSeats: number;
+  source: 'explicit' | 'circle' | 'stripe' | 'plan_default';
+}
+
+export interface SeatUsageInfo {
+  current: number;
+  max: number;
+  remaining: number;
+  canAddMore: boolean;
+  seatInfo: SeatInfo;
+  canManageSeats: boolean;
+  // トライアル情報
+  isTrialing?: boolean;
+  trialDaysRemaining?: number | null;
+}
+
+// トライアル情報も含めた課金アクセス情報の拡張
+export interface BillingAccessWithTrialInfo extends BillingAccessInfo {
+  isTrialing?: boolean;
+  trialDaysRemaining?: number | null;
+}
+
+export async function getSeatUsage() {
+  return request<SeatUsageInfo>('/billing/seats');
+}
+
 export async function listStripeLiveSubscriptions() {
   return request<{ subscriptions: StripeLiveSubscription[] }>('/billing/stripe-live/subscriptions');
 }

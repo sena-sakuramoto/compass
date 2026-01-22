@@ -5,6 +5,7 @@
 import { db } from './firestore';
 import type { Organization, SubscriptionPlan } from './auth-types';
 import { PLAN_LIMITS } from './auth-types';
+import { getOrgBilling, getSeatLimit, getSeatInfo, type SeatInfo } from './billing';
 
 const PLAN_OVERRIDES: Record<string, SubscriptionPlan> = {
   'archi-prisma': 'business',
@@ -39,10 +40,28 @@ export async function getMemberCounts(orgId: string): Promise<{
 
 /**
  * 組織の上限設定を取得（プラン対応）
+ * 優先順位：
+ * 1. org_billing.seatLimit（Stripeから同期した席数）
+ * 2. org.limits.maxMembers（カスタム上限）
+ * 3. PLAN_LIMITS[plan].members（プランのデフォルト上限）
  */
 export async function getOrganizationLimits(orgId: string): Promise<{
   maxMembers: number;
+  seatInfo?: SeatInfo;
 }> {
+  // まずorg_billingから席数を取得
+  const billingDoc = await getOrgBilling(orgId);
+  const seatLimit = getSeatLimit(billingDoc);
+  const seatInfo = getSeatInfo(billingDoc);
+
+  // seatLimitが設定されている場合はそれを使用
+  if (seatLimit !== null) {
+    return {
+      maxMembers: seatLimit,
+      seatInfo,
+    };
+  }
+
   const orgDoc = await db.collection('orgs').doc(orgId).get();
 
   if (!orgDoc.exists) {
@@ -55,6 +74,7 @@ export async function getOrganizationLimits(orgId: string): Promise<{
   if (org.limits) {
     return {
       maxMembers: org.limits.maxMembers,
+      seatInfo,
     };
   }
 
@@ -65,6 +85,7 @@ export async function getOrganizationLimits(orgId: string): Promise<{
 
   return {
     maxMembers: planLimits.members,
+    seatInfo,
   };
 }
 
@@ -78,6 +99,7 @@ export async function canAddMember(
   reason?: string;
   current: number;
   max: number;
+  seatInfo?: SeatInfo;
 }> {
   const counts = await getMemberCounts(orgId);
   const limits = await getOrganizationLimits(orgId);
@@ -88,6 +110,36 @@ export async function canAddMember(
     reason: canAdd ? undefined : `メンバー数が上限（${limits.maxMembers}人）に達しています`,
     current: counts.members,
     max: limits.maxMembers,
+    seatInfo: limits.seatInfo,
+  };
+}
+
+/**
+ * 組織の席数利用状況を取得（API用）
+ */
+export async function getSeatUsage(orgId: string): Promise<{
+  current: number;
+  max: number;
+  remaining: number;
+  seatInfo: SeatInfo;
+  canAddMore: boolean;
+}> {
+  const counts = await getMemberCounts(orgId);
+  const limits = await getOrganizationLimits(orgId);
+  const seatInfo = limits.seatInfo || {
+    seatLimit: null,
+    isCircleMember: false,
+    circleBaseSeats: 3,
+    additionalSeats: 0,
+    source: 'plan_default' as const,
+  };
+
+  return {
+    current: counts.members,
+    max: limits.maxMembers,
+    remaining: Math.max(0, limits.maxMembers - counts.members),
+    seatInfo,
+    canAddMore: counts.members < limits.maxMembers,
   };
 }
 

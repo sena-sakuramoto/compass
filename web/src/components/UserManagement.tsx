@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { listUsers, updateUser, deactivateUser, activateUser, deleteUser, type User, listClients, createClient, updateClient, deleteClient, type Client, listCollaborators, createCollaborator, updateCollaborator, deleteCollaborator, type Collaborator } from '../lib/api';
+import { listUsers, updateUser, deactivateUser, activateUser, deleteUser, type User, listClients, createClient, updateClient, deleteClient, type Client, listCollaborators, createCollaborator, updateCollaborator, deleteCollaborator, type Collaborator, getSeatUsage, createBillingPortalSession, type SeatUsageInfo } from '../lib/api';
 import { ROLE_LABELS } from '../lib/auth-types';
 import { OrgMemberInvitationModal } from './OrgMemberInvitationModal';
 import { UserEditModal } from './UserEditModal';
 import type { Project } from '../lib/types';
-import { Building2, Plus, Trash2, Check, X, Users, Pencil, Mail } from 'lucide-react';
+import { Building2, Plus, Trash2, Check, X, Users, Pencil, Mail, UserPlus, ExternalLink, AlertCircle, Clock } from 'lucide-react';
 
 interface UserManagementProps {
   projects?: Project[];
@@ -35,11 +35,17 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   const [editingCollaboratorEmail, setEditingCollaboratorEmail] = useState('');
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
 
+  // 席数関連
+  const [seatUsage, setSeatUsage] = useState<SeatUsageInfo | null>(null);
+  const [seatLoading, setSeatLoading] = useState(true);
+  const [portalLoading, setPortalLoading] = useState(false);
+
   useEffect(() => {
     loadUsers();
     loadClients();
     loadCollaborators();
     loadCurrentUser();
+    loadSeatUsage();
   }, []);
 
   useEffect(() => {
@@ -73,6 +79,33 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
       }
     } catch (err) {
       console.error('Failed to load current user:', err);
+    }
+  }
+
+  async function loadSeatUsage() {
+    try {
+      setSeatLoading(true);
+      const data = await getSeatUsage();
+      setSeatUsage(data);
+    } catch (err) {
+      console.error('Failed to load seat usage:', err);
+    } finally {
+      setSeatLoading(false);
+    }
+  }
+
+  async function handleOpenBillingPortal() {
+    try {
+      setPortalLoading(true);
+      const result = await createBillingPortalSession(window.location.href);
+      if (result.url) {
+        window.open(result.url, '_blank');
+      }
+    } catch (err) {
+      console.error('Failed to open billing portal:', err);
+      setError('Stripeポータルを開けませんでした。管理者にお問い合わせください。');
+    } finally {
+      setPortalLoading(false);
     }
   }
 
@@ -397,6 +430,70 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
           メンバーを招待
         </button>
       </div>
+
+      {/* 席数情報 */}
+      {!seatLoading && seatUsage && (
+        <div className="bg-gradient-to-r from-slate-50 to-slate-100 border border-slate-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-slate-600" />
+                <span className="text-sm font-medium text-slate-700">契約席数</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className={`text-2xl font-bold ${seatUsage.remaining <= 0 ? 'text-rose-600' : seatUsage.remaining <= 2 ? 'text-amber-600' : 'text-slate-900'}`}>
+                  {seatUsage.current}
+                </span>
+                <span className="text-slate-500">/</span>
+                <span className="text-xl font-semibold text-slate-700">{seatUsage.max}</span>
+                <span className="text-sm text-slate-500 ml-1">席</span>
+              </div>
+              {seatUsage.remaining <= 0 && (
+                <div className="flex items-center gap-1 text-rose-600 text-sm">
+                  <AlertCircle className="w-4 h-4" />
+                  <span>上限に達しています</span>
+                </div>
+              )}
+              {seatUsage.remaining > 0 && seatUsage.remaining <= 2 && (
+                <div className="flex items-center gap-1 text-amber-600 text-sm">
+                  <AlertCircle className="w-4 h-4" />
+                  <span>残り{seatUsage.remaining}席</span>
+                </div>
+              )}
+              {seatUsage.seatInfo.isCircleMember && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                  サークル会員（特典{seatUsage.seatInfo.circleBaseSeats}席）
+                </span>
+              )}
+              {seatUsage.isTrialing && seatUsage.trialDaysRemaining !== null && (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  <Clock className="w-3 h-3" />
+                  トライアル残り{seatUsage.trialDaysRemaining}日
+                </span>
+              )}
+            </div>
+            {seatUsage.canManageSeats && (
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  onClick={handleOpenBillingPortal}
+                  disabled={portalLoading}
+                  className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  {portalLoading ? '読込中...' : '席を追加'}
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+                <span className="text-xs text-slate-500">追加分は日割りで即時課金されます</span>
+              </div>
+            )}
+          </div>
+          {seatUsage.seatInfo.source === 'circle' && seatUsage.seatInfo.additionalSeats > 0 && (
+            <div className="mt-2 text-xs text-slate-500">
+              内訳: サークル特典 {seatUsage.seatInfo.circleBaseSeats}席 + 追加購入 {seatUsage.seatInfo.additionalSeats}席
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ユーザー一覧 */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">

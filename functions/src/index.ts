@@ -161,6 +161,9 @@ export { firestoreBackup };
 
 export { syncStripeCustomers } from './stripeTriggers';
 
+// Stripe Webhook
+export { stripeWebhook } from './stripeWebhook';
+
 // 管理者用: ユーザーデータ完全削除
 export { adminDeleteUser } from './admin-delete-user';
 

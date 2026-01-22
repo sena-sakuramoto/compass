@@ -17,7 +17,9 @@ import {
   listStripeSubscribers,
   type StripeCustomerRecord,
   serializeStripeCustomer,
+  getSeatInfo,
 } from '../lib/billing';
+import { getSeatUsage } from '../lib/member-limits';
 import { db } from '../lib/firestore';
 import { sendEmail } from '../lib/gmail';
 
@@ -35,6 +37,17 @@ router.get('/billing/access', async (req: any, res) => {
   }
   const billingDoc = await getOrgBilling(user.orgId);
   const result = evaluateBillingAccess(user, billingDoc);
+
+  // トライアル情報を計算
+  const isTrialing = billingDoc?.subscriptionStatus === 'trialing';
+  let trialDaysRemaining: number | null = null;
+  if (isTrialing && billingDoc?.subscriptionCurrentPeriodEnd) {
+    const now = Date.now();
+    const endMs = billingDoc.subscriptionCurrentPeriodEnd * 1000; // Unix timestamp (seconds) to ms
+    const remainingMs = endMs - now;
+    trialDaysRemaining = Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24)));
+  }
+
   res.json({
     allowed: result.allowed,
     reason: result.reason,
@@ -45,7 +58,52 @@ router.get('/billing/access', async (req: any, res) => {
     entitled: billingDoc?.entitled ?? null,
     lastStripeSyncAt: billingDoc?.lastStripeSyncAt ?? null,
     details: result.details ?? null,
+    // トライアル情報
+    isTrialing,
+    trialDaysRemaining,
   });
+});
+
+/**
+ * 席数利用状況を取得
+ * 一般ユーザーも自分の組織の席数を確認できる
+ */
+router.get('/billing/seats', async (req: any, res) => {
+  const user = await getUser(req.uid);
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
+
+  try {
+    const seatUsage = await getSeatUsage(user.orgId);
+    const billingDoc = await getOrgBilling(user.orgId);
+
+    // トライアル情報を計算
+    const isTrialing = billingDoc?.subscriptionStatus === 'trialing';
+    let trialDaysRemaining: number | null = null;
+    if (isTrialing && billingDoc?.subscriptionCurrentPeriodEnd) {
+      const now = Date.now();
+      const endMs = billingDoc.subscriptionCurrentPeriodEnd * 1000;
+      const remainingMs = endMs - now;
+      trialDaysRemaining = Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24)));
+    }
+
+    res.json({
+      current: seatUsage.current,
+      max: seatUsage.max,
+      remaining: seatUsage.remaining,
+      canAddMore: seatUsage.canAddMore,
+      seatInfo: seatUsage.seatInfo,
+      // Stripeポータルで席追加可能かどうか
+      canManageSeats: billingDoc?.planType === 'stripe' && !!billingDoc?.stripeCustomerId,
+      // トライアル情報
+      isTrialing,
+      trialDaysRemaining,
+    });
+  } catch (error: any) {
+    console.error('[billing] Failed to get seat usage', error);
+    res.status(500).json({ error: '席数情報の取得に失敗しました' });
+  }
 });
 
 router.get('/billing', async (req: any, res) => {
@@ -733,6 +791,7 @@ router.post('/billing/:orgId/sync', async (req: any, res) => {
     let entitled = false;
     let currentPeriodEnd: number | null = null;
     let cancelAtPeriodEnd = false;
+    let quantity: number | null = null;
     const productNames: string[] = [];
     const priceIds: string[] = [];
 
@@ -742,8 +801,12 @@ router.post('/billing/:orgId/sync', async (req: any, res) => {
       cancelAtPeriodEnd = activeSubscription.cancel_at_period_end || false;
       entitled = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
 
-      // 商品情報を取得
+      // 商品情報とquantityを取得
       for (const item of activeSubscription.items.data) {
+        // quantity（席数）を取得
+        if (item.quantity && quantity === null) {
+          quantity = item.quantity;
+        }
         if (item.price?.product) {
           const productId = typeof item.price.product === 'string'
             ? item.price.product
@@ -784,6 +847,7 @@ router.post('/billing/:orgId/sync', async (req: any, res) => {
       entitled,
       productNames,
       priceIds,
+      quantity,  // 席数
       updatedAt: Date.now(),
     }, { merge: true });
 

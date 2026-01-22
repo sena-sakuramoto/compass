@@ -1,18 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { normalizeSnapshot, SAMPLE_SNAPSHOT } from '../lib/normalize';
+import { normalizeSnapshot, SAMPLE_SNAPSHOT, shiftSnapshotDates } from '../lib/normalize';
 import { todayString } from '../lib/date';
 import type { CompassState, SnapshotPayload } from '../lib/types';
 
 const LOCAL_KEY = 'apdw_compass_snapshot_v1';
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
 export function useSnapshot() {
   const [state, setState] = useState<CompassState>(() => {
-    // 一時的にローカルストレージをクリアしてサンプルデータを使用
-    // TODO: 本番では以下の2行を削除
-    localStorage.removeItem(LOCAL_KEY);
-
-    if (typeof window === 'undefined') {
-      const normalized = normalizeSnapshot(SAMPLE_SNAPSHOT);
+    const sourceSnapshot = DEMO_MODE ? shiftSnapshotDates(SAMPLE_SNAPSHOT) : SAMPLE_SNAPSHOT;
+    const normalized = normalizeSnapshot(sourceSnapshot);
+    if (typeof window === 'undefined' || DEMO_MODE) {
       return {
         projects: normalized.projects,
         tasks: normalized.tasks,
@@ -23,17 +21,16 @@ export function useSnapshot() {
       const cached = localStorage.getItem(LOCAL_KEY);
       if (cached) {
         const parsed = JSON.parse(cached) as SnapshotPayload;
-        const normalized = normalizeSnapshot(parsed);
+        const restored = normalizeSnapshot(parsed);
         return {
-          projects: normalized.projects,
-          tasks: normalized.tasks,
-          people: normalized.people,
+          projects: restored.projects,
+          tasks: restored.tasks,
+          people: restored.people,
         };
       }
     } catch (err) {
       console.warn('Failed to load cached snapshot', err);
     }
-    const normalized = normalizeSnapshot(SAMPLE_SNAPSHOT);
     return {
       projects: normalized.projects,
       tasks: normalized.tasks,
@@ -102,7 +99,7 @@ export function useSnapshot() {
   }, [history, historyIndex]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || DEMO_MODE) return;
     localStorage.setItem(
       LOCAL_KEY,
       JSON.stringify({
