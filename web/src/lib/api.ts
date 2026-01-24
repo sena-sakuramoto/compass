@@ -549,6 +549,13 @@ export interface BillingAccessInfo {
   entitled?: boolean | null;
   lastStripeSyncAt?: number | null;
   details?: Record<string, unknown> | null;
+  // トライアル情報
+  isTrialing?: boolean;
+  trialDaysRemaining?: number | null;
+  // トライアル終了・閲覧のみモード
+  trialExpired?: boolean;
+  readOnlyMode?: boolean;
+  canEdit?: boolean;
 }
 
 export interface OrgBillingRecord {

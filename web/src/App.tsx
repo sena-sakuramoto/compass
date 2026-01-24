@@ -75,6 +75,7 @@ import { HelpPage } from './pages/HelpPage';
 import { AdminPage } from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
 import BillingGateOverlay from './components/BillingGateOverlay';
+import TrialExpiredModal from './components/TrialExpiredModal';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage, CompassState } from './lib/types';
@@ -168,6 +169,8 @@ import { SummaryCard } from './components/Charts/SummaryCard';
 import { WorkloadChart, WorkloadTimelineChart } from './components/Charts/WorkloadCharts';
 import { useSnapshot } from './hooks/useSnapshot';
 import { useRemoteData } from './hooks/useRemoteData';
+
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true' || window.location.hostname === 'compass-demo.web.app';
 
 type ToastInput = {
   tone: ToastMessage['tone'];
@@ -296,12 +299,10 @@ function AppLayout({
               ))}
             </nav>
           </div>
-          {!authSupported ? (
+          {!authSupported && !DEMO_MODE ? (
             <div className="bg-amber-50 text-amber-700">
               <div className="mx-auto max-w-6xl px-4 py-2 text-xs">
-                {DEMO_MODE
-                  ? 'デモモードで表示しています。追加・編集は可能ですが保存されず、リロードで初期状態に戻ります。'
-                  : 'Firebase Auth が未設定です。ローカルデータとして表示しています。'}
+                Firebase Auth が未設定です。ローカルデータとして表示しています。
               </div>
             </div>
           ) : authReady && !user && !DEMO_MODE ? (
@@ -3043,7 +3044,6 @@ const isProjectInUserScope = (project: Project, identity: FocusIdentity, members
 
 const EMPTY_PROJECT_MEMBERS: ProjectMember[] = [];
 const EMPTY_PROJECT_STAGES: Task[] = [];
-const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 
 function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
@@ -3092,6 +3092,7 @@ function App() {
     }
   });
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
+  const userToggledExpandRef = useRef(false); // ユーザーが手動で展開状態を変更したかどうか
   const [projectSort, setProjectSort] = useState<ProjectSortKey>('due');
   const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [printPanelOpen, setPrintPanelOpen] = useState(false);
@@ -3345,6 +3346,13 @@ function App() {
     refreshBillingAccess();
   }, [authReady, user, refreshBillingAccess]);
 
+  // トライアル終了時にモーダルを表示
+  useEffect(() => {
+    if (billingAccess?.trialExpired) {
+      setShowTrialExpiredModal(true);
+    }
+  }, [billingAccess?.trialExpired]);
+
   // 工程編集後にタスクを再読み込みする
   const reloadTasks = useCallback(async () => {
     try {
@@ -3373,7 +3381,15 @@ function App() {
     !DEMO_MODE && authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
   );
 
-  const canEdit = true;
+  // トライアル終了モーダル表示状態
+  const [showTrialExpiredModal, setShowTrialExpiredModal] = useState(false);
+
+  // canEdit を billingAccess に基づいて動的に決定
+  const canEdit = useMemo(() => {
+    if (DEMO_MODE) return true;
+    if (!billingAccess) return true; // ロード中は編集可能（UX改善）
+    return billingAccess.canEdit ?? !billingAccess.readOnlyMode;
+  }, [billingAccess]);
 
   useEffect(() => {
     if (!canSync) return;
@@ -3831,8 +3847,10 @@ function App() {
   const myProjectsFilterActive = projectFilterHasMy && focusUserProjectsReady;
 
   // 「自分参加のみ」フィルタが有効になったら、そのプロジェクトだけ展開
+  // ※ユーザーが手動で展開状態を変更した後は自動展開しない
   const myProjectsExpandAppliedRef = useRef(false);
   useEffect(() => {
+    if (userToggledExpandRef.current) return; // 最優先: ユーザー操作後は何もしない
     if (!myProjectsFilterActive) {
       myProjectsExpandAppliedRef.current = false;
       return;
@@ -4031,6 +4049,7 @@ function App() {
   }, [user, canSync]);
 
   useEffect(() => {
+    if (userToggledExpandRef.current) return; // 最優先: ユーザー操作後は自動展開しない
     if (!focusIdentity) return;
     if (focusAppliedRef.current) return;
     if (loading) return;
@@ -4060,6 +4079,7 @@ function App() {
   ]);
 
   useEffect(() => {
+    if (userToggledExpandRef.current) return; // 最優先: ユーザー操作後は自動展開しない
     if (!focusIdentity) return;
     if (!focusAutoFilterActiveRef.current) return;
     if (assigneeFilter.length > 0 || statusFilter.length > 0 || (search ?? '').trim()) {
@@ -4289,8 +4309,10 @@ function App() {
     }
     if (hasMyOnly) {
       setProjectFilter([MY_PROJECTS_FILTER_VALUE]);
-      // 自分参加のプロジェクトだけ展開
-      setExpandedProjectIds(new Set(focusProjectIds));
+      // 自分参加のプロジェクトだけ展開（ユーザーが手動で変更していなければ）
+      if (!userToggledExpandRef.current) {
+        setExpandedProjectIds(new Set(focusProjectIds));
+      }
       return;
     }
     setProjectFilter(nextValues);
@@ -4305,17 +4327,20 @@ function App() {
 
   // 折畳/展開ハンドラ
   const handleCollapseAll = useCallback(() => {
+    userToggledExpandRef.current = true;
     setExpandedProjectIds(new Set());
   }, []);
 
   const handleExpandAll = useCallback(() => {
+    userToggledExpandRef.current = true;
     const allProjectIds = new Set(filteredTasksWithStages.map(task => task.projectId).filter(Boolean) as string[]);
     setExpandedProjectIds(allProjectIds);
   }, [filteredTasksWithStages]);
 
-  // 初回マウント時にすべて展開
+  // 初回マウント時にすべて展開（ユーザーが手動で変更していなければ）
   const initialExpandDoneRef = useRef(false);
   useEffect(() => {
+    if (userToggledExpandRef.current) return; // ユーザーが手動で変更したら自動展開しない
     if (!initialExpandDoneRef.current && filteredTasksWithStages.length > 0) {
       const allProjectIds = new Set(filteredTasksWithStages.map(task => task.projectId).filter(Boolean) as string[]);
       setExpandedProjectIds(allProjectIds);
@@ -5487,8 +5512,8 @@ function App() {
     [emailAuthInput, signIn, signUpWithEmail]
   );
 
-  // 認証準備中
-  if (!authReady) {
+  // 認証準備中（デモモードではスキップ）
+  if (!authReady && !DEMO_MODE) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -5928,6 +5953,7 @@ function App() {
                 user={user}
                 expandedProjectIds={expandedProjectIds}
                 onToggleProject={(projectId) => {
+                  userToggledExpandRef.current = true;
                   setExpandedProjectIds(prev => {
                     const newSet = new Set(prev);
                     if (newSet.has(projectId)) {
@@ -6055,6 +6081,7 @@ function App() {
                 user={user}
                 expandedProjectIds={expandedProjectIds}
                 onToggleProject={(projectId) => {
+                  userToggledExpandRef.current = true;
                   setExpandedProjectIds(prev => {
                     const newSet = new Set(prev);
                     if (newSet.has(projectId)) {
@@ -6149,6 +6176,20 @@ function App() {
         <DangerTasksModal tasks={dangerModalTasks} onClose={handleCloseDangerModal} />
       )}
       <BillingGateOverlay billing={billingAccess} loading={billingChecking} onRetry={refreshBillingAccess} />
+      {showTrialExpiredModal && (
+        <TrialExpiredModal onClose={() => setShowTrialExpiredModal(false)} />
+      )}
+      {/* デモモード: トライアル開始CTA */}
+      {DEMO_MODE && (
+        <a
+          href="https://stripe-discord-pro-417218426761.asia-northeast1.run.app/compass"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-6 right-24 z-[1000] flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-slate-800 transition-all"
+        >
+          14日間無料で始める →
+        </a>
+      )}
     </>
   );
 }

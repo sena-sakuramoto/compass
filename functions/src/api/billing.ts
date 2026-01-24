@@ -39,7 +39,8 @@ router.get('/billing/access', async (req: any, res) => {
   const result = evaluateBillingAccess(user, billingDoc);
 
   // トライアル情報を計算
-  const isTrialing = billingDoc?.subscriptionStatus === 'trialing';
+  const subscriptionStatus = billingDoc?.subscriptionStatus ?? null;
+  const isTrialing = subscriptionStatus === 'trialing';
   let trialDaysRemaining: number | null = null;
   if (isTrialing && billingDoc?.subscriptionCurrentPeriodEnd) {
     const now = Date.now();
@@ -48,11 +49,23 @@ router.get('/billing/access', async (req: any, res) => {
     trialDaysRemaining = Math.max(0, Math.ceil(remainingMs / (1000 * 60 * 60 * 24)));
   }
 
+  // トライアル終了・閲覧のみモード判定
+  const trialExpired = isTrialing && trialDaysRemaining === 0;
+  const readOnlyMode = trialExpired ||
+    subscriptionStatus === 'canceled' ||
+    subscriptionStatus === 'past_due';
+
+  // 編集可能かどうか（super_admin / enterprise_manual / special_admin は常に編集可能）
+  const canEdit = !readOnlyMode ||
+    user.role === 'super_admin' ||
+    result.planType === 'enterprise_manual' ||
+    result.planType === 'special_admin';
+
   res.json({
     allowed: result.allowed,
     reason: result.reason,
     planType: result.planType,
-    subscriptionStatus: billingDoc?.subscriptionStatus ?? null,
+    subscriptionStatus,
     stripeCustomerId: billingDoc?.stripeCustomerId ?? null,
     notes: billingDoc?.notes ?? null,
     entitled: billingDoc?.entitled ?? null,
@@ -61,6 +74,10 @@ router.get('/billing/access', async (req: any, res) => {
     // トライアル情報
     isTrialing,
     trialDaysRemaining,
+    // トライアル終了・閲覧のみモード
+    trialExpired,
+    readOnlyMode,
+    canEdit,
   });
 });
 

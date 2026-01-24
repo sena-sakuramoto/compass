@@ -402,6 +402,10 @@ export interface BillingAccessResult {
   reason: string;
   planType: BillingPlanType;
   details?: Record<string, unknown>;
+  // トライアル終了・閲覧のみモード用
+  trialExpired?: boolean;
+  readOnlyMode?: boolean;
+  canEdit?: boolean;
 }
 
 // サークル会員の基本席数
