@@ -2,8 +2,9 @@
  * WorkItem タイプ
  * stage: 工程（大分類）
  * task: タスク（stage に紐づく実作業）
+ * meeting: 打合せ（複数人が参加）
  */
-export type WorkItemType = 'stage' | 'task';
+export type WorkItemType = 'stage' | 'task' | 'meeting';
 
 export interface Project {
   id: string;
@@ -67,6 +68,7 @@ export interface Task {
   担当者?: string;
   assignee?: string;
   担当者メール?: string;
+  participants?: string[];  // 打合せ参加者（userId[]）
   優先度?: string;
   ステータス: string;
   予定開始日?: string;

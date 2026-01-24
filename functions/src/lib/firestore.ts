@@ -736,7 +736,7 @@ export interface TaskInput {
   orgId?: string;
 
   // WorkItem 統合のための追加フィールド
-  type?: 'stage' | 'task';
+  type?: 'stage' | 'task' | 'meeting';
   parentId?: string | null;
   orderIndex?: number | null;
 
@@ -745,6 +745,7 @@ export interface TaskInput {
   担当者?: string | null;
   assignee?: string | null;
   担当者メール?: string | null;
+  participants?: string[] | null;  // 打合せ参加者（userId[]）
   優先度?: string | null;
   ステータス: string;
   予定開始日?: string | null;

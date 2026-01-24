@@ -33,6 +33,8 @@ interface ProjectEditDialogProps {
   projectMembers?: ProjectMember[];
   stages?: Task[];
   onStagesChanged?: () => void | Promise<void>;
+  onStageCreated?: (stage: Task) => void;
+  onStageIdResolved?: (tempId: string, realId: string) => void;
 }
 
 // 手動で設定するステータス（自動計算をオーバーライドする特別なケース）
@@ -91,7 +93,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5分間キャッシュ
 // プリロード用のPromise（重複リクエスト防止）
 let preloadPromise: Promise<void> | null = null;
 
-export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onSaveLocal, onRollback, onDelete, onOpenTaskModal, projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged }: ProjectEditDialogProps) {
+export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onSaveLocal, onRollback, onDelete, onOpenTaskModal, projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged, onStageCreated, onStageIdResolved }: ProjectEditDialogProps) {
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
@@ -1079,14 +1081,22 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       } else {
         // 新規作成は一時IDでUIに即座に追加
         const tempId = `temp-stage-${Date.now()}`;
-        const newStage: any = {
+        const newStage: Task = {
           id: tempId,
           projectId: project.id,
           type: 'stage',
-          ...stageData,
-        };
+          タスク名: stageData.タスク名,
+          予定開始日: stageData.予定開始日 || undefined,
+          期限: stageData.期限 || undefined,
+          orderIndex: stages.length,
+          ステータス: '未着手',
+          優先度: '中',
+        } as Task;
         console.log('[ProjectEditDialog] Creating new stage with temp data:', newStage);
         setStages([...stages, newStage]);
+
+        // App.tsxのstate.tasksにも即座に追加（GanttChartに即時反映）
+        onStageCreated?.(newStage);
 
         // バックグラウンドで保存し、実際のIDで置き換え
         createStage(project.id, stageData)
@@ -1096,13 +1106,8 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
             setStages(prev => prev.map(s =>
               s.id === tempId ? { ...s, id: String(newId) } : s
             ));
-            // 保存成功後、App.tsxのtasksを更新してpropsStagesと同期
-            console.log('[ProjectEditDialog] Calling onStagesChanged to reload tasks...');
-            return onStagesChanged?.();
-          })
-          .then(() => {
-            // 同期完了後、フラグを下ろす
-            console.log('[ProjectEditDialog] Tasks reloaded, setting hasLocalStageChanges to false');
+            // App.tsxのstate.tasksのIDも更新
+            onStageIdResolved?.(tempId, String(newId));
             setHasLocalStageChanges(false);
           })
           .catch(err => {
@@ -1110,6 +1115,8 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
             setError(err.message || '工程の追加に失敗しました');
             // エラー時は一時工程を削除
             setStages(prev => prev.filter(s => s.id !== tempId));
+            // App.tsxからも削除するためにreloadTasks
+            onStagesChanged?.();
             setHasLocalStageChanges(false);
           });
       }

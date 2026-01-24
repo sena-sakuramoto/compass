@@ -5,9 +5,11 @@ import { Modal, ModalProps } from './Modal';
 import { listProjectMembers, listStages } from '../../lib/api';
 import { clampToSingleDecimal, parseHoursInput } from '../../lib/number';
 import { PROJECT_ROLE_LABELS } from '../../lib/auth-types';
-import type { Project, Task, Person, TaskNotificationSettings, Stage } from '../../lib/types';
+import type { Project, Task, Person, TaskNotificationSettings, Stage, WorkItemType } from '../../lib/types';
 import type { ProjectMember } from '../../lib/auth-types';
 import type { ToastMessage } from '../ToastStack';
+
+type TaskType = 'task' | 'meeting';
 
 type ToastInput = {
   tone: ToastMessage['tone'];
@@ -39,6 +41,8 @@ export interface TaskModalProps extends ModalProps {
     担当者メール?: string;
     parentId?: string | null;
     '通知設定'?: TaskNotificationSettings;
+    type?: TaskType;
+    participants?: string[];
   }): Promise<void>;
   onUpdate?(taskId: string, updates: Partial<Task>): Promise<void>;
   onDelete?(taskId: string): Promise<void>;
@@ -62,6 +66,8 @@ export function TaskModal({
   lockProject,
 }: TaskModalProps) {
   const [project, setProject] = useState('');
+  const [taskType, setTaskType] = useState<TaskType>('task');
+  const [participants, setParticipants] = useState<string[]>([]);
   const [assignee, setAssignee] = useState('');
   const [assigneeEmail, setAssigneeEmail] = useState('');
   const [name, setName] = useState('');
@@ -92,6 +98,8 @@ export function TaskModal({
     setEndDate(null);
     setDurationDays(1);
     setIsMilestone(false);
+    setTaskType('task');
+    setParticipants([]);
     if (keepContext) return;
     setProject('');
     setStageId('');
@@ -112,6 +120,8 @@ export function TaskModal({
 
     if (editingTask) {
       setProject(editingTask.projectId);
+      setTaskType(editingTask.type === 'meeting' ? 'meeting' : 'task');
+      setParticipants(editingTask.participants || []);
       setAssignee(editingTask.担当者 || editingTask.assignee || '');
       setAssigneeEmail(editingTask.担当者メール || '');
       setName(editingTask.タスク名);
@@ -312,14 +322,14 @@ export function TaskModal({
       const payload = {
         projectId: project,
         タスク名: name,
-        担当者: assignee,
+        担当者: taskType === 'meeting' ? undefined : assignee,
         予定開始日: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
         期限: endDate ? format(endDate, 'yyyy-MM-dd') : undefined,
         優先度: priority,
         ステータス: status,
         進捗率: progress / 100,
         ['工数見積(h)']: estimate,
-        担当者メール: assigneeEmail || undefined,
+        担当者メール: taskType === 'meeting' ? undefined : (assigneeEmail || undefined),
         マイルストーン: isMilestone,
         parentId: stageId || null,
         '通知設定': {
@@ -328,6 +338,8 @@ export function TaskModal({
           期限当日: notifyDue,
           超過: notifyOverdue,
         },
+        type: taskType,
+        participants: taskType === 'meeting' ? participants : undefined,
       } as {
         projectId: string;
         タスク名: string;
@@ -342,6 +354,8 @@ export function TaskModal({
         担当者メール?: string;
         parentId?: string | null;
         '通知設定'?: TaskNotificationSettings;
+        type?: TaskType;
+        participants?: string[];
       };
 
       const shouldClose = editingTask || !(allowContinuous && intent === 'continue');
@@ -421,7 +435,92 @@ export function TaskModal({
             )}
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">担当者</label>
+            <label className="mb-1 block text-xs text-slate-500">種別</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setTaskType('task')}
+                className={`flex-1 px-3 py-2 text-sm rounded-2xl border transition-colors ${
+                  taskType === 'task'
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                タスク
+              </button>
+              <button
+                type="button"
+                onClick={() => setTaskType('meeting')}
+                className={`flex-1 px-3 py-2 text-sm rounded-2xl border transition-colors ${
+                  taskType === 'meeting'
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                打合せ
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* タスクの場合：担当者選択 */}
+        {taskType === 'task' && (
+          <>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">担当者</label>
+              {!project ? (
+                <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
+                  プロジェクトを選択してください
+                </div>
+              ) : membersLoading ? (
+                <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
+                  メンバー読み込み中...
+                </div>
+              ) : assigneeOptions.length > 0 ? (
+                <select
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  value={assignee}
+                  onChange={(e) => setAssignee(e.target.value)}
+                >
+                  <option value="">選択</option>
+                  {assigneeOptions.map((option) => (
+                    <option key={option.key} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div>
+                  <select
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-400 bg-slate-50"
+                    value=""
+                    disabled
+                  >
+                    <option value="">担当者候補がありません</option>
+                  </select>
+                  <p className="mt-1 text-xs text-amber-600">
+                    プロジェクトにメンバーを追加すると、担当者として選択できます
+                  </p>
+                </div>
+              )}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">通知送信先メール</label>
+              <input
+                type="email"
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={assigneeEmail}
+                onChange={(e) => setAssigneeEmail(e.target.value)}
+                placeholder="担当者メールアドレス"
+              />
+            </div>
+          </>
+        )}
+
+        {/* 打合せの場合：参加者複数選択 */}
+        {taskType === 'meeting' && (
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">参加者</label>
             {!project ? (
               <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
                 プロジェクトを選択してください
@@ -431,44 +530,42 @@ export function TaskModal({
                 メンバー読み込み中...
               </div>
             ) : assigneeOptions.length > 0 ? (
-              <select
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={assignee}
-                onChange={(e) => setAssignee(e.target.value)}
-              >
-                <option value="">選択</option>
-                {assigneeOptions.map((option) => (
-                  <option key={option.key} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+              <div className="border border-slate-200 rounded-2xl p-2 max-h-40 overflow-y-auto space-y-1">
+                {assigneeOptions.map((option) => {
+                  const isSelected = participants.includes(option.value);
+                  return (
+                    <label
+                      key={option.key}
+                      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                        isSelected ? 'bg-slate-100' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setParticipants([...participants, option.value]);
+                          } else {
+                            setParticipants(participants.filter(p => p !== option.value));
+                          }
+                        }}
+                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-slate-700">{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
             ) : (
-              <div>
-                <select
-                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-400 bg-slate-50"
-                  value=""
-                  disabled
-                >
-                  <option value="">担当者候補がありません</option>
-                </select>
-                <p className="mt-1 text-xs text-amber-600">
-                  プロジェクトにメンバーを追加すると、担当者として選択できます
+              <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl">
+                <p className="text-xs text-amber-600">
+                  プロジェクトにメンバーを追加すると、参加者として選択できます
                 </p>
               </div>
             )}
           </div>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">通知送信先メール</label>
-          <input
-            type="email"
-            className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-            value={assigneeEmail}
-            onChange={(e) => setAssigneeEmail(e.target.value)}
-            placeholder="担当者メールアドレス"
-          />
-        </div>
+        )}
         <div>
           <label className="mb-1 block text-xs text-slate-500">工程</label>
           <select

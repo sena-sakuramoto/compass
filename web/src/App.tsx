@@ -4124,6 +4124,32 @@ function App() {
     [state.tasks]
   );
 
+  // 工程作成時にローカル状態に即時追加
+  const handleStageCreated = useCallback(
+    (stage: Task) => {
+      console.log('[App.tsx] handleStageCreated - Adding stage to local state:', stage);
+      setState((prev) => ({
+        ...prev,
+        tasks: [...prev.tasks, stage],
+      }));
+    },
+    [setState]
+  );
+
+  // 工程のIDが確定したときにローカル状態を更新
+  const handleStageIdResolved = useCallback(
+    (tempId: string, realId: string) => {
+      console.log('[App.tsx] handleStageIdResolved - Replacing temp ID:', tempId, 'with real ID:', realId);
+      setState((prev) => ({
+        ...prev,
+        tasks: prev.tasks.map((t) =>
+          t.id === tempId ? { ...t, id: realId } : t
+        ),
+      }));
+    },
+    [setState]
+  );
+
   const handleStageUpdate = useCallback(
     async (stageId: string, updates: { タスク名?: string }) => {
       await updateStage(stageId, updates);
@@ -6159,6 +6185,8 @@ function App() {
           projectMembers={memoizedProjectMembers}
           stages={memoizedProjectStages}
           onStagesChanged={reloadTasks}
+          onStageCreated={handleStageCreated}
+          onStageIdResolved={handleStageIdResolved}
         />
       )}
       <PersonEditDialog
