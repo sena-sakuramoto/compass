@@ -45,6 +45,7 @@ const allowedOrigins = process.env.CORS_ORIGIN
       'https://compass-lp.web.app',
       'https://compass-lp.firebaseapp.com',
       'https://compass-lp.vercel.app',
+      'https://compass.archi-prisma.co.jp',
       'http://localhost:5173',
       'http://localhost:5174',
       'http://localhost:5175',
