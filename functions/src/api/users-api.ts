@@ -131,6 +131,177 @@ router.get('/', authenticate, async (req: any, res) => {
 });
 
 /**
+ * GET /api/users/with-collaborators
+ * 自組織のメンバーと、プロジェクトで関わる他組織のメンバーを組織ごとにグループ化して取得
+ */
+router.get('/with-collaborators', authenticate, async (req: any, res) => {
+  try {
+    const db = getFirestore();
+    const { getOrganization, getUserByEmail } = await import('../lib/users');
+    const { listProjectMembers } = await import('../lib/project-members');
+
+    const userOrgId = req.user.orgId;
+
+    // 1. 自組織のユーザーを取得
+    const ownOrgUsers = await listUsers({
+      orgId: userOrgId,
+      isActive: true,
+    });
+
+    // 組織名を取得
+    const ownOrg = await getOrganization(userOrgId);
+    const ownOrgName = ownOrg?.name || userOrgId;
+
+    // 自組織のユーザーに組織名を追加
+    const ownOrgUsersWithOrgName = ownOrgUsers.map(user => ({
+      ...user,
+      orgName: ownOrgName,
+    }));
+
+    // 2. 自組織のプロジェクト一覧を取得
+    const projectsSnapshot = await db
+      .collection('orgs')
+      .doc(userOrgId)
+      .collection('projects')
+      .get();
+
+    // 3. 各プロジェクトのメンバーから他組織のユーザーを収集
+    const externalUsersByOrg = new Map<string, Map<string, any>>(); // orgId -> userId -> user
+    const orgNames = new Map<string, string>(); // orgId -> orgName
+    orgNames.set(userOrgId, ownOrgName);
+
+    const ownOrgUserIds = new Set(ownOrgUsers.map(u => u.id));
+    const processedEmails = new Set<string>();
+
+    for (const projectDoc of projectsSnapshot.docs) {
+      const projectId = projectDoc.id;
+
+      try {
+        const members = await listProjectMembers(userOrgId, projectId);
+
+        for (const member of members) {
+          // 自組織のユーザーはスキップ
+          if (member.orgId === userOrgId) continue;
+          if (ownOrgUserIds.has(member.userId)) continue;
+
+          // 外部メンバー（text_やexternal_で始まるID）はスキップ
+          if (member.userId.startsWith('text_') || member.userId.startsWith('external_')) {
+            continue;
+          }
+
+          // すでに処理済みのメールはスキップ
+          if (member.email && processedEmails.has(member.email.toLowerCase())) {
+            continue;
+          }
+
+          // メールアドレスからユーザー情報を取得
+          let userInfo: any = null;
+          if (member.email) {
+            processedEmails.add(member.email.toLowerCase());
+            userInfo = await getUserByEmail(member.email);
+          }
+
+          const targetOrgId = userInfo?.orgId || member.orgId || 'unknown';
+
+          // 組織名を取得（キャッシュ）
+          if (!orgNames.has(targetOrgId)) {
+            const org = await getOrganization(targetOrgId);
+            if (org) {
+              orgNames.set(targetOrgId, org.name || targetOrgId);
+            } else {
+              // orgsコレクションからも取得を試みる
+              const orgDoc = await db.collection('orgs').doc(targetOrgId).get();
+              if (orgDoc.exists) {
+                const orgData = orgDoc.data();
+                orgNames.set(targetOrgId, orgData?.name || orgData?.組織名 || targetOrgId);
+              } else {
+                orgNames.set(targetOrgId, member.orgName || targetOrgId);
+              }
+            }
+          }
+
+          // 外部ユーザーマップに追加
+          if (!externalUsersByOrg.has(targetOrgId)) {
+            externalUsersByOrg.set(targetOrgId, new Map());
+          }
+
+          const orgUserMap = externalUsersByOrg.get(targetOrgId)!;
+          const userIdKey = userInfo?.id || member.userId;
+
+          if (!orgUserMap.has(userIdKey)) {
+            orgUserMap.set(userIdKey, {
+              id: userInfo?.id || member.userId,
+              email: userInfo?.email || member.email || '',
+              displayName: userInfo?.displayName || member.displayName || '',
+              orgId: targetOrgId,
+              orgName: orgNames.get(targetOrgId) || targetOrgId,
+              role: userInfo?.role || 'external',
+              jobTitle: userInfo?.jobTitle || member.jobTitle || '',
+              department: userInfo?.department || '',
+              phoneNumber: userInfo?.phoneNumber || '',
+              photoURL: userInfo?.photoURL || '',
+              isActive: userInfo?.isActive ?? true,
+              memberType: userInfo?.memberType || 'external',
+              // プロジェクトメンバー情報
+              projectRole: member.role,
+              projectJobTitle: member.jobTitle,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(`[with-collaborators] Failed to list members for project ${projectId}:`, err);
+      }
+    }
+
+    // 4. 結果を組織ごとにグループ化して返す
+    const groupedUsers: {
+      ownOrg: {
+        orgId: string;
+        orgName: string;
+        users: any[];
+      };
+      collaboratingOrgs: Array<{
+        orgId: string;
+        orgName: string;
+        users: any[];
+      }>;
+    } = {
+      ownOrg: {
+        orgId: userOrgId,
+        orgName: ownOrgName,
+        users: ownOrgUsersWithOrgName,
+      },
+      collaboratingOrgs: [],
+    };
+
+    // 外部組織をソートして追加
+    const sortedOrgIds = Array.from(externalUsersByOrg.keys()).sort((a, b) => {
+      const nameA = orgNames.get(a) || a;
+      const nameB = orgNames.get(b) || b;
+      return nameA.localeCompare(nameB, 'ja');
+    });
+
+    for (const orgId of sortedOrgIds) {
+      const userMap = externalUsersByOrg.get(orgId)!;
+      const users = Array.from(userMap.values()).sort((a, b) =>
+        (a.displayName || '').localeCompare(b.displayName || '', 'ja')
+      );
+
+      groupedUsers.collaboratingOrgs.push({
+        orgId,
+        orgName: orgNames.get(orgId) || orgId,
+        users,
+      });
+    }
+
+    res.json(groupedUsers);
+  } catch (error) {
+    console.error('Error listing users with collaborators:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/users/:userId/invitations
  * ユーザーのプロジェクト招待一覧を取得
  * NOTE: 動的ルート /:userId より前に定義する必要がある

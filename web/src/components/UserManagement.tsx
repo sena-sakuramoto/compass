@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { listUsers, updateUser, deactivateUser, activateUser, deleteUser, type User, listClients, createClient, updateClient, deleteClient, type Client, listCollaborators, createCollaborator, updateCollaborator, deleteCollaborator, type Collaborator, getSeatUsage, createBillingPortalSession, type SeatUsageInfo } from '../lib/api';
+import { listUsers, listUsersWithCollaborators, updateUser, deactivateUser, activateUser, deleteUser, type User, type GroupedUsers, listClients, createClient, updateClient, deleteClient, type Client, listCollaborators, createCollaborator, updateCollaborator, deleteCollaborator, type Collaborator, getSeatUsage, createBillingPortalSession, type SeatUsageInfo } from '../lib/api';
 import { ROLE_LABELS } from '../lib/auth-types';
 import { OrgMemberInvitationModal } from './OrgMemberInvitationModal';
 import { UserEditModal } from './UserEditModal';
 import type { Project } from '../lib/types';
-import { Building2, Plus, Trash2, Check, X, Users, Pencil, Mail, UserPlus, ExternalLink, AlertCircle, Clock } from 'lucide-react';
+import { Building2, Plus, Trash2, Check, X, Users, Pencil, Mail, UserPlus, ExternalLink, AlertCircle, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface UserManagementProps {
   projects?: Project[];
@@ -12,6 +12,7 @@ interface UserManagementProps {
 
 export function UserManagement({ projects = [] }: UserManagementProps) {
   const [users, setUsers] = useState<User[]>([]);
+  const [groupedUsers, setGroupedUsers] = useState<GroupedUsers | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   const [editingCollaboratorName, setEditingCollaboratorName] = useState('');
   const [editingCollaboratorEmail, setEditingCollaboratorEmail] = useState('');
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+  const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set(['own']));
 
   // 席数関連
   const [seatUsage, setSeatUsage] = useState<SeatUsageInfo | null>(null);
@@ -132,14 +134,35 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     try {
       setLoading(true);
       setError(null);
-      const data = await listUsers();
-      setUsers(data);
+      // 組織ごとにグループ化されたユーザー一覧を取得
+      const grouped = await listUsersWithCollaborators();
+      setGroupedUsers(grouped);
+      // 後方互換性のため、全ユーザーのフラットなリストも保持
+      const allUsers = [
+        ...grouped.ownOrg.users,
+        ...grouped.collaboratingOrgs.flatMap(org => org.users),
+      ];
+      setUsers(allUsers);
+      // 自組織と協力会社の両方を展開状態に
+      setExpandedOrgs(new Set(['own', ...grouped.collaboratingOrgs.map(org => org.orgId)]));
     } catch (err) {
       setError(err instanceof Error ? err.message : '読み込みに失敗しました');
       console.error('Failed to load users:', err);
     } finally {
       setLoading(false);
     }
+  }
+
+  function toggleOrgExpanded(orgKey: string) {
+    setExpandedOrgs(prev => {
+      const next = new Set(prev);
+      if (next.has(orgKey)) {
+        next.delete(orgKey);
+      } else {
+        next.add(orgKey);
+      }
+      return next;
+    });
   }
 
   async function loadClients() {
@@ -495,80 +518,259 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
         </div>
       )}
 
-      {/* ユーザー一覧 */}
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-slate-50 border-b border-slate-200">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">名前</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メール</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役割</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">部署</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">組織</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">ステータス</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
-            {users.map((user) => (
-              <tr
-                key={user.id}
-                className="hover:bg-slate-50 cursor-pointer transition-colors"
-                onClick={() => {
-                  setEditingUser(user);
-                  setEditModalOpen(true);
-                }}
-              >
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    {user.photoURL && (
-                      <img
-                        src={user.photoURL}
-                        alt={user.displayName}
-                        className="w-8 h-8 rounded-full"
-                      />
-                    )}
-                    <div className="text-sm font-medium text-slate-900">
-                      {user.displayName}
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-600">{user.email}</td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.role === 'super_admin'
-                      ? 'bg-rose-100 text-rose-800'
-                      : user.role === 'admin'
-                        ? 'bg-purple-100 text-purple-800'
-                        : user.role === 'project_manager'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-slate-100 text-slate-800'
-                      }`}
-                  >
-                    {ROLE_LABELS[user.role] || user.role}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-600">{user.department || '-'}</td>
-                <td className="px-4 py-3 text-sm text-slate-600">{(user as any).orgName || user.orgId}</td>
-                <td className="px-4 py-3">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleActive(user);
-                    }}
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.isActive
-                      ? 'bg-teal-100 text-teal-800 hover:bg-teal-200'
-                      : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                      }`}
-                  >
-                    {user.isActive ? 'アクティブ' : '非アクティブ'}
-                  </button>
-                </td>
+      {/* ユーザー一覧（組織ごとにグループ化） */}
+      {groupedUsers && (
+        <div className="space-y-4">
+          {/* 自組織 */}
+          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+            <button
+              onClick={() => toggleOrgExpanded('own')}
+              className="w-full px-4 py-3 bg-teal-50 border-b border-teal-200 flex items-center justify-between hover:bg-teal-100 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                {expandedOrgs.has('own') ? (
+                  <ChevronDown className="w-5 h-5 text-teal-600" />
+                ) : (
+                  <ChevronRight className="w-5 h-5 text-teal-600" />
+                )}
+                <Building2 className="w-5 h-5 text-teal-600" />
+                <span className="font-semibold text-teal-900">自組織: {groupedUsers.ownOrg.orgName}</span>
+                <span className="ml-2 px-2 py-0.5 bg-teal-200 text-teal-800 rounded-full text-xs">
+                  {groupedUsers.ownOrg.users.length}名
+                </span>
+              </div>
+            </button>
+            {expandedOrgs.has('own') && (
+              <table className="w-full">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">名前</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メール</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役割</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">部署</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">ステータス</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {groupedUsers.ownOrg.users.map((user) => (
+                    <tr
+                      key={user.id}
+                      className="hover:bg-slate-50 cursor-pointer transition-colors"
+                      onClick={() => {
+                        setEditingUser(user);
+                        setEditModalOpen(true);
+                      }}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {user.photoURL && (
+                            <img
+                              src={user.photoURL}
+                              alt={user.displayName}
+                              className="w-8 h-8 rounded-full"
+                            />
+                          )}
+                          <div className="text-sm font-medium text-slate-900">
+                            {user.displayName}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{user.email}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.role === 'super_admin'
+                            ? 'bg-rose-100 text-rose-800'
+                            : user.role === 'admin'
+                              ? 'bg-purple-100 text-purple-800'
+                              : user.role === 'project_manager'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-slate-100 text-slate-800'
+                            }`}
+                        >
+                          {ROLE_LABELS[user.role] || user.role}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600">{user.department || '-'}</td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleActive(user);
+                          }}
+                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.isActive
+                            ? 'bg-teal-100 text-teal-800 hover:bg-teal-200'
+                            : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                            }`}
+                        >
+                          {user.isActive ? 'アクティブ' : '非アクティブ'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
 
+          {/* 協力会社（他組織） */}
+          {groupedUsers.collaboratingOrgs.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-slate-600 flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                協力会社・パートナー企業
+              </h3>
+              {groupedUsers.collaboratingOrgs.map((org) => (
+                <div key={org.orgId} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                  <button
+                    onClick={() => toggleOrgExpanded(org.orgId)}
+                    className="w-full px-4 py-3 bg-blue-50 border-b border-blue-200 flex items-center justify-between hover:bg-blue-100 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      {expandedOrgs.has(org.orgId) ? (
+                        <ChevronDown className="w-5 h-5 text-blue-600" />
+                      ) : (
+                        <ChevronRight className="w-5 h-5 text-blue-600" />
+                      )}
+                      <Building2 className="w-5 h-5 text-blue-600" />
+                      <span className="font-semibold text-blue-900">{org.orgName}</span>
+                      <span className="ml-2 px-2 py-0.5 bg-blue-200 text-blue-800 rounded-full text-xs">
+                        {org.users.length}名
+                      </span>
+                    </div>
+                  </button>
+                  {expandedOrgs.has(org.orgId) && (
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">名前</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メール</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役割</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役職</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {org.users.map((user) => (
+                          <tr
+                            key={user.id}
+                            className="hover:bg-slate-50 transition-colors"
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                {user.photoURL && (
+                                  <img
+                                    src={user.photoURL}
+                                    alt={user.displayName}
+                                    className="w-8 h-8 rounded-full"
+                                  />
+                                )}
+                                <div className="text-sm font-medium text-slate-900">
+                                  {user.displayName || '-'}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{user.email || '-'}</td>
+                            <td className="px-4 py-3">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-800">
+                                {ROLE_LABELS[user.role] || user.role || '外部'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-slate-600">{user.jobTitle || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 協力会社がいない場合 */}
+          {groupedUsers.collaboratingOrgs.length === 0 && (
+            <div className="bg-slate-50 rounded-lg border border-slate-200 p-6 text-center">
+              <Users className="w-12 h-12 text-slate-400 mx-auto mb-2" />
+              <p className="text-slate-600 text-sm">協力会社・パートナー企業のメンバーはまだいません</p>
+              <p className="text-slate-500 text-xs mt-1">プロジェクトにメンバーを招待すると、ここに表示されます</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* groupedUsersがない場合のフォールバック（後方互換性） */}
+      {!groupedUsers && users.length > 0 && (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">名前</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">メール</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">役割</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">部署</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">組織</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-700">ステータス</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {users.map((user) => (
+                <tr
+                  key={user.id}
+                  className="hover:bg-slate-50 cursor-pointer transition-colors"
+                  onClick={() => {
+                    setEditingUser(user);
+                    setEditModalOpen(true);
+                  }}
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {user.photoURL && (
+                        <img
+                          src={user.photoURL}
+                          alt={user.displayName}
+                          className="w-8 h-8 rounded-full"
+                        />
+                      )}
+                      <div className="text-sm font-medium text-slate-900">
+                        {user.displayName}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{user.email}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.role === 'super_admin'
+                        ? 'bg-rose-100 text-rose-800'
+                        : user.role === 'admin'
+                          ? 'bg-purple-100 text-purple-800'
+                          : user.role === 'project_manager'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-slate-100 text-slate-800'
+                        }`}
+                    >
+                      {ROLE_LABELS[user.role] || user.role}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{user.department || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{(user as any).orgName || user.orgId}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleActive(user);
+                      }}
+                      className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${user.isActive
+                        ? 'bg-teal-100 text-teal-800 hover:bg-teal-200'
+                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        }`}
+                    >
+                      {user.isActive ? 'アクティブ' : '非アクティブ'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* クライアント管理セクション */}
       <div className="space-y-4">

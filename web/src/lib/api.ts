@@ -432,6 +432,24 @@ export async function listUsers(params?: { orgId?: string; role?: string; isActi
   return request<User[]>(`/users${suffix}`);
 }
 
+// 組織ごとにグループ化されたユーザー一覧
+export interface GroupedUsers {
+  ownOrg: {
+    orgId: string;
+    orgName: string;
+    users: User[];
+  };
+  collaboratingOrgs: Array<{
+    orgId: string;
+    orgName: string;
+    users: User[];
+  }>;
+}
+
+export async function listUsersWithCollaborators() {
+  return request<GroupedUsers>('/users/with-collaborators');
+}
+
 export async function getUser(userId: string) {
   return request<User>(`/users/${userId}`);
 }
