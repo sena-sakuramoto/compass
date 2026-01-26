@@ -606,4 +606,312 @@ router.get('/users/:userId/projects', authenticate, async (req: any, res) => {
   }
 });
 
+/**
+ * POST /api/projects/:projectId/invite-org
+ * 組織の全メンバーをプロジェクトに一括招待
+ */
+router.post('/projects/:projectId/invite-org', authenticate, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const { targetOrgId } = req.body;
+
+    // バリデーション: targetOrgId は必須
+    if (!targetOrgId || typeof targetOrgId !== 'string') {
+      return res.status(400).json({ error: 'targetOrgId is required' });
+    }
+
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
+    }
+
+    const { project, orgId: projectOrgId } = projectData;
+
+    // 権限チェック: プロジェクトオーナーまたは管理者のみ実行可能
+    const canManage = await canManageProjectMembers(req.user, project as any, projectOrgId);
+    if (!canManage) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
+    }
+
+    // 自組織への招待は不要（既に参加可能）
+    if (targetOrgId === projectOrgId) {
+      return res.status(400).json({ error: 'Cannot invite your own organization. Members already have access.' });
+    }
+
+    // 対象組織が存在するか確認
+    const targetOrgDoc = await db.collection('orgs').doc(targetOrgId).get();
+    if (!targetOrgDoc.exists) {
+      return res.status(404).json({ error: 'Target organization not found' });
+    }
+
+    const targetOrgData = targetOrgDoc.data();
+    const targetOrgName = targetOrgData?.name || targetOrgData?.組織名 || targetOrgId;
+
+    // 対象組織の全アクティブユーザーを取得
+    const targetUsers = await listUsers({
+      orgId: targetOrgId,
+      isActive: true,
+    });
+
+    if (targetUsers.length === 0) {
+      return res.status(400).json({ error: 'Target organization has no active members' });
+    }
+
+    // Rate limiting: 一度に招待できるユーザー数を制限（最大100人）
+    const MAX_INVITE_BATCH = 100;
+    if (targetUsers.length > MAX_INVITE_BATCH) {
+      return res.status(400).json({
+        error: `Too many members to invite at once. Maximum is ${MAX_INVITE_BATCH} members.`,
+        memberCount: targetUsers.length,
+      });
+    }
+
+    // 既存メンバーを取得
+    const existingMembers = await listProjectMembers(projectOrgId, projectId);
+    const existingEmails = new Set(
+      existingMembers
+        .map(member => member.email?.toLowerCase())
+        .filter(Boolean) as string[]
+    );
+    const existingUserIds = new Set(existingMembers.map(member => member.userId));
+
+    // 招待対象のユーザーをフィルタリング（既存メンバーを除外）
+    const usersToInvite = targetUsers.filter(user => {
+      if (existingUserIds.has(user.id)) return false;
+      if (user.email && existingEmails.has(user.email.toLowerCase())) return false;
+      return true;
+    });
+
+    if (usersToInvite.length === 0) {
+      return res.status(200).json({
+        message: 'All members from this organization are already in the project',
+        invitedCount: 0,
+        skippedCount: targetUsers.length,
+      });
+    }
+
+    // 招待処理
+    const results = {
+      invited: [] as string[],
+      skipped: [] as string[],
+      errors: [] as string[],
+    };
+
+    const projectName = (project as any).物件名 || projectId;
+    const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+
+    for (const user of usersToInvite) {
+      try {
+        // メンバーを追加
+        const member = await addProjectMember(
+          projectOrgId,
+          projectId,
+          projectName,
+          {
+            email: user.email,
+            role: 'member', // デフォルトはmemberロール
+            jobTitle: user.jobTitle,
+          },
+          req.uid,
+          req.user.displayName || req.user.email
+        );
+
+        results.invited.push(user.email);
+
+        // アプリ内通知を作成
+        try {
+          const { createNotification } = await import('./notifications-api');
+          await createNotification({
+            userId: user.id,
+            type: 'invitation',
+            title: `プロジェクト「${projectName}」への招待`,
+            message: `${req.user.displayName || req.user.email}さんから組織一括招待でプロジェクトに参加しました`,
+            actionUrl: `${appUrl}/projects/${projectId}`,
+            metadata: {
+              projectId: projectId,
+              projectName: projectName,
+              inviterName: req.user.displayName || req.user.email,
+              role: 'member',
+              orgInvite: true,
+              sourceOrgId: targetOrgId,
+              sourceOrgName: targetOrgName,
+            },
+          });
+        } catch (notifError) {
+          console.error('[invite-org] Failed to create notification for', user.email, notifError);
+        }
+
+        // メール送信（オプション - エラーでも続行）
+        try {
+          const { sendInvitationEmail } = await import('../lib/gmail');
+          await sendInvitationEmail({
+            to: user.email,
+            inviterName: req.user.displayName || req.user.email,
+            organizationName: targetOrgName,
+            projectName: projectName,
+            role: 'member',
+            inviteUrl: `${appUrl}/projects/${projectId}`,
+            message: `組織「${targetOrgName}」のメンバーとして一括招待されました。`,
+          });
+        } catch (emailError) {
+          console.error('[invite-org] Failed to send email to', user.email, emailError);
+        }
+      } catch (error) {
+        console.error('[invite-org] Failed to invite', user.email, error);
+        results.errors.push(user.email);
+      }
+    }
+
+    // アクティビティログを記録
+    try {
+      const { logActivity } = await import('../lib/activity-log');
+      await logActivity({
+        orgId: projectOrgId,
+        projectId,
+        type: 'org.invited',
+        userId: req.uid,
+        userName: req.user.displayName || req.user.email,
+        userEmail: req.user.email,
+        targetType: 'organization',
+        targetId: targetOrgId,
+        targetName: targetOrgName,
+        action: '組織一括招待',
+        metadata: {
+          invitedCount: results.invited.length,
+          skippedCount: results.skipped.length,
+          errorCount: results.errors.length,
+        },
+      });
+    } catch (logError) {
+      console.error('[invite-org] Failed to log activity:', logError);
+    }
+
+    res.json({
+      message: `Successfully invited ${results.invited.length} members from organization "${targetOrgName}"`,
+      invitedCount: results.invited.length,
+      skippedCount: existingMembers.length,
+      errorCount: results.errors.length,
+      invited: results.invited,
+      errors: results.errors.length > 0 ? results.errors : undefined,
+    });
+  } catch (error) {
+    console.error('Error inviting organization:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error',
+    });
+  }
+});
+
+/**
+ * GET /api/projects/:projectId/invite-org/preview
+ * 組織招待のプレビュー（対象メンバー数を確認）
+ */
+router.get('/projects/:projectId/invite-org/preview', authenticate, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const { targetOrgId } = req.query;
+
+    // バリデーション: targetOrgId は必須
+    if (!targetOrgId || typeof targetOrgId !== 'string') {
+      return res.status(400).json({ error: 'targetOrgId is required' });
+    }
+
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
+    }
+
+    const { project, orgId: projectOrgId } = projectData;
+
+    // 権限チェック
+    const canManage = await canManageProjectMembers(req.user, project as any, projectOrgId);
+    if (!canManage) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // 自組織への招待は不要
+    if (targetOrgId === projectOrgId) {
+      return res.status(400).json({ error: 'Cannot invite your own organization' });
+    }
+
+    // 対象組織が存在するか確認
+    const targetOrgDoc = await db.collection('orgs').doc(targetOrgId).get();
+    if (!targetOrgDoc.exists) {
+      return res.status(404).json({ error: 'Target organization not found' });
+    }
+
+    const targetOrgData = targetOrgDoc.data();
+    const targetOrgName = targetOrgData?.name || targetOrgData?.組織名 || targetOrgId;
+
+    // 対象組織の全アクティブユーザーを取得
+    const targetUsers = await listUsers({
+      orgId: targetOrgId,
+      isActive: true,
+    });
+
+    // 既存メンバーを取得
+    const existingMembers = await listProjectMembers(projectOrgId, projectId);
+    const existingEmails = new Set(
+      existingMembers
+        .map(member => member.email?.toLowerCase())
+        .filter(Boolean) as string[]
+    );
+    const existingUserIds = new Set(existingMembers.map(member => member.userId));
+
+    // 招待対象のユーザーをカウント
+    const usersToInvite = targetUsers.filter(user => {
+      if (existingUserIds.has(user.id)) return false;
+      if (user.email && existingEmails.has(user.email.toLowerCase())) return false;
+      return true;
+    });
+
+    res.json({
+      targetOrgId,
+      targetOrgName,
+      totalMembers: targetUsers.length,
+      alreadyInProject: targetUsers.length - usersToInvite.length,
+      toBeInvited: usersToInvite.length,
+      members: usersToInvite.map(user => ({
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        jobTitle: user.jobTitle,
+      })),
+    });
+  } catch (error) {
+    console.error('Error previewing organization invite:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/organizations/available
+ * 招待可能な組織一覧を取得（自組織以外）
+ */
+router.get('/organizations/available', authenticate, async (req: any, res) => {
+  try {
+    // 全組織を取得
+    const orgsSnapshot = await db.collection('orgs').get();
+    const userOrgId = req.user.orgId;
+
+    const organizations = orgsSnapshot.docs
+      .filter(doc => doc.id !== userOrgId) // 自組織を除外
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name || data.組織名 || doc.id,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+
+    res.json(organizations);
+  } catch (error) {
+    console.error('Error listing available organizations:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

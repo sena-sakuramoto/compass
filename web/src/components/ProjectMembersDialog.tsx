@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users } from 'lucide-react';
+import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users, Building } from 'lucide-react';
 import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, JobTitleType } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
-import { buildAuthHeaders, type Collaborator } from '../lib/api';
+import { buildAuthHeaders, type Collaborator, listAvailableOrganizations, previewOrgInvite, inviteOrganization, type AvailableOrganization, type OrgInvitePreview } from '../lib/api';
 import { getOrgKey, getOrgLabel } from '../lib/org-utils';
 import { useManageableUsers, useCollaborators, useInvalidateProjectMembers } from '../hooks/useProjectMembers';
 
@@ -47,6 +47,15 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('');
   const [candidateType, setCandidateType] = useState<'user' | 'collaborator'>('user');
   const [orgFilter, setOrgFilter] = useState('');
+
+  // 組織一括招待関連の状態
+  const [showOrgInviteForm, setShowOrgInviteForm] = useState(false);
+  const [availableOrgs, setAvailableOrgs] = useState<AvailableOrganization[]>([]);
+  const [loadingOrgs, setLoadingOrgs] = useState(false);
+  const [selectedOrgId, setSelectedOrgId] = useState('');
+  const [orgPreview, setOrgPreview] = useState<OrgInvitePreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [invitingOrg, setInvitingOrg] = useState(false);
 
   // React Query でキャッシュ（5分間有効、API呼び出し90%削減）
   const {
@@ -418,6 +427,71 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
     return externalCollaborators;
   }, [externalCollaborators, orgFilter]);
 
+  // 組織一括招待フォームを開いた時に組織一覧を取得
+  const loadAvailableOrgs = useCallback(async () => {
+    setLoadingOrgs(true);
+    try {
+      const orgs = await listAvailableOrganizations();
+      setAvailableOrgs(orgs);
+    } catch (err) {
+      console.error('Failed to load organizations:', err);
+      setError('組織一覧の取得に失敗しました');
+    } finally {
+      setLoadingOrgs(false);
+    }
+  }, []);
+
+  // 組織を選択した時にプレビューを取得
+  const loadOrgPreview = useCallback(async (orgId: string) => {
+    if (!orgId) {
+      setOrgPreview(null);
+      return;
+    }
+    setLoadingPreview(true);
+    try {
+      const preview = await previewOrgInvite(project.id, orgId);
+      setOrgPreview(preview);
+    } catch (err: any) {
+      console.error('Failed to load org preview:', err);
+      setError(err.message || '組織のプレビュー取得に失敗しました');
+      setOrgPreview(null);
+    } finally {
+      setLoadingPreview(false);
+    }
+  }, [project.id]);
+
+  // 組織選択時のハンドラ
+  const handleOrgSelect = useCallback((orgId: string) => {
+    setSelectedOrgId(orgId);
+    loadOrgPreview(orgId);
+  }, [loadOrgPreview]);
+
+  // 組織一括招待の実行
+  const handleOrgInvite = useCallback(async () => {
+    if (!selectedOrgId || !orgPreview || orgPreview.toBeInvited === 0) return;
+
+    setInvitingOrg(true);
+    setError(null);
+    try {
+      const result = await inviteOrganization(project.id, selectedOrgId);
+      setSuccess(`${result.invitedCount}人のメンバーを招待しました`);
+
+      // メンバー一覧を再読み込み
+      loadMembers();
+      invalidateAll(project.id);
+
+      // フォームをリセット
+      setShowOrgInviteForm(false);
+      setSelectedOrgId('');
+      setOrgPreview(null);
+    } catch (err: any) {
+      console.error('Failed to invite organization:', err);
+      setError(err.message || '組織の招待に失敗しました');
+    } finally {
+      setInvitingOrg(false);
+    }
+  }, [project.id, selectedOrgId, orgPreview, invalidateAll, loadMembers]);
+
   const getStatusBadge = (status: ProjectMember['status']) => {
     switch (status) {
       case 'active':
@@ -509,14 +583,26 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
           )}
 
           {/* 招待ボタン */}
-          {!showInviteForm && (
-            <button
-              onClick={() => setShowInviteForm(true)}
-              className="mb-6 flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <UserPlus className="w-4 h-4" />
-              メンバーを追加/招待
-            </button>
+          {!showInviteForm && !showOrgInviteForm && (
+            <div className="mb-6 flex gap-3">
+              <button
+                onClick={() => setShowInviteForm(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <UserPlus className="w-4 h-4" />
+                メンバーを追加/招待
+              </button>
+              <button
+                onClick={() => {
+                  setShowOrgInviteForm(true);
+                  loadAvailableOrgs();
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <Building className="w-4 h-4" />
+                組織を一括招待
+              </button>
+            </div>
           )}
 
           {/* 招待フォーム */}
@@ -840,6 +926,121 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                 </div>
               </div>
             </form>
+          )}
+
+          {/* 組織一括招待フォーム */}
+          {showOrgInviteForm && (
+            <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Building className="w-5 h-5 text-green-600" />
+                組織を一括招待
+              </h3>
+
+              <div className="space-y-4">
+                {/* 組織選択 */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    招待する組織を選択
+                  </label>
+                  {loadingOrgs ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                      <span>組織一覧を読み込み中...</span>
+                    </div>
+                  ) : availableOrgs.length === 0 ? (
+                    <p className="text-sm text-gray-500">
+                      招待可能な組織がありません。
+                    </p>
+                  ) : (
+                    <select
+                      value={selectedOrgId}
+                      onChange={(e) => handleOrgSelect(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    >
+                      <option value="">組織を選択してください</option>
+                      {availableOrgs.map((org) => (
+                        <option key={org.id} value={org.id}>
+                          {org.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* プレビュー */}
+                {loadingPreview && (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                    <span>メンバー情報を確認中...</span>
+                  </div>
+                )}
+
+                {orgPreview && !loadingPreview && (
+                  <div className="p-4 bg-white rounded-lg border border-gray-200">
+                    <h4 className="font-medium text-gray-900 mb-3">
+                      {orgPreview.targetOrgName} の招待プレビュー
+                    </h4>
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div className="text-center p-2 bg-gray-50 rounded">
+                        <p className="text-2xl font-bold text-gray-900">{orgPreview.totalMembers}</p>
+                        <p className="text-gray-500">総メンバー数</p>
+                      </div>
+                      <div className="text-center p-2 bg-yellow-50 rounded">
+                        <p className="text-2xl font-bold text-yellow-600">{orgPreview.alreadyInProject}</p>
+                        <p className="text-gray-500">既に参加中</p>
+                      </div>
+                      <div className="text-center p-2 bg-green-50 rounded">
+                        <p className="text-2xl font-bold text-green-600">{orgPreview.toBeInvited}</p>
+                        <p className="text-gray-500">新規招待</p>
+                      </div>
+                    </div>
+
+                    {orgPreview.toBeInvited > 0 && (
+                      <div className="mt-4">
+                        <p className="text-sm font-medium text-gray-700 mb-2">招待されるメンバー:</p>
+                        <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-200">
+                          {orgPreview.members.map((member) => (
+                            <div key={member.id} className="px-3 py-2 text-sm">
+                              <p className="font-medium text-gray-900">{member.displayName}</p>
+                              <p className="text-xs text-gray-500">{member.email}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {orgPreview.toBeInvited === 0 && (
+                      <p className="mt-4 text-sm text-yellow-600">
+                        この組織のメンバーは全員既にプロジェクトに参加しています。
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* アクションボタン */}
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleOrgInvite}
+                    disabled={invitingOrg || !orgPreview || orgPreview.toBeInvited === 0}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {invitingOrg ? '招待中...' : orgPreview ? `${orgPreview.toBeInvited}人を招待` : '招待'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowOrgInviteForm(false);
+                      setSelectedOrgId('');
+                      setOrgPreview(null);
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* メンバー一覧 */}

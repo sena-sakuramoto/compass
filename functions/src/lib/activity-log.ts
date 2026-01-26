@@ -19,7 +19,8 @@ export type ActivityType =
   | 'member.added'
   | 'member.updated'
   | 'member.removed'
-  | 'member.accepted';
+  | 'member.accepted'
+  | 'org.invited';
 
 /**
  * アクティビティログ
@@ -33,7 +34,7 @@ export interface ActivityLog {
   userId: string;                // 実行ユーザーID
   userName: string;              // 実行ユーザー名
   userEmail: string;             // 実行ユーザーメール
-  targetType: 'project' | 'task' | 'member' | 'person'; // 対象タイプ
+  targetType: 'project' | 'task' | 'member' | 'person' | 'organization'; // 対象タイプ
   targetId: string;              // 対象ID
   targetName: string;            // 対象名
   action: string;                // アクション（例: "作成", "更新", "削除"）
@@ -53,7 +54,7 @@ export async function logActivity(params: {
   userId: string;
   userName: string;
   userEmail: string;
-  targetType: 'project' | 'task' | 'member' | 'person';
+  targetType: 'project' | 'task' | 'member' | 'person' | 'organization';
   targetId: string;
   targetName: string;
   action: string;

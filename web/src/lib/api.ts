@@ -916,3 +916,58 @@ export async function deleteStage(stageId: string) {
     method: 'DELETE',
   });
 }
+
+// ==================== 組織招待 API ====================
+
+export interface AvailableOrganization {
+  id: string;
+  name: string;
+}
+
+export interface OrgInvitePreview {
+  targetOrgId: string;
+  targetOrgName: string;
+  totalMembers: number;
+  alreadyInProject: number;
+  toBeInvited: number;
+  members: Array<{
+    id: string;
+    email: string;
+    displayName: string;
+    jobTitle?: string;
+  }>;
+}
+
+export interface OrgInviteResult {
+  message: string;
+  invitedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  invited: string[];
+  errors?: string[];
+}
+
+/**
+ * 招待可能な組織一覧を取得（自組織以外）
+ */
+export async function listAvailableOrganizations() {
+  return request<AvailableOrganization[]>('/organizations/available');
+}
+
+/**
+ * 組織招待のプレビューを取得
+ */
+export async function previewOrgInvite(projectId: string, targetOrgId: string) {
+  const query = new URLSearchParams({ targetOrgId });
+  return request<OrgInvitePreview>(`/projects/${projectId}/invite-org/preview?${query.toString()}`);
+}
+
+/**
+ * 組織の全メンバーをプロジェクトに一括招待
+ */
+export async function inviteOrganization(projectId: string, targetOrgId: string) {
+  return request<OrgInviteResult>(`/projects/${projectId}/invite-org`, {
+    method: 'POST',
+    body: JSON.stringify({ targetOrgId }),
+  });
+}
