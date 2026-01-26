@@ -36,6 +36,10 @@ import { firestoreBackup } from './firestoreBackup';
 
 const app = express();
 
+// Public checkout endpoint (no auth required) - MUST be before global CORS
+// This allows any origin to access the checkout API
+app.use('/api/public', checkoutRouter);
+
 // CORS configuration with strict origin validation
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
@@ -75,9 +79,6 @@ app.use(express.urlencoded({ extended: true }));
 
 // org-setup must be mounted FIRST to avoid being caught by authMiddleware from other routers
 app.use('/api', orgSetupRouter);
-
-// Public checkout endpoint (no auth required) - for LP
-app.use('/api/public', checkoutRouter);
 
 app.use('/api/projects', projectsRouter);
 app.use('/api/tasks', tasksRouter);
