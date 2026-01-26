@@ -28,7 +28,7 @@ export function CommercialTransactionPage() {
             <h1 className="text-3xl font-bold">特定商取引法に基づく表示</h1>
           </div>
           <p className="text-emerald-200">特定商取引に関する法律に基づく表記</p>
-          <p className="text-sm text-emerald-300 mt-2">最終更新日: 2025年1月11日</p>
+          <p className="text-sm text-emerald-300 mt-2">最終更新日: 2026年1月26日</p>
         </div>
 
         {/* 事業者情報 */}
@@ -340,7 +340,7 @@ export function CommercialTransactionPage() {
 
         {/* フッター */}
         <div className="text-center text-sm text-slate-500 pb-8">
-          <p>制定日: 2025年1月11日</p>
+          <p>制定日: 2026年1月26日</p>
           <p className="mt-1">Archi-Prisma Design works株式会社</p>
         </div>
       </div>
