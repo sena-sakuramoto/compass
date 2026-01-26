@@ -34,13 +34,13 @@ Compassが subscriptionStatus を見て判定 → 使える
 | 商品 | 状態 |
 |-----|------|
 | AI×建築サークル | Stripe課金中 → Compass利用可 |
-| Compass単独サブスク | **未実装（これを追加したい）** |
+| Compass単独サブスク | **実装済み（checkout.ts）** |
 
 ### 目標
 | 商品 | Compass利用 | 備考 |
 |-----|------------|------|
 | AI×建築サークル | 3席込み | 既存の仕組みを維持 |
-| Compass単独サブスク | 購入席数分 | **新規追加** |
+| Compass単独サブスク | 購入席数分 | **実装済み** |
 | 両方 | 3席 + 追加分 | 併用可能 |
 
 ### 料金
@@ -55,7 +55,7 @@ Compassが subscriptionStatus を見て判定 → 使える
 ### A. デモ（操作確認）
 | 項目 | 現状 | 目標 |
 |-----|------|------|
-| ログイン | 必要（Google認証） | **不要に変更** |
+| ログイン | 不要（実装済み: 2026-01-21） | 不要（達成） |
 | データ保存 | なし（リロードで消える） | 維持 |
 | 制限 | なし（全機能触れる） | 維持 |
 
@@ -65,11 +65,12 @@ Compassが subscriptionStatus を見て判定 → 使える
 | 目的 | 実データで試す |
 | ログイン | **必要**（組織作成も必要） |
 | データ保存 | あり |
-| 終了後 | **閲覧のみ可能**（編集不可） |
+| 終了後 | **閲覧のみ可能**（編集不可・実装済み: 2026-01-24） |
 | データ保管 | **30日間**（規定通り） |
 | 自動課金 | **なし**（誘導のみ） |
 
 ### C. トライアル終了時の導線
+※ 閲覧のみモードは実装済み（2026-01-24）。
 ```
 トライアル終了
     ↓
@@ -145,19 +146,30 @@ interface OrgBillingDoc {
 }
 ```
 
-### 追加が必要なフィールド
+### 追加フィールド（実装状況）
 ```typescript
 interface OrgBillingDoc {
   // ...既存フィールド
 
-  // 席数管理（新規追加）
-  seatLimit: number;           // 契約席数
-  seatSource: 'trial' | 'circle' | 'subscription';
-
-  // トライアル管理（新規追加）
-  trialEndsAt?: string;        // トライアル終了日
-  readOnlyMode?: boolean;      // 閲覧のみモード
+  // 席数管理（実装済み: billing.ts）
+  seatLimit?: number | null;           // 契約席数（Stripeのquantityから同期、またはサークル特典）
+  isCircleMember?: boolean | null;     // サークル会員かどうか
+  circleBaseSeats?: number | null;     // サークル特典の基本席数（デフォルト3）
+  additionalSeats?: number | null;     // 追加購入席数（Stripeのquantity）
 }
+
+// 席数情報取得（実装済み: member-limits.ts）
+interface SeatInfo {
+  seatLimit: number | null;
+  isCircleMember: boolean;
+  circleBaseSeats: number;
+  additionalSeats: number;
+  source: 'explicit' | 'circle' | 'stripe' | 'plan_default';  // ※仕様のseatSourceに相当
+}
+
+// トライアル管理
+// - readOnlyMode: BillingAccessResultに含む（実装済み）
+// - trialEndsAt: 未実装（Stripeのtrial_endで代用中）
 ```
 
 ---
@@ -198,15 +210,15 @@ interface OrgBillingDoc {
 
 ## 7. 実装優先順位
 
-| 順位 | 項目 | 内容 | 依存 |
+| 順位 | 項目 | 内容 | 状態 |
 |-----|------|------|------|
-| 1 | Compass単独サブスク（Stripe） | 新プロダクト追加 | - |
-| 2 | 席数管理の基盤 | `seatLimit` + 超過判定 | 1 |
-| 3 | 超過時のUI | 招待ブロック + 追加ボタン | 2 |
-| 4 | トライアル終了モーダル | サークル or サブスク誘導 | - |
-| 5 | 閲覧のみモード | トライアル/解約後の制限 | 4 |
-| 6 | デモのログイン不要化 | 現在のデモモード改修 | - |
-| 7 | LP改修 | 導線整理 | 1 |
+| 1 | Compass単独サブスク（Stripe） | 新プロダクト追加 | **実装済み**: checkout.ts（/api/public/checkout） |
+| 2 | 席数管理の基盤 | `seatLimit` + 超過判定 | **実装済み**: billing.ts, member-limits.ts |
+| 3 | 超過時のUI | 招待ブロック + 追加ボタン | **実装済み**: UserManagement.tsx, OrgMemberInvitationModal.tsx |
+| 4 | トライアル終了モーダル | サークル or サブスク誘導 | **実装済み**: 2026-01-24 |
+| 5 | 閲覧のみモード | トライアル/解約後の制限 | **実装済み**: 2026-01-24 |
+| 6 | デモのログイン不要化 | 現在のデモモード改修 | **実装済み**: 2026-01-21 |
+| 7 | LP改修 | 導線整理 | 未着手 |
 
 ---
 
@@ -216,13 +228,32 @@ interface OrgBillingDoc {
 - サークル会員 → Compass使える（Stripe連携済み）
 
 ### 追加したいこと
-- Compass単独サブスク（サークル入らなくても買える）
+- LP改修（導線整理）
 
 ### 変更点
 | 項目 | 現状 | 目標 |
 |-----|------|------|
-| デモ | ログイン必要 | ログイン不要 |
-| トライアル終了 | （未実装） | 閲覧のみ + 誘導モーダル |
-| 自動課金 | （未実装） | なし（誘導のみ） |
-| 席数管理 | プラン別上限 | `seatLimit` で明示管理 |
-| Compass単独購入 | 不可 | 可能（1席¥1,000〜） |
+| デモ | ログイン不要（実装済み: 2026-01-21） | ログイン不要 |
+| トライアル終了 | 閲覧のみ + 誘導モーダル（実装済み: 2026-01-24） | 閲覧のみ + 誘導モーダル |
+| 自動課金 | なし（誘導のみ）※仕様通り | なし（誘導のみ） |
+| 席数管理 | `seatLimit`で明示管理（実装済み: billing.ts, member-limits.ts） | `seatLimit` で明示管理 |
+| Compass単独購入 | **実装済み**: checkout.ts（デプロイ待ち） | 可能（1席¥1,000〜） |
+
+---
+
+## 9. 実装状況の同期（2026-01-26）
+
+### 更新済み
+| 項目 | 更新前 | 更新後 |
+|------|--------|--------|
+| Compass単独サブスク | 未実装 | 実装済み（checkout.ts） |
+| 席数管理の基盤 | 未実装 | 実装済み（billing.ts, member-limits.ts） |
+| 超過時のUI | 未実装 | **実装済み**（UserManagement.tsx, OrgMemberInvitationModal.tsx） |
+| データ構造 | 仕様のみ | 実装済みコードを反映 |
+
+### 残りの未実装/要確認
+| 項目 | 状態 |
+|------|------|
+| trialEndsAt フィールド | 未実装（Stripeのtrial_endで代用中） |
+| LP改修 | 未着手 |
+| checkout.tsのデプロイ | 未デプロイ（git statusで変更中） |

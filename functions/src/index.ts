@@ -28,6 +28,7 @@ import billingRouter from './api/billing';
 import commentsRouter from './api/comments-api';
 import orgSetupRouter from './api/org-setup';
 import adminImpersonationRouter from './api/admin-impersonation';
+import checkoutRouter from './api/checkout';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 import { cleanupDeletedItems } from './cleanupDeletedItems';
@@ -38,7 +39,16 @@ const app = express();
 // CORS configuration with strict origin validation
 const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
-  : ['https://compass-31e9e.web.app', 'https://compass-31e9e.firebaseapp.com'];
+  : [
+      'https://compass-31e9e.web.app',
+      'https://compass-31e9e.firebaseapp.com',
+      'https://compass-lp.web.app',
+      'https://compass-lp.firebaseapp.com',
+      'https://compass-lp.vercel.app',
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'http://localhost:5175',
+    ];
 
 app.use(
   cors({
@@ -48,7 +58,6 @@ app.use(
         callback(null, true);
         return;
       }
-
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
@@ -65,6 +74,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // org-setup must be mounted FIRST to avoid being caught by authMiddleware from other routers
 app.use('/api', orgSetupRouter);
+
+// Public checkout endpoint (no auth required) - for LP
+app.use('/api/public', checkoutRouter);
 
 app.use('/api/projects', projectsRouter);
 app.use('/api/tasks', tasksRouter);

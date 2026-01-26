@@ -4,7 +4,7 @@ import { todayString } from '../lib/date';
 import type { CompassState, SnapshotPayload } from '../lib/types';
 
 const LOCAL_KEY = 'apdw_compass_snapshot_v1';
-const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true' || (typeof window !== 'undefined' && window.location.hostname === 'compass-demo.web.app');
 
 export function useSnapshot() {
   const [state, setState] = useState<CompassState>(() => {
