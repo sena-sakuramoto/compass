@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users, Building } from 'lucide-react';
+import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users, Building, CheckSquare, Square } from 'lucide-react';
 import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, JobTitleType } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
-import { buildAuthHeaders, type Collaborator, listAvailableOrganizations, previewOrgInvite, inviteOrganization, type AvailableOrganization, type OrgInvitePreview } from '../lib/api';
+import { buildAuthHeaders, type Collaborator, listAvailableOrganizations, previewOrgInvite, inviteOrganization, type AvailableOrganization, type OrgInvitePreview, addProjectMembersBatch, type BatchAddMembersPayload } from '../lib/api';
 import { getOrgKey, getOrgLabel } from '../lib/org-utils';
 import { useManageableUsers, useCollaborators, useInvalidateProjectMembers } from '../hooks/useProjectMembers';
 
@@ -47,6 +47,12 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   const [selectedCollaboratorId, setSelectedCollaboratorId] = useState('');
   const [candidateType, setCandidateType] = useState<'user' | 'collaborator'>('user');
   const [orgFilter, setOrgFilter] = useState('');
+
+  // 複数選択用の状態
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set());
+  const [selectedCollaboratorIds, setSelectedCollaboratorIds] = useState<Set<string>>(new Set());
+  const [bulkInviteRole, setBulkInviteRole] = useState<ProjectRole>('member');
+  const [bulkInviteJob, setBulkInviteJob] = useState<JobTitleType | ''>('');
 
   // 組織一括招待関連の状態
   const [showOrgInviteForm, setShowOrgInviteForm] = useState(false);
@@ -142,6 +148,128 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
         setInviteName(trimmedName);
         setInviteEmail('');
       }
+    }
+  };
+
+  // 複数選択用のハンドラー
+  const toggleCandidateSelection = (candidateId: string) => {
+    setSelectedCandidateIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(candidateId)) {
+        newSet.delete(candidateId);
+      } else {
+        newSet.add(candidateId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleCollaboratorSelection = (collaboratorId: string) => {
+    setSelectedCollaboratorIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(collaboratorId)) {
+        newSet.delete(collaboratorId);
+      } else {
+        newSet.add(collaboratorId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllCandidates = (users: ManageableUserSummary[]) => {
+    setSelectedCandidateIds(new Set(users.map(u => u.id)));
+  };
+
+  const clearAllSelections = () => {
+    setSelectedCandidateIds(new Set());
+    setSelectedCollaboratorIds(new Set());
+  };
+
+  const totalSelectedCount = selectedCandidateIds.size + selectedCollaboratorIds.size;
+
+  // 一括招待のハンドラー
+  const handleBulkInvite = async () => {
+    if (totalSelectedCount === 0) {
+      setError('メンバーを選択してください');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError(null);
+
+      const membersToAdd: BatchAddMembersPayload[] = [];
+
+      // 選択されたユーザー候補を追加
+      selectedCandidateIds.forEach(id => {
+        const user = manageableUsers.find(u => u.id === id);
+        if (user?.email) {
+          membersToAdd.push({
+            email: user.email.trim(),
+            role: bulkInviteRole,
+            jobTitle: bulkInviteJob || undefined,
+          });
+        }
+      });
+
+      // 選択された協力者を追加
+      selectedCollaboratorIds.forEach(id => {
+        const collaborator = collaborators.find(c => c.id === id);
+        if (collaborator) {
+          const trimmedEmail = collaborator.email?.trim();
+          if (trimmedEmail) {
+            membersToAdd.push({
+              email: trimmedEmail,
+              role: bulkInviteRole,
+              jobTitle: bulkInviteJob || undefined,
+            });
+          } else if (collaborator.name?.trim()) {
+            membersToAdd.push({
+              displayName: collaborator.name.trim(),
+              role: bulkInviteRole,
+              jobTitle: bulkInviteJob || undefined,
+            });
+          }
+        }
+      });
+
+      if (membersToAdd.length === 0) {
+        setError('有効なメンバーが選択されていません');
+        setSubmitting(false);
+        return;
+      }
+
+      const result = await addProjectMembersBatch(project.id, membersToAdd);
+
+      // 追加されたメンバーをstateに反映
+      if (result.added && result.added.length > 0) {
+        setMembers(prev => {
+          const next = [...prev, ...result.added];
+          broadcastMemberUpdate(next);
+          return next;
+        });
+      }
+
+      // キャッシュを更新
+      invalidateAll(project.id);
+
+      // 成功メッセージ
+      let message = `${result.addedCount}人のメンバーを追加しました`;
+      if (result.skippedCount > 0) {
+        message += `（${result.skippedCount}人は既に参加中）`;
+      }
+      setSuccess(message);
+
+      // フォームをリセット
+      clearAllSelections();
+      setBulkInviteRole('member');
+      setBulkInviteJob('');
+      setShowInviteForm(false);
+    } catch (err: any) {
+      console.error('Error bulk inviting members:', err);
+      setError(err.message || '一括追加に失敗しました');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -584,31 +712,43 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
           {/* 招待ボタン */}
           {!showInviteForm && !showOrgInviteForm && (
-            <div className="mb-6 flex gap-3">
-              <button
-                onClick={() => setShowInviteForm(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <UserPlus className="w-4 h-4" />
-                メンバーを追加/招待
-              </button>
-              <button
-                onClick={() => {
-                  setShowOrgInviteForm(true);
-                  loadAvailableOrgs();
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <Building className="w-4 h-4" />
-                組織を一括招待
-              </button>
+            <div className="mb-6">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowInviteForm(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  メンバーを追加
+                </button>
+                <button
+                  onClick={() => {
+                    setShowOrgInviteForm(true);
+                    loadAvailableOrgs();
+                  }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  <Building className="w-4 h-4" />
+                  組織を一括招待
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                個別にメンバーを追加するか、協力会社の組織全体をまとめて招待できます。
+              </p>
             </div>
           )}
 
           {/* 招待フォーム */}
           {showInviteForm && (
-            <form onSubmit={handleInvite} className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="text-lg font-semibold mb-4">メンバーを追加/招待</h3>
+            <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">メンバーを追加/招待</h3>
+                {totalSelectedCount > 0 && (
+                  <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                    {totalSelectedCount}人選択中
+                  </span>
+                )}
+              </div>
 
               <div className="space-y-4">
                 {/* 入力モード選択 */}
@@ -626,7 +766,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                         onChange={() => setInputMode('email')}
                         className="w-4 h-4 text-blue-600"
                       />
-                      <span className="text-sm text-gray-700">システムユーザー/メールで招待</span>
+                      <span className="text-sm text-gray-700">システムユーザー/メールで招待（複数選択可）</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -644,21 +784,32 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
                 {inputMode === 'email' && (
                   <div>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between mb-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        社内メンバーから選択
+                        メンバーを選択（複数選択可）
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          refetchManageableUsers();
-                          refetchCollaborators();
-                        }}
-                        disabled={manageableLoading || collaboratorsLoading}
-                        className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
-                      >
-                        再読み込み
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {totalSelectedCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={clearAllSelections}
+                            className="text-xs text-gray-600 hover:text-gray-800"
+                          >
+                            選択をクリア
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            refetchManageableUsers();
+                            refetchCollaborators();
+                          }}
+                          disabled={manageableLoading || collaboratorsLoading}
+                          className="text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                        >
+                          再読み込み
+                        </button>
+                      </div>
                     </div>
                     {manageableError ? (
                       <p className="text-sm text-red-600">{manageableError}</p>
@@ -691,37 +842,47 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                         )}
                         {groupedManageableUsers.length > 0 && (
                           <div>
-                            <p className="text-xs font-medium text-gray-700 mb-1">社内メンバー</p>
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-xs font-medium text-gray-700">社内メンバー</p>
+                              <button
+                                type="button"
+                                onClick={() => selectAllCandidates(filteredManageableUsers)}
+                                className="text-xs text-blue-600 hover:text-blue-700"
+                              >
+                                すべて選択
+                              </button>
+                            </div>
                             <div className="space-y-2">
                               {groupedManageableUsers.map((group) => (
                                 <div key={group.key}>
                                   <div className="mb-1 text-xs font-semibold text-gray-500">{group.label}</div>
-                                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-40 overflow-y-auto bg-white">
+                                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-48 overflow-y-auto bg-white">
                                     {group.users.map(user => {
-                                      const isSelected = selectedCandidateId === user.id;
+                                      const isSelected = selectedCandidateIds.has(user.id);
                                       return (
-                                        <button
+                                        <label
                                           key={user.id}
-                                          type="button"
-                                          onClick={() => handleCandidateSelect(user)}
-                                          className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-blue-50 border-l-4 border-blue-600' : 'hover:bg-gray-50'}`}
+                                          className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                                         >
-                                          <div className="flex items-center justify-between gap-4">
-                                            <div>
-                                              <p className="font-medium text-gray-900 truncate">{user.displayName}</p>
-                                              <p className="text-xs text-gray-500 truncate">{user.email}</p>
-                                            </div>
-                                            <div className="text-xs text-gray-500 text-right min-w-[120px]">
-                                              <span>{ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}</span>
-                                              {(user.department || user.jobTitle) && (
-                                                <p className="mt-0.5 text-gray-400 truncate">
-                                                  {[user.department, user.jobTitle].filter(Boolean).join(' / ')}
-                                                </p>
-                                              )}
-                                              {isSelected && <span className="block text-blue-600 font-semibold">選択中</span>}
-                                            </div>
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={() => toggleCandidateSelection(user.id)}
+                                            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                          />
+                                          <div className="flex-1 min-w-0">
+                                            <p className="font-medium text-gray-900 truncate">{user.displayName}</p>
+                                            <p className="text-xs text-gray-500 truncate">{user.email}</p>
                                           </div>
-                                        </button>
+                                          <div className="text-xs text-gray-500 text-right">
+                                            <span>{ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] ?? user.role}</span>
+                                            {(user.department || user.jobTitle) && (
+                                              <p className="mt-0.5 text-gray-400 truncate">
+                                                {[user.department, user.jobTitle].filter(Boolean).join(' / ')}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </label>
                                       );
                                     })}
                                   </div>
@@ -737,26 +898,27 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                               {groupedLinkedCollaborators.map((group) => (
                                 <div key={group.key}>
                                   <div className="mb-1 text-xs font-semibold text-gray-500">{group.label}</div>
-                                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-40 overflow-y-auto bg-white">
+                                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-48 overflow-y-auto bg-white">
                                     {group.collaborators.map(collaborator => {
-                                      const isSelected = selectedCollaboratorId === collaborator.id;
+                                      const isSelected = selectedCollaboratorIds.has(collaborator.id);
                                       return (
-                                        <button
+                                        <label
                                           key={collaborator.id}
-                                          type="button"
-                                          onClick={() => handleCollaboratorSelect(collaborator)}
-                                          className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-gray-50 border-l-4 border-gray-600' : 'hover:bg-gray-50'}`}
+                                          className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                                         >
-                                          <div className="flex items-center justify-between gap-4">
-                                            <div className="flex-1 min-w-0">
-                                              <p className="font-medium text-gray-900 truncate">{collaborator.name}</p>
-                                              {collaborator.email && (
-                                                <p className="text-xs text-gray-500 truncate">{collaborator.email}</p>
-                                              )}
-                                            </div>
-                                            {isSelected && <span className="text-xs text-gray-600 font-semibold whitespace-nowrap">選択中</span>}
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={() => toggleCollaboratorSelection(collaborator.id)}
+                                            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                          />
+                                          <div className="flex-1 min-w-0">
+                                            <p className="font-medium text-gray-900 truncate">{collaborator.name}</p>
+                                            {collaborator.email && (
+                                              <p className="text-xs text-gray-500 truncate">{collaborator.email}</p>
+                                            )}
                                           </div>
-                                        </button>
+                                        </label>
                                       );
                                     })}
                                   </div>
@@ -768,26 +930,27 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                         {filteredExternalCollaborators.length > 0 && (
                           <div>
                             <p className="text-xs font-medium text-gray-700 mb-1">協力者</p>
-                            <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-40 overflow-y-auto bg-white">
+                            <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-48 overflow-y-auto bg-white">
                               {filteredExternalCollaborators.map(collaborator => {
-                                const isSelected = selectedCollaboratorId === collaborator.id;
+                                const isSelected = selectedCollaboratorIds.has(collaborator.id);
                                 return (
-                                  <button
+                                  <label
                                     key={collaborator.id}
-                                    type="button"
-                                    onClick={() => handleCollaboratorSelect(collaborator)}
-                                    className={`w-full text-left px-3 py-2 transition-colors ${isSelected ? 'bg-gray-50 border-l-4 border-gray-600' : 'hover:bg-gray-50'}`}
+                                    className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                                   >
-                                    <div className="flex items-center justify-between gap-4">
-                                      <div className="flex-1 min-w-0">
-                                        <p className="font-medium text-gray-900 truncate">{collaborator.name}</p>
-                                        {collaborator.email && (
-                                          <p className="text-xs text-gray-500 truncate">{collaborator.email}</p>
-                                        )}
-                                      </div>
-                                      {isSelected && <span className="text-xs text-gray-600 font-semibold whitespace-nowrap">選択中</span>}
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => toggleCollaboratorSelection(collaborator.id)}
+                                      className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-medium text-gray-900 truncate">{collaborator.name}</p>
+                                      {collaborator.email && (
+                                        <p className="text-xs text-gray-500 truncate">{collaborator.email}</p>
+                                      )}
                                     </div>
-                                  </button>
+                                  </label>
                                 );
                               })}
                             </div>
@@ -795,39 +958,63 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                         )}
                       </div>
                     )}
+
+                    {/* 一括招待用のロール・職種設定と追加ボタン */}
+                    {totalSelectedCount > 0 && (
+                      <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                        <p className="text-sm font-medium text-blue-800 mb-3">
+                          {totalSelectedCount}人のメンバーを追加
+                        </p>
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              ロール
+                            </label>
+                            <select
+                              value={bulkInviteRole}
+                              onChange={(e) => setBulkInviteRole(e.target.value as ProjectRole)}
+                              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              {Object.entries(PROJECT_ROLE_LABELS).map(([value, label]) => (
+                                <option key={value} value={value}>{label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">
+                              職種
+                            </label>
+                            <select
+                              value={bulkInviteJob}
+                              onChange={(e) => setBulkInviteJob(e.target.value as JobTitleType | '')}
+                              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                              {JOB_TYPE_OPTIONS.map((job) => (
+                                <option key={job || 'none'} value={job}>
+                                  {job || '未設定'}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleBulkInvite}
+                          disabled={submitting}
+                          className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                        >
+                          {submitting ? '追加中...' : `${totalSelectedCount}人を一括追加`}
+                        </button>
+                      </div>
+                    )}
+
                     <p className="mt-2 text-xs text-gray-500">
-                      候補を選択すると自動入力されます。外部ユーザーを追加する場合は直接入力してください。
+                      チェックボックスで複数のメンバーを選択し、一括で追加できます。
                     </p>
                   </div>
                 )}
 
-                {inputMode === 'email' ? (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      メールアドレス *
-                    </label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <input
-                        type="email"
-                        value={inviteEmail}
-                        onChange={(e) => {
-                          const value = e.target.value;
-                          setInviteEmail(value);
-                          if (selectedCandidateId) {
-                            const selected = manageableUsers.find(user => user.id === selectedCandidateId);
-                            if (!selected || selected.email !== value) {
-                              setSelectedCandidateId('');
-                            }
-                          }
-                        }}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        placeholder="user@example.com"
-                        required
-                      />
-                    </div>
-                  </div>
-                ) : (
+                {inputMode === 'text' && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       名前 *
@@ -838,75 +1025,63 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       onChange={(e) => setInviteName(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       placeholder="例: 山田太郎"
-                      required
                     />
                     <p className="mt-1 text-xs text-gray-500">
                       システムに登録されていない外部協力者を名前のみで追加できます
                     </p>
+
+                    <div className="grid grid-cols-2 gap-4 mt-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          ロール *
+                        </label>
+                        <div className="relative">
+                          <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                          <select
+                            value={inviteRole}
+                            onChange={(e) => setInviteRole(e.target.value as ProjectRole)}
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
+                          >
+                            {Object.entries(PROJECT_ROLE_LABELS).map(([value, label]) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          職種
+                        </label>
+                        <div className="relative">
+                          <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                          <select
+                            value={inviteJob}
+                            onChange={(e) => setInviteJob(e.target.value as JobTitleType | '')}
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
+                          >
+                            {JOB_TYPE_OPTIONS.map((job) => (
+                              <option key={job || 'none'} value={job}>
+                                {job || '未設定'}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleInvite}
+                      disabled={submitting || !inviteName.trim()}
+                      className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {submitting ? '処理中...' : '追加'}
+                    </button>
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      ロール *
-                    </label>
-                    <div className="relative">
-                      <Shield className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <select
-                        value={inviteRole}
-                        onChange={(e) => setInviteRole(e.target.value as ProjectRole)}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
-                      >
-                        {Object.entries(PROJECT_ROLE_LABELS).map(([value, label]) => (
-                          <option key={value} value={value}>{label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      職種
-                    </label>
-                    <div className="relative">
-                      <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      <select
-                        value={inviteJob}
-                        onChange={(e) => setInviteJob(e.target.value as JobTitleType | '')}
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
-                      >
-                        {JOB_TYPE_OPTIONS.map((job) => (
-                          <option key={job || 'none'} value={job}>
-                            {job || '未設定'}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    メッセージ（オプション）
-                  </label>
-                  <textarea
-                    value={inviteMessage}
-                    onChange={(e) => setInviteMessage(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    rows={3}
-                    placeholder="メッセージを入力..."
-                  />
-                </div>
-
-                <div className="flex gap-3">
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {submitting ? '処理中...' : '追加/招待'}
-                  </button>
+                <div className="flex justify-end pt-2 border-t border-gray-200 mt-4">
                   <button
                     type="button"
                     onClick={() => {
@@ -917,15 +1092,18 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
                       setInviteMessage('');
                       setSelectedCandidateId('');
                       setSelectedCollaboratorId('');
+                      clearAllSelections();
+                      setBulkInviteRole('member');
+                      setBulkInviteJob('');
                       setInputMode('email');
                     }}
                     className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   >
-                    キャンセル
+                    閉じる
                   </button>
                 </div>
               </div>
-            </form>
+            </div>
           )}
 
           {/* 組織一括招待フォーム */}

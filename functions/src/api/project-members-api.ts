@@ -607,6 +607,205 @@ router.get('/users/:userId/projects', authenticate, async (req: any, res) => {
 });
 
 /**
+ * POST /api/projects/:projectId/members/batch
+ * 複数メンバーを一括追加
+ */
+router.post('/projects/:projectId/members/batch', authenticate, async (req: any, res) => {
+  try {
+    const { projectId } = req.params;
+    const { members: memberInputs } = req.body;
+
+    // バリデーション: members は配列で必須
+    if (!Array.isArray(memberInputs) || memberInputs.length === 0) {
+      return res.status(400).json({ error: 'members array is required and must not be empty' });
+    }
+
+    // Rate limiting: 一度に追加できるメンバー数を制限（最大50人）
+    const MAX_BATCH_SIZE = 50;
+    if (memberInputs.length > MAX_BATCH_SIZE) {
+      return res.status(400).json({
+        error: `Too many members to add at once. Maximum is ${MAX_BATCH_SIZE} members.`,
+        memberCount: memberInputs.length,
+      });
+    }
+
+    // プロジェクトを取得（クロスオーガナイゼーション対応）
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
+    }
+
+    const { project, orgId: projectOrgId } = projectData;
+
+    // 権限チェック
+    const canManage = await canManageProjectMembers(req.user, project as any, projectOrgId);
+    if (!canManage) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to manage members' });
+    }
+
+    // 既存メンバーを取得
+    const existingMembers = await listProjectMembers(projectOrgId, projectId);
+    const existingEmails = new Set(
+      existingMembers
+        .map(member => member.email?.toLowerCase())
+        .filter(Boolean) as string[]
+    );
+    const existingUserIds = new Set(existingMembers.map(member => member.userId));
+
+    const projectName = (project as any).物件名 || projectId;
+    const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+
+    // 招待処理
+    const results = {
+      added: [] as any[],
+      skipped: [] as string[],
+      errors: [] as { email?: string; displayName?: string; error: string }[],
+    };
+
+    for (const input of memberInputs) {
+      const normalizedInput: ProjectMemberInput = {
+        ...input,
+        email:
+          typeof input.email === 'string'
+            ? input.email.trim().toLowerCase() || undefined
+            : undefined,
+        displayName:
+          typeof input.displayName === 'string'
+            ? input.displayName.trim() || undefined
+            : undefined,
+      };
+
+      // メールアドレスがある場合のみバリデーション
+      if (normalizedInput.email) {
+        const emailError = validateEmail(normalizedInput.email);
+        if (emailError) {
+          results.errors.push({ email: normalizedInput.email, error: emailError });
+          continue;
+        }
+
+        // 自分自身を招待しようとしていないかチェック
+        if (normalizedInput.email === req.user.email.toLowerCase()) {
+          results.skipped.push(normalizedInput.email);
+          continue;
+        }
+
+        // 既存メンバーのチェック（メールアドレスで比較）
+        if (existingEmails.has(normalizedInput.email)) {
+          results.skipped.push(normalizedInput.email);
+          continue;
+        }
+      }
+
+      // ロールバリデーション
+      const roleError = validateProjectRole(normalizedInput.role);
+      if (roleError) {
+        results.errors.push({
+          email: normalizedInput.email,
+          displayName: normalizedInput.displayName,
+          error: roleError
+        });
+        continue;
+      }
+
+      try {
+        // メンバーを追加
+        const member = await addProjectMember(
+          projectOrgId,
+          projectId,
+          projectName,
+          normalizedInput,
+          req.uid,
+          req.user.displayName || req.user.email
+        );
+
+        results.added.push(member);
+
+        // 追加したメールをセットに追加（重複防止）
+        if (normalizedInput.email) {
+          existingEmails.add(normalizedInput.email);
+        }
+
+        // アプリ内通知を作成（メールアドレスがある場合のみ）
+        if (normalizedInput.email) {
+          try {
+            const { getUserByEmail } = await import('../lib/users');
+            const invitedUser = await getUserByEmail(normalizedInput.email);
+
+            if (invitedUser) {
+              const { createNotification } = await import('./notifications-api');
+              await createNotification({
+                userId: invitedUser.id,
+                type: 'invitation',
+                title: `プロジェクト「${projectName}」への招待`,
+                message: `${req.user.displayName || req.user.email}さんからプロジェクトに招待されました`,
+                actionUrl: `${appUrl}/projects/${projectId}`,
+                metadata: {
+                  projectId: projectId,
+                  projectName: projectName,
+                  inviterName: req.user.displayName || req.user.email,
+                  role: normalizedInput.role,
+                },
+              });
+            }
+          } catch (notifError) {
+            console.error('[batch-add] Failed to create notification for', normalizedInput.email, notifError);
+          }
+        }
+
+      } catch (error) {
+        console.error('[batch-add] Failed to add member:', error);
+        results.errors.push({
+          email: normalizedInput.email,
+          displayName: normalizedInput.displayName,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    // アクティビティログを記録
+    if (results.added.length > 0) {
+      try {
+        const { logActivity } = await import('../lib/activity-log');
+        await logActivity({
+          orgId: projectOrgId,
+          projectId,
+          type: 'member.batch_added',
+          userId: req.uid,
+          userName: req.user.displayName || req.user.email,
+          userEmail: req.user.email,
+          targetType: 'member',
+          targetId: projectId,
+          targetName: projectName,
+          action: 'メンバー一括追加',
+          metadata: {
+            addedCount: results.added.length,
+            skippedCount: results.skipped.length,
+            errorCount: results.errors.length,
+          },
+        });
+      } catch (logError) {
+        console.error('[batch-add] Failed to log activity:', logError);
+      }
+    }
+
+    res.json({
+      message: `Successfully added ${results.added.length} members`,
+      addedCount: results.added.length,
+      skippedCount: results.skipped.length,
+      errorCount: results.errors.length,
+      added: results.added,
+      skipped: results.skipped.length > 0 ? results.skipped : undefined,
+      errors: results.errors.length > 0 ? results.errors : undefined,
+    });
+  } catch (error) {
+    console.error('Error batch adding members:', error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : 'Internal server error',
+    });
+  }
+});
+
+/**
  * POST /api/projects/:projectId/invite-org
  * 組織の全メンバーをプロジェクトに一括招待
  */

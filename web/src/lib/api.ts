@@ -233,6 +233,30 @@ export async function addProjectMember(projectId: string, payload: { userId?: st
   });
 }
 
+export interface BatchAddMembersPayload {
+  email?: string;
+  displayName?: string;
+  role: string;
+  jobTitle?: string;
+}
+
+export interface BatchAddMembersResult {
+  message: string;
+  addedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  added: ProjectMember[];
+  skipped?: string[];
+  errors?: { email?: string; displayName?: string; error: string }[];
+}
+
+export async function addProjectMembersBatch(projectId: string, members: BatchAddMembersPayload[]) {
+  return request<BatchAddMembersResult>(`/projects/${projectId}/members/batch`, {
+    method: 'POST',
+    body: JSON.stringify({ members }),
+  });
+}
+
 export async function updateProject(projectId: string, payload: Partial<Project>) {
   return request<{ ok: true }>(`/projects/${projectId}`, {
     method: 'PATCH',

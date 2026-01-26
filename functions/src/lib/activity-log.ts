@@ -20,6 +20,7 @@ export type ActivityType =
   | 'member.updated'
   | 'member.removed'
   | 'member.accepted'
+  | 'member.batch_added'
   | 'org.invited';
 
 /**
