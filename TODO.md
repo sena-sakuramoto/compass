@@ -2,7 +2,46 @@
 
 ## 次のタスク
 
-（未整理）
+### COMPASS × Google Chat × Googleドライブ 連携（案件作成の二度手間解消）
+
+#### ゴール
+COMPASSでプロジェクト（案件）を作成したら、同時に
+- Googleドライブ：案件フォルダ作成
+- Google Chat：案件スペース作成
+を行い、**各URLをCOMPASSのプロジェクトに保存してワンクリックで飛べる**ようにする。
+
+#### 基本方針
+- 連携は **org（組織）単位**でON/OFF・ルール設定できるようにする（「使いたい組織だけ各々セット」）。
+- **プロジェクトのオーナーorgが連携ONのときだけ** 自動作成する。
+- 招待された側（参加者側）は原則「作らない」。オーナーが作ったChat/Driveのリンクに乗る。
+
+#### MVP（まず作る）
+1) **org設定（Google連携設定画面）**
+- Drive
+  - enabled
+  - parentFolderId（共有ドライブ内のフォルダID等）
+  - folderNameTemplate（例：`{projectType}_{projectName}`）
+- Chat
+  - enabled
+  - spaceNameTemplate（例：`【COMPASS】{projectName}`）
+  - （任意）初期メッセージテンプレ（COMPASSプロジェクトURL等）
+- memberSyncMode（まずは `none` / `addOnly` のみ）
+
+2) **プロジェクト作成時の自動作成**（オーナーorgがONの場合）
+- Driveフォルダ作成 → `driveFolderUrl` をプロジェクトに保存
+- Chatスペース作成 → `chatSpaceUrl` をプロジェクトに保存
+- プロジェクト画面から「Driveを開く」「Chatを開く」導線を追加
+
+3) **Chatの招待メンバー選択（PJ単位）**
+- PJ設定に「Chatに招待するメンバー（メール）」のマルチセレクト（チェック）を追加
+- まずは addOnly（追加のみ）で招待
+- Googleメールが未設定のメンバーはスキップ＋警告表示
+
+#### Phase2（運用しながら拡張）
+- memberSyncModeを拡張：`addAndRemove`（削除同期）
+- Drive共有権限の自動同期（PJメンバー→フォルダ共有）
+- 招待された側のオプション（必要なら）：個人/自組織用の「ミラー作成」
+
 
 ## 完了
 
