@@ -123,9 +123,30 @@
       "Bash(git -C \"D:\\\\senaa_dev\\\\compass\" show c297c2d)",
       "Bash(pnpm run build:demo:*)",
       "Bash(firebase functions:secrets:set:*)",
-      "Bash(pnpm dev:demo:*)"
+      "Bash(pnpm dev:demo:*)",
+      "Bash(for commit in 09b9025 c297c2d d8ce01d 3f0940e edcf0a5 49de8d7 940f600 53f9ffb 5825a3d b5835ed 4c132c9 a6eaa44 98196d2 0babcdc 4e61e4f)",
+      "Bash(do echo -n \"$commit: \")",
+      "Bash(done)",
+      "Bash(dir:*)",
+      "Bash(for commit in 09b9025 c297c2d d8ce01d 3f0940e edcf0a5)",
+      "Bash(for commit in 19dea1d 1324096 142c20c 9a6dc08 09b9025)",
+      "Bash(firebase functions:secrets:access:*)",
+      "Bash(git -C \"D:/senaa_dev/compass-lp\" status --short)",
+      "Bash(git -C \"D:/senaa_dev/compass-lp\" add src/App.tsx)",
+      "Bash(git -C \"D:/senaa_dev/compass-lp\" commit -m \"$\\(cat <<''EOF''\nfeat: Checkout API連携 & 料金動的表示\n\n- /api/public/checkout/plans からプラン情報を取得\n- 申込みモーダルに席数入力を追加\n- 料金セクションを通常+学生の2カード構成に変更\n- 学生判定をAPIのeligibleDomainsに統一\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git -C \"D:/senaa_dev/compass-lp\" push origin main)",
+      "Bash(git -C \"D:/senaa_dev/compass-lp\" add vite.config.ts)",
+      "Bash(git -C \"D:/senaa_dev/compass-lp\" commit -m \"fix: base path for custom domain\")",
+      "Bash(git -C \"D:/senaa_dev/compass-lp\" add index.html)",
+      "Bash(git -C \"D:/senaa_dev/compass-lp\" commit -m \"fix: update favicon to compass-logo_v.png\")",
+      "Bash(gh run list:*)",
+      "Bash(npm test:*)",
+      "Bash(pnpm -C web build:*)",
+      "Bash(pnpm -C web install)",
+      "Bash(CI=true pnpm:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "outputStyle": "default"
 }
