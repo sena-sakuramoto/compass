@@ -7,7 +7,8 @@ import { GanttMilestone } from './GanttMilestone';
 import { GanttDependencyArrow } from './GanttDependencyArrow';
 import type { GanttTask, DateTick } from './types';
 import { calculateTaskBarPosition, calculateTodayPosition, resolveDependencies } from './utils';
-import { differenceInDays } from 'date-fns';
+import { addDays, differenceInDays } from 'date-fns';
+import { formatDate } from '../../lib/date';
 
 export interface ProjectMilestone {
   projectId: string;
@@ -41,6 +42,9 @@ interface GanttTimelineProps {
   projectMap?: Record<string, { 物件名?: string; ステータス?: string;[key: string]: any }>;
   expandedStageIds?: Set<string>;
   expandedProjectIds?: Set<string>;
+  personalHolidaySet?: Set<string>;
+  holidayClickEnabled?: boolean;
+  onTogglePersonalHoliday?: (dateStr: string) => void;
 }
 
 interface GanttTimelinePropsExtended extends GanttTimelineProps {
@@ -74,7 +78,10 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
   onZoom,
   onBatchEdit,
   expandedStageIds = new Set(),
-  expandedProjectIds = new Set()
+  expandedProjectIds = new Set(),
+  personalHolidaySet,
+  holidayClickEnabled = false,
+  onTogglePersonalHoliday,
 }) => {
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
@@ -93,6 +100,22 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
     lastDistance: number;
     pinch: boolean;
   } | null>(null);
+  const holidayModeEnabled = Boolean(holidayClickEnabled && onTogglePersonalHoliday && viewMode === 'day');
+
+  const togglePersonalHolidayAt = useCallback((clientX: number) => {
+    if (!holidayModeEnabled || !onTogglePersonalHoliday || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const totalDaysInclusive = differenceInDays(dateRange.end, dateRange.start) + 1;
+    if (totalDaysInclusive <= 0 || containerWidth <= 0) return;
+    const dayWidth = containerWidth / totalDaysInclusive;
+    const dayIndex = Math.max(0, Math.min(totalDaysInclusive - 1, Math.floor(x / dayWidth)));
+    const date = addDays(dateRange.start, dayIndex);
+    const dateStr = formatDate(date);
+    if (dateStr) {
+      onTogglePersonalHoliday(dateStr);
+    }
+  }, [holidayModeEnabled, onTogglePersonalHoliday, dateRange, containerWidth]);
 
   // 個別タスクのドラッグ時に選択中の全タスクも一緒に移動
   const handleTaskUpdateWithBatch = (task: GanttTask, newStartDate: Date, newEndDate: Date) => {
@@ -143,6 +166,11 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
 
     const targetEl = e.target as HTMLElement;
     const barEl = targetEl.closest('.gantt-task-bar') as HTMLElement | null;
+
+    if (holidayModeEnabled && !barEl) {
+      togglePersonalHolidayAt(e.clientX);
+      return;
+    }
 
     // 選択済みタスクのバーを掴んだらバッチドラッグ開始
     if (barEl) {
@@ -617,6 +645,24 @@ export const GanttTimeline: React.FC<GanttTimelinePropsExtended> = ({
       >
           {/* グリッド背景 */}
           <div className="absolute inset-0">
+            {/* 個人の休み背景（自分のみ） */}
+            {viewMode === 'day' && personalHolidaySet && personalHolidaySet.size > 0 && (
+              <>
+                {ticks.map((tick, index) => {
+                  const dateStr = formatDate(tick.date);
+                  if (!dateStr || !personalHolidaySet.has(dateStr)) return null;
+                  const x = index * columnWidth;
+                  return (
+                    <div
+                      key={`personal-holiday-${dateStr}`}
+                      className="absolute top-0 bottom-0 bg-slate-200/50 pointer-events-none"
+                      style={{ left: `${x}px`, width: `${columnWidth}px` }}
+                    />
+                  );
+                })}
+              </>
+            )}
+
             {/* 縦線（日付の区切り） */}
             {ticks.map((tick, index) => {
               const x = index * columnWidth;

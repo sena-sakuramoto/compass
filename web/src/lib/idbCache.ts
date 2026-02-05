@@ -1,46 +1,38 @@
 /**
  * IndexedDB Cache - Stale-While-Revalidate パターン
- * 
+ *
  * ページロード時に即座にキャッシュからデータを表示し、
  * バックグラウンドでサーバーから最新データを取得して更新
+ *
+ * 素のIndexedDB APIベースの cache.ts を使用（idb-keyval 不要）
  */
 
-import { get, set, del, createStore } from 'idb-keyval';
+import {
+  cacheGet,
+  cacheSet,
+  cacheClear as cacheRawClear,
+  CACHE_KEY_PROJECTS,
+  CACHE_KEY_TASKS,
+  CACHE_KEY_PROJECT_MEMBERS_PREFIX,
+  TTL_SHORT,
+  TTL_LONG,
+} from './cache';
 import type { Project, Task, Person } from './types';
 import type { ProjectMember } from './auth-types';
-
-// Compass専用のIndexedDBストア
-const compassStore = createStore('compass-cache', 'keyval');
-
-// キャッシュキー
-const CACHE_KEYS = {
-  PROJECTS: 'projects',
-  TASKS: 'tasks',
-  PEOPLE: 'people',
-  PROJECT_MEMBERS: 'project_members',
-  METADATA: 'metadata',
-} as const;
 
 // プロジェクトメンバーのキャッシュ型
 type ProjectMembersCache = Record<string, ProjectMember[]>;
 
-// キャッシュメタデータ
-interface CacheMetadata {
-  projectsUpdatedAt?: number;
-  tasksUpdatedAt?: number;
-  peopleUpdatedAt?: number;
-}
-
-// キャッシュの有効期限（5分）- これを過ぎたらバックグラウンド更新を優先
-const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+// 内部キー
+const KEY_PEOPLE = 'people';
+const KEY_PROJECT_MEMBERS_ALL = 'project_members_all';
 
 /**
  * プロジェクトをキャッシュに保存
  */
 export async function cacheProjects(projects: Project[]): Promise<void> {
   try {
-    await set(CACHE_KEYS.PROJECTS, projects, compassStore);
-    await updateMetadata({ projectsUpdatedAt: Date.now() });
+    await cacheSet(CACHE_KEY_PROJECTS, projects, TTL_SHORT);
   } catch (err) {
     console.warn('[idbCache] Failed to cache projects:', err);
   }
@@ -51,7 +43,8 @@ export async function cacheProjects(projects: Project[]): Promise<void> {
  */
 export async function getCachedProjects(): Promise<Project[] | undefined> {
   try {
-    return await get<Project[]>(CACHE_KEYS.PROJECTS, compassStore);
+    const data = await cacheGet<Project[]>(CACHE_KEY_PROJECTS);
+    return data ?? undefined;
   } catch (err) {
     console.warn('[idbCache] Failed to get cached projects:', err);
     return undefined;
@@ -63,8 +56,7 @@ export async function getCachedProjects(): Promise<Project[] | undefined> {
  */
 export async function cacheTasks(tasks: Task[]): Promise<void> {
   try {
-    await set(CACHE_KEYS.TASKS, tasks, compassStore);
-    await updateMetadata({ tasksUpdatedAt: Date.now() });
+    await cacheSet(CACHE_KEY_TASKS, tasks, TTL_SHORT);
   } catch (err) {
     console.warn('[idbCache] Failed to cache tasks:', err);
   }
@@ -75,7 +67,8 @@ export async function cacheTasks(tasks: Task[]): Promise<void> {
  */
 export async function getCachedTasks(): Promise<Task[] | undefined> {
   try {
-    return await get<Task[]>(CACHE_KEYS.TASKS, compassStore);
+    const data = await cacheGet<Task[]>(CACHE_KEY_TASKS);
+    return data ?? undefined;
   } catch (err) {
     console.warn('[idbCache] Failed to get cached tasks:', err);
     return undefined;
@@ -87,8 +80,7 @@ export async function getCachedTasks(): Promise<Task[] | undefined> {
  */
 export async function cachePeople(people: Person[]): Promise<void> {
   try {
-    await set(CACHE_KEYS.PEOPLE, people, compassStore);
-    await updateMetadata({ peopleUpdatedAt: Date.now() });
+    await cacheSet(KEY_PEOPLE, people, TTL_SHORT);
   } catch (err) {
     console.warn('[idbCache] Failed to cache people:', err);
   }
@@ -99,7 +91,8 @@ export async function cachePeople(people: Person[]): Promise<void> {
  */
 export async function getCachedPeople(): Promise<Person[] | undefined> {
   try {
-    return await get<Person[]>(CACHE_KEYS.PEOPLE, compassStore);
+    const data = await cacheGet<Person[]>(KEY_PEOPLE);
+    return data ?? undefined;
   } catch (err) {
     console.warn('[idbCache] Failed to get cached people:', err);
     return undefined;
@@ -111,9 +104,13 @@ export async function getCachedPeople(): Promise<Person[] | undefined> {
  */
 export async function cacheProjectMembers(projectId: string, members: ProjectMember[]): Promise<void> {
   try {
-    const current = await get<ProjectMembersCache>(CACHE_KEYS.PROJECT_MEMBERS, compassStore) || {};
+    // 個別プロジェクトのメンバーキャッシュを保存
+    await cacheSet(`${CACHE_KEY_PROJECT_MEMBERS_PREFIX}${projectId}`, members, TTL_LONG);
+
+    // 全プロジェクトメンバーの集約キャッシュも更新
+    const current = await cacheGet<ProjectMembersCache>(KEY_PROJECT_MEMBERS_ALL) || {};
     current[projectId] = members;
-    await set(CACHE_KEYS.PROJECT_MEMBERS, current, compassStore);
+    await cacheSet(KEY_PROJECT_MEMBERS_ALL, current, TTL_LONG);
   } catch (err) {
     console.warn('[idbCache] Failed to cache project members:', err);
   }
@@ -124,8 +121,8 @@ export async function cacheProjectMembers(projectId: string, members: ProjectMem
  */
 export async function getCachedProjectMembers(projectId: string): Promise<ProjectMember[] | undefined> {
   try {
-    const cache = await get<ProjectMembersCache>(CACHE_KEYS.PROJECT_MEMBERS, compassStore);
-    return cache?.[projectId];
+    const data = await cacheGet<ProjectMember[]>(`${CACHE_KEY_PROJECT_MEMBERS_PREFIX}${projectId}`);
+    return data ?? undefined;
   } catch (err) {
     console.warn('[idbCache] Failed to get cached project members:', err);
     return undefined;
@@ -137,7 +134,8 @@ export async function getCachedProjectMembers(projectId: string): Promise<Projec
  */
 export async function getAllCachedProjectMembers(): Promise<ProjectMembersCache | undefined> {
   try {
-    return await get<ProjectMembersCache>(CACHE_KEYS.PROJECT_MEMBERS, compassStore);
+    const data = await cacheGet<ProjectMembersCache>(KEY_PROJECT_MEMBERS_ALL);
+    return data ?? undefined;
   } catch (err) {
     console.warn('[idbCache] Failed to get all cached project members:', err);
     return undefined;
@@ -176,47 +174,12 @@ export async function getCachedSnapshot(): Promise<{
 }
 
 /**
- * キャッシュが古いかどうかをチェック
- */
-export async function isCacheStale(key: 'projects' | 'tasks' | 'people'): Promise<boolean> {
-  try {
-    const metadata = await get<CacheMetadata>(CACHE_KEYS.METADATA, compassStore);
-    if (!metadata) return true;
-
-    const updatedAt = metadata[`${key}UpdatedAt` as keyof CacheMetadata];
-    if (!updatedAt) return true;
-
-    return Date.now() - updatedAt > STALE_THRESHOLD_MS;
-  } catch {
-    return true;
-  }
-}
-
-/**
- * メタデータを更新
- */
-async function updateMetadata(updates: Partial<CacheMetadata>): Promise<void> {
-  try {
-    const current = await get<CacheMetadata>(CACHE_KEYS.METADATA, compassStore) || {};
-    await set(CACHE_KEYS.METADATA, { ...current, ...updates }, compassStore);
-  } catch (err) {
-    console.warn('[idbCache] Failed to update metadata:', err);
-  }
-}
-
-/**
  * キャッシュをクリア
  */
 export async function clearCache(): Promise<void> {
   try {
-    await Promise.all([
-      del(CACHE_KEYS.PROJECTS, compassStore),
-      del(CACHE_KEYS.TASKS, compassStore),
-      del(CACHE_KEYS.PEOPLE, compassStore),
-      del(CACHE_KEYS.METADATA, compassStore),
-    ]);
+    await cacheRawClear();
   } catch (err) {
     console.warn('[idbCache] Failed to clear cache:', err);
   }
 }
-

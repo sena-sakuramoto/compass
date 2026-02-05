@@ -43,6 +43,9 @@ interface GanttChartProps {
   jumpToTodayRef?: React.MutableRefObject<(() => void) | null>;
   expandedProjectIds?: Set<string>;
   onToggleProject?: (projectId: string) => void;
+  personalHolidaySet?: Set<string>;
+  holidayClickEnabled?: boolean;
+  onTogglePersonalHoliday?: (dateStr: string) => void;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -68,6 +71,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   jumpToTodayRef,
   expandedProjectIds: externalExpandedProjectIds,
   onToggleProject,
+  personalHolidaySet,
+  holidayClickEnabled = false,
+  onTogglePersonalHoliday,
 }) => {
   const holidaySet = useJapaneseHolidaySet();
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
@@ -671,6 +677,9 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             projectMap={projectMap}
             expandedStageIds={expandedStageIds}
             expandedProjectIds={expandedProjectIds}
+            personalHolidaySet={personalHolidaySet}
+            holidayClickEnabled={holidayClickEnabled}
+            onTogglePersonalHoliday={onTogglePersonalHoliday}
             onZoom={(direction) => {
               if (direction === 'in') {
                 handleZoomIn();

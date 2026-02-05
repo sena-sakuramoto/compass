@@ -805,6 +805,7 @@ export interface Collaborator {
     orgId: string;
     orgName: string;
     displayName: string;
+    email?: string;
   };
 }
 

@@ -3,6 +3,7 @@ import { listUsers, listUsersWithCollaborators, updateUser, deactivateUser, acti
 import { ROLE_LABELS } from '../lib/auth-types';
 import { OrgMemberInvitationModal } from './OrgMemberInvitationModal';
 import { UserEditModal } from './UserEditModal';
+import { invalidateCollaboratorsCache } from '../hooks/useProjectMembers';
 import type { Project } from '../lib/types';
 import { Building2, Plus, Trash2, Check, X, Users, Pencil, Mail, UserPlus, ExternalLink, AlertCircle, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -352,6 +353,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
         payload.email = newCollaboratorEmail.trim();
       }
       await createCollaborator(payload);
+      invalidateCollaboratorsCache();
       await loadCollaborators();
       setNewCollaboratorName('');
       setNewCollaboratorEmail('');
@@ -380,6 +382,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
       console.log('[DEBUG] Update payload:', payload);
       await updateCollaborator(collaboratorId, payload);
       console.log('[DEBUG] API updateCollaborator succeeded');
+      invalidateCollaboratorsCache();
       await loadCollaborators();
       setEditingCollaboratorId(null);
       setEditingCollaboratorName('');
@@ -398,6 +401,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
     try {
       setCollaboratorError(null);
       await deleteCollaborator(collaboratorId);
+      invalidateCollaboratorsCache();
       await loadCollaborators();
     } catch (err) {
       setCollaboratorError(err instanceof Error ? err.message : '協力者の削除に失敗しました');

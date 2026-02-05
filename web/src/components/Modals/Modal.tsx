@@ -1,4 +1,5 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export interface ModalProps {
@@ -12,6 +13,12 @@ interface ModalComponentProps extends ModalProps {
 }
 
 export function Modal({ open, onOpenChange, children, title }: ModalComponentProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // ESCキーでモーダルを閉じる（イベント伝播を止めて親ダイアログに影響させない）
   useEffect(() => {
     if (!open) return;
@@ -26,7 +33,9 @@ export function Modal({ open, onOpenChange, children, title }: ModalComponentPro
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [open, onOpenChange]);
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -49,9 +58,9 @@ export function Modal({ open, onOpenChange, children, title }: ModalComponentPro
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 10 }}
             transition={{
-              type: "spring",
+              type: 'spring',
               stiffness: 350,
-              damping: 30
+              damping: 30,
             }}
           >
             <div className="px-6 pt-6 pb-4 flex items-center justify-between border-b border-slate-200 flex-shrink-0">
@@ -66,6 +75,7 @@ export function Modal({ open, onOpenChange, children, title }: ModalComponentPro
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

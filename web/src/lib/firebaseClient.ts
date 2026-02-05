@@ -12,6 +12,7 @@ import {
 } from 'firebase/auth';
 import { setIdToken } from './api';
 import { clearTokenCache } from './authToken';
+import { cacheClear, setCacheScope } from './cache';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -163,6 +164,9 @@ export function useFirebaseAuth() {
           const token = await firebaseUser.getIdToken();
           setIdToken(token);
 
+          // キャッシュスコープをuidに設定（別ユーザーのデータ混入防止）
+          setCacheScope(firebaseUser.uid);
+
           // 初回ログイン時にFirestoreにユーザードキュメントを作成
           await ensureUserDocument(firebaseUser, token);
 
@@ -170,6 +174,8 @@ export function useFirebaseAuth() {
         } else {
           setIdToken();
           clearTokenCache(); // ログアウト時にキャッシュをクリア
+          cacheClear().catch(() => {}); // IndexedDBキャッシュも全消去
+          setCacheScope('');
           setState({ user: null, ready: true, error: null });
         }
       } catch (error) {
@@ -231,6 +237,8 @@ export function useFirebaseAuth() {
       await signOut(getAuth(app));
       setIdToken();
       clearTokenCache(); // ログアウト時にキャッシュをクリア
+      cacheClear().catch(() => {}); // IndexedDBキャッシュも全消去
+      setCacheScope('');
       setState((prev) => ({ ...prev, error: null, user: null }));
     } catch (error) {
       console.error('Sign-out failed', error);

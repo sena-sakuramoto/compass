@@ -5,6 +5,7 @@ import { Modal, ModalProps } from './Modal';
 import { listProjectMembers, listStages } from '../../lib/api';
 import { clampToSingleDecimal, parseHoursInput } from '../../lib/number';
 import { PROJECT_ROLE_LABELS } from '../../lib/auth-types';
+import { computeDiff, isDiffEmpty } from '../../lib/diff';
 import type { Project, Task, Person, TaskNotificationSettings, Stage, WorkItemType } from '../../lib/types';
 import type { ProjectMember } from '../../lib/auth-types';
 import type { ToastMessage } from '../ToastStack';
@@ -364,8 +365,44 @@ export function TaskModal({
       }
 
       if (editingTask && onUpdate) {
-        console.log('[TaskModal] Updating task with payload:', payload);
-        await onUpdate(editingTask.id, payload);
+        // 編集モード: 変更されたフィールドのみを抽出して送信
+        const originalData: Record<string, unknown> = {
+          projectId: editingTask.projectId,
+          タスク名: editingTask.タスク名,
+          担当者: editingTask.担当者 || editingTask.assignee || '',
+          予定開始日: editingTask.予定開始日 || editingTask.start || undefined,
+          期限: editingTask.期限 || editingTask.end || undefined,
+          優先度: editingTask.優先度 || '中',
+          ステータス: editingTask.ステータス || '未着手',
+          進捗率: (editingTask.progress ?? editingTask.進捗率 ?? 0) > 1
+            ? (editingTask.progress ?? editingTask.進捗率 ?? 0) / 100
+            : (editingTask.progress ?? editingTask.進捗率 ?? 0),
+          ['工数見積(h)']: editingTask['工数見積(h)'] ?? 4,
+          担当者メール: editingTask.担当者メール || '',
+          マイルストーン: editingTask.マイルストーン === true || editingTask.milestone === true,
+          parentId: editingTask.parentId || null,
+          '通知設定': editingTask['通知設定'] ?? {
+            開始日: true,
+            期限前日: true,
+            期限当日: true,
+            超過: true,
+          },
+          type: editingTask.type || 'task',
+          participants: editingTask.participants || [],
+        };
+
+        const diff = computeDiff(originalData, payload as Record<string, unknown>, {
+          // projectIdは変更不可なので除外
+          excludeFields: ['projectId'],
+        });
+
+        if (isDiffEmpty(diff)) {
+          console.log('[TaskModal] No changes detected, skipping update');
+          // 変更がない場合は閉じるだけ
+        } else {
+          console.log('[TaskModal] Updating task with diff:', diff, '(changed fields:', Object.keys(diff), ')');
+          await onUpdate(editingTask.id, diff as Partial<Task>);
+        }
       } else {
         console.log('[TaskModal] Creating task with payload:', payload);
         await onSubmit(payload);

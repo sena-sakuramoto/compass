@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -74,6 +74,7 @@ import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
 import { AdminPage } from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
+import { SetupPage } from './pages/SetupPage';
 import BillingGateOverlay from './components/BillingGateOverlay';
 import TrialExpiredModal from './components/TrialExpiredModal';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
@@ -127,6 +128,8 @@ import { useFirebaseAuth, saveDemoUserProfile, getDemoUserProfile, type DemoUser
 import { DemoLoginScreen } from './components/DemoLoginScreen';
 import { useJapaneseHolidaySet } from './lib/japaneseHolidays';
 import { getCachedSnapshot, cacheSnapshot, cacheProjectMembers, getAllCachedProjectMembers } from './lib/idbCache';
+import { cacheDelete, cacheDeleteByPrefix, CACHE_KEY_TASKS, CACHE_KEY_PROJECTS } from './lib/cache';
+import { invalidateCollaboratorsCache } from './hooks/useProjectMembers';
 import type { User } from 'firebase/auth';
 import { usePendingOverlay, applyPendingToTasks } from './state/pendingOverlay';
 import { calculateProjectStatus } from './lib/projectStatus';
@@ -172,6 +175,65 @@ import { useRemoteData } from './hooks/useRemoteData';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true' || window.location.hostname === 'compass-demo.web.app';
 
+type PrivateSettings = {
+  holidayClickEnabled: boolean;
+  avatarDataUrl?: string | null;
+};
+
+const PRIVATE_SETTINGS_KEY = 'compass_private_settings_v1';
+const PERSONAL_HOLIDAYS_KEY = 'compass_personal_holidays_v1';
+
+const DEFAULT_PRIVATE_SETTINGS: PrivateSettings = {
+  holidayClickEnabled: false,
+  avatarDataUrl: null,
+};
+
+function loadPrivateSettings(): PrivateSettings {
+  if (typeof window === 'undefined') return DEFAULT_PRIVATE_SETTINGS;
+  try {
+    const raw = window.localStorage.getItem(PRIVATE_SETTINGS_KEY);
+    if (!raw) return DEFAULT_PRIVATE_SETTINGS;
+    const parsed = JSON.parse(raw) as Partial<PrivateSettings>;
+    return {
+      ...DEFAULT_PRIVATE_SETTINGS,
+      ...parsed,
+    };
+  } catch {
+    return DEFAULT_PRIVATE_SETTINGS;
+  }
+}
+
+function savePrivateSettings(next: PrivateSettings) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PRIVATE_SETTINGS_KEY, JSON.stringify(next));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function loadPersonalHolidaySet(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(PERSONAL_HOLIDAYS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as string[];
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((entry) => typeof entry === 'string'));
+  } catch {
+    return new Set();
+  }
+}
+
+function savePersonalHolidaySet(next: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(PERSONAL_HOLIDAYS_KEY, JSON.stringify(Array.from(next)));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 type ToastInput = {
   tone: ToastMessage['tone'];
   title: string;
@@ -200,6 +262,10 @@ function AppLayout({
   actionPanel,
   loading,
   sidebarPanel,
+  privateSettings,
+  onPrivateSettingsChange,
+  personalHolidayCount,
+  onResetPersonalHolidays,
 }: {
   children: React.ReactNode;
   onOpenTask(): void;
@@ -221,6 +287,10 @@ function AppLayout({
   actionPanel?: React.ReactNode;
   loading?: boolean;
   sidebarPanel?: React.ReactNode;
+  privateSettings: PrivateSettings;
+  onPrivateSettingsChange: React.Dispatch<React.SetStateAction<PrivateSettings>>;
+  personalHolidayCount: number;
+  onResetPersonalHolidays(): void;
 }) {
   const navLinks = [
     { path: '/', label: '工程表' },
@@ -278,6 +348,10 @@ function AppLayout({
                     onImportSnapshot={onImportSnapshot}
                     onImportExcel={onImportExcel}
                     onNotify={onNotify}
+                    privateSettings={privateSettings}
+                    onPrivateSettingsChange={onPrivateSettingsChange}
+                    personalHolidayCount={personalHolidayCount}
+                    onResetPersonalHolidays={onResetPersonalHolidays}
                   />
                 </div>
               </div>
@@ -367,6 +441,10 @@ function HeaderActions({
   onImportSnapshot,
   onImportExcel,
   onNotify,
+  privateSettings,
+  onPrivateSettingsChange,
+  personalHolidayCount,
+  onResetPersonalHolidays,
 }: {
   user: User | null;
   authSupported: boolean;
@@ -380,10 +458,16 @@ function HeaderActions({
   onImportSnapshot(payload: SnapshotPayload): Promise<void>;
   onImportExcel(file: File): Promise<void>;
   onNotify(message: ToastInput): void;
+  privateSettings: PrivateSettings;
+  onPrivateSettingsChange: React.Dispatch<React.SetStateAction<PrivateSettings>>;
+  personalHolidayCount: number;
+  onResetPersonalHolidays(): void;
 }) {
   const [busy, setBusy] = useState(false);
   const jsonInputRef = React.useRef<HTMLInputElement | null>(null);
   const excelInputRef = React.useRef<HTMLInputElement | null>(null);
+  const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [privateSettingsOpen, setPrivateSettingsOpen] = useState(false);
 
   const downloadBlob = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
@@ -471,6 +555,36 @@ function HeaderActions({
     }
   };
 
+  const handleAvatarSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (file.size > 512 * 1024) {
+      onNotify({ tone: 'error', title: '画像が大きすぎます', description: '512KB以下の画像を選択してください' });
+      event.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') {
+        onPrivateSettingsChange(prev => ({ ...prev, avatarDataUrl: result }));
+      }
+    };
+    reader.onerror = () => {
+      onNotify({ tone: 'error', title: '画像の読み込みに失敗しました' });
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+  };
+
+  const handleAvatarClear = () => {
+    onPrivateSettingsChange(prev => ({ ...prev, avatarDataUrl: null }));
+  };
+
+  const displayName = user?.displayName ?? user?.email ?? 'サインイン済み';
+  const avatarInitial = (displayName || '?').slice(0, 1).toUpperCase();
+  const avatarSrc = privateSettings.avatarDataUrl;
+
   return (
     <div className="hidden items-center gap-2 md:flex">
       <button
@@ -492,6 +606,7 @@ function HeaderActions({
       </button>
       <input ref={jsonInputRef} type="file" accept="application/json" className="hidden" onChange={handleJsonSelected} />
       <input ref={excelInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelSelected} />
+      <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelected} />
       <button
         type="button"
         onClick={() => jsonInputRef.current?.click()}
@@ -513,14 +628,37 @@ function HeaderActions({
       {authSupported && !DEMO_MODE ? (
         user ? (
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-                {(user.displayName || user.email || '?').slice(0, 1).toUpperCase()}
-              </div>
-              <div className="flex flex-col leading-tight">
-                <span className="text-xs font-semibold text-slate-900">{user.displayName ?? user.email ?? 'サインイン済み'}</span>
-                <span className="text-[11px] text-slate-500">同期有効</span>
-              </div>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setPrivateSettingsOpen(true)}
+                className="flex items-center gap-2 rounded-2xl bg-slate-100 px-3 py-2 transition hover:bg-slate-200"
+              >
+                <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-slate-900 text-xs font-semibold text-white">
+                  {avatarSrc ? (
+                    <img src={avatarSrc} alt="avatar" className="h-full w-full object-cover" />
+                  ) : (
+                    avatarInitial
+                  )}
+                </div>
+                <div className="flex flex-col leading-tight text-left">
+                  <span className="text-xs font-semibold text-slate-900">{displayName}</span>
+                  <span className="text-[11px] text-slate-500">同期有効</span>
+                </div>
+              </button>
+              {privateSettings.holidayClickEnabled && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onPrivateSettingsChange(prev => ({ ...prev, holidayClickEnabled: false }));
+                  }}
+                  className="absolute -bottom-3 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-md transition hover:bg-amber-200"
+                  aria-label="休み登録を終了して通常モードに戻る"
+                >
+                  休み登録中 → 通常へ
+                </button>
+              )}
             </div>
             <button
               type="button"
@@ -549,6 +687,71 @@ function HeaderActions({
       {authError && user ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] text-rose-700">{authError}</div>
       ) : null}
+
+      <Modal open={privateSettingsOpen} onOpenChange={setPrivateSettingsOpen} title="プライベート設定">
+        <div className="space-y-6">
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-800">プロフィール</h3>
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-900 text-lg font-semibold text-white">
+                {avatarSrc ? (
+                  <img src={avatarSrc} alt="avatar" className="h-full w-full object-cover" />
+                ) : (
+                  avatarInitial
+                )}
+              </div>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  アイコンを変更
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAvatarClear}
+                  className="ml-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+                >
+                  リセット
+                </button>
+                <p className="text-[11px] text-slate-400">この設定は端末ローカルに保存されます</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold text-slate-800">休み登録</h3>
+            <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
+              工程表クリックで休みを登録
+              <input
+                type="checkbox"
+                checked={privateSettings.holidayClickEnabled}
+                onChange={(event) => onPrivateSettingsChange(prev => ({ ...prev, holidayClickEnabled: event.target.checked }))}
+              />
+            </label>
+            <p className="text-[11px] text-slate-500">
+              ON中は工程表の日付クリックで休みを追加/解除します。
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const confirmed = window.confirm('この端末に保存されたプライベート休日をすべて削除します。よろしいですか？');
+                  if (confirmed) {
+                    onResetPersonalHolidays();
+                  }
+                }}
+                disabled={personalHolidayCount === 0}
+                className="rounded-lg border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                休日を全消去
+              </button>
+              <span className="text-[11px] text-slate-400">登録数: {personalHolidayCount}件</span>
+            </div>
+          </section>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -1360,6 +1563,9 @@ function SchedulePage({
   setPrintPaperSize,
   setPrintRangeMode,
   holidaySet,
+  personalHolidaySet,
+  onTogglePersonalHoliday,
+  holidayClickEnabled,
   user,
   expandedProjectIds,
   onToggleProject,
@@ -1407,6 +1613,9 @@ function SchedulePage({
   setPrintPaperSize: (size: 'a3' | 'a4') => void;
   setPrintRangeMode: (mode: 'tasks' | 'construction') => void;
   holidaySet: any;
+  personalHolidaySet: Set<string>;
+  onTogglePersonalHoliday: (dateStr: string) => void;
+  holidayClickEnabled: boolean;
   user: User | null;
   expandedProjectIds?: Set<string>;
   onToggleProject?: (projectId: string) => void;
@@ -2006,6 +2215,9 @@ function SchedulePage({
             onRequestPeople={onRequestPeople}
             onRequestProjectMembers={onRequestProjectMembers}
             showMilestonesWithoutTasks={projectFilter.length === 0}
+            personalHolidaySet={personalHolidaySet}
+            holidayClickEnabled={holidayClickEnabled}
+            onTogglePersonalHoliday={onTogglePersonalHoliday}
             onTaskClick={(task) => {
               // タスククリックで編集モーダルを開く
               // Gantt内のモーダルが開くので、ここでは何もしない
@@ -3048,6 +3260,33 @@ const EMPTY_PROJECT_STAGES: Task[] = [];
 function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
   const location = useLocation();
+  const isSetupRoute = location.pathname.startsWith('/setup');
+  const [privateSettings, setPrivateSettings] = useState<PrivateSettings>(() => loadPrivateSettings());
+  const [personalHolidaySet, setPersonalHolidaySet] = useState<Set<string>>(() => loadPersonalHolidaySet());
+
+  useEffect(() => {
+    savePrivateSettings(privateSettings);
+  }, [privateSettings]);
+
+  useEffect(() => {
+    savePersonalHolidaySet(personalHolidaySet);
+  }, [personalHolidaySet]);
+
+  const togglePersonalHoliday = useCallback((dateStr: string) => {
+    if (!dateStr) return;
+    setPersonalHolidaySet((prev) => {
+      const next = new Set(prev);
+      if (next.has(dateStr)) {
+        next.delete(dateStr);
+      } else {
+        next.add(dateStr);
+      }
+      return next;
+    });
+  }, []);
+  const resetPersonalHolidays = useCallback(() => {
+    setPersonalHolidaySet(new Set());
+  }, []);
   const [subscriptionRequired, setSubscriptionRequired] = useState(false);
   const [subscriptionCheckLoading, setSubscriptionCheckLoading] = useState(false);
   const [subscriptionCheckError, setSubscriptionCheckError] = useState<string | null>(null);
@@ -3936,7 +4175,7 @@ function App() {
     }
   }, [loading, canSync]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const currentUid = user?.uid ?? null;
     if (lastFocusUidRef.current !== currentUid) {
       lastFocusUidRef.current = currentUid;
@@ -3950,7 +4189,7 @@ function App() {
     }
   }, [user?.uid]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     projectFilterHydratedRef.current = false;
     if (typeof window === 'undefined') return;
     if (!user?.uid) {
@@ -3990,14 +4229,15 @@ function App() {
   }, [projectFilter, user?.uid]);
 
   // ローカルストレージから即座にキャッシュを読み込む
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') return;
     if (!user?.uid) return;
     const cacheKey = `focusUserProjectIds:${user.uid}`;
     try {
       const cached = localStorage.getItem(cacheKey);
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           setFocusUserProjectIds(parsed);
           setFocusUserProjectsReady(true);
         }
@@ -4602,6 +4842,7 @@ function App() {
         tone: 'success',
         title: done ? 'タスクを完了にしました' : 'タスクを再オープンしました',
       });
+      cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
       requestSnapshotReload('task:complete');
     } catch (err) {
       console.error(err);
@@ -4684,6 +4925,9 @@ function App() {
 
       // 4. ACK - pendingを解除
       ackPending(taskId, opId);
+
+      // 5. IndexedDBキャッシュを無効化
+      cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
 
       // 成功時は何もしない（UIは既に更新済み）
       // pushToast({ tone: 'success', title: 'タスクを更新しました' }); // トーストは表示しない
@@ -4817,6 +5061,9 @@ function App() {
       // 4. ACK - 作成完了
       usePendingOverlay.getState().ackCreatingTask(tempId);
 
+      // 5. IndexedDBキャッシュを無効化
+      cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
+
       toast.success('タスクを追加しました');
       // リロードは不要（タスクは既にstateにある）
     } catch (error) {
@@ -4902,6 +5149,7 @@ function App() {
         ),
       }));
       pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
+      cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
       requestSnapshotReload('project:create');
     } catch (error) {
       console.error('[Project] Failed to create project:', error);
@@ -4957,6 +5205,8 @@ function App() {
     try {
       await deleteProject(project.id);
       pushToast({ tone: 'success', title: `プロジェクト「${project.物件名}」を削除しました` });
+      cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
+      cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
       requestSnapshotReload('project:delete');
     } catch (error) {
       console.error('[Project] Failed to delete project:', error);
@@ -5020,6 +5270,8 @@ function App() {
       await deleteTask(taskId);
       // 3. ACK - 削除済み追跡を解除
       usePendingOverlay.getState().ackDeletedTask(taskId, opId);
+      // IndexedDBキャッシュを無効化
+      cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
       pushToast({ tone: 'success', title: `タスク「${task.タスク名}」を削除しました` });
       // リロードは不要（サーバー側で削除済み）
     } catch (error: any) {
@@ -5144,6 +5396,7 @@ function App() {
     try {
       await updateProject(projectId, payload);
       pushToast({ tone: 'success', title: 'プロジェクトを更新しました' });
+      cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
       requestSnapshotReload('project:update');
       setEditingProject(null);
     } catch (error) {
@@ -5218,6 +5471,7 @@ function App() {
             ),
           }));
           pushToast({ tone: 'success', title: 'プロジェクトを追加しました' });
+          cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
           requestSnapshotReload('project:create');
         } catch (error) {
           console.error('[Project] Failed to create project:', error);
@@ -5250,6 +5504,7 @@ function App() {
       } else {
         try {
           await updateProject(editingProject.id, payloadBase);
+          cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
           pushToast({ tone: 'success', title: 'プロジェクトを更新しました' });
           // 再取得して描画
           const list = await listProjects();
@@ -5341,6 +5596,9 @@ function App() {
         // 4. ACK - pendingを解除
         ackPending(taskId, opId);
 
+        // 5. IndexedDBキャッシュを無効化
+        cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
+
         // pushToast({ tone: 'success', title: '担当者を更新しました' }); // トーストは表示しない
 
         // ⚠️ リロードイベントは発火しない
@@ -5403,6 +5661,9 @@ function App() {
 
         // 4. ACK - pendingを解除
         ackPending(taskId, opId);
+
+        // 5. IndexedDBキャッシュを無効化
+        cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
 
         // pushToast({ tone: 'success', title: 'スケジュールを更新しました' }); // トーストは表示しない（即座に反映されるため）
 
@@ -5496,6 +5757,9 @@ function App() {
   const handleImportSnapshot = useCallback(async (payload: SnapshotPayload) => {
     if (canSync) {
       await importSnapshot(payload);
+      // インポート後は全キャッシュを無効化
+      cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
+      cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
       requestSnapshotReload('snapshot:import', 1000);
       return;
     }
@@ -5512,6 +5776,9 @@ function App() {
       throw new Error('Excel import is available after signing in.');
     }
     await importExcel(file);
+    // Excelインポート後は全キャッシュを無効化
+    cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
+    cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
     requestSnapshotReload('excel:import', 1000);
   }, [canSync, requestSnapshotReload]);
 
@@ -5890,6 +6157,21 @@ function App() {
     );
   }
 
+  if (isSetupRoute) {
+    return (
+      <>
+        <ToastStack toasts={toasts} onDismiss={dismissToast} />
+        <SetupPage
+          user={user}
+          authReady={authReady}
+          authSupported={authSupported}
+          onSignIn={signIn}
+          authError={authError}
+        />
+      </>
+    );
+  }
+
   // デモモード: ログイン不要で直接アプリ表示（リード獲得はGA等で対応）
   // ※ 以前はここでDemoLoginScreenを表示していたが、ログイン不要化のため削除
 
@@ -5920,6 +6202,10 @@ function App() {
         loading={loading}
         sidebarPanel={filtersSidebarPanel}
         actionPanel={actionPanel}
+        privateSettings={privateSettings}
+        onPrivateSettingsChange={setPrivateSettings}
+        personalHolidayCount={personalHolidaySet.size}
+        onResetPersonalHolidays={resetPersonalHolidays}
       >
         <Routes>
           <Route
@@ -5976,6 +6262,9 @@ function App() {
                 setPrintPaperSize={setPrintPaperSize}
                 setPrintRangeMode={setPrintRangeMode}
                 holidaySet={holidaySet}
+                personalHolidaySet={personalHolidaySet}
+                onTogglePersonalHoliday={togglePersonalHoliday}
+                holidayClickEnabled={privateSettings.holidayClickEnabled}
                 user={user}
                 expandedProjectIds={expandedProjectIds}
                 onToggleProject={(projectId) => {
@@ -6104,6 +6393,9 @@ function App() {
                 setPrintPaperSize={setPrintPaperSize}
                 setPrintRangeMode={setPrintRangeMode}
                 holidaySet={holidaySet}
+                personalHolidaySet={personalHolidaySet}
+                onTogglePersonalHoliday={togglePersonalHoliday}
+                holidayClickEnabled={privateSettings.holidayClickEnabled}
                 user={user}
                 expandedProjectIds={expandedProjectIds}
                 onToggleProject={(projectId) => {
