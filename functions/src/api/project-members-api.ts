@@ -133,6 +133,7 @@ router.get('/projects/:projectId/manageable-users', authenticate, async (req: an
       if (member.projectOrgId) orgIds.add(member.projectOrgId);
     });
 
+
     const orgIdList = Array.from(orgIds);
     const orgDocs = await db.getAll(...orgIdList.map((orgId) => db.collection('orgs').doc(orgId)));
     const orgNameById = new Map<string, string>();

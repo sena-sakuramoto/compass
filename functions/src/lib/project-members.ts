@@ -496,7 +496,8 @@ export async function syncProjectMemberSummary(
  */
 export async function listUserProjects(
   orgId: string | null,
-  userId: string
+  userId: string,
+  options: { includeProject?: boolean } = {}
 ): Promise<Array<{ projectId: string; member: ProjectMember; project?: any }>> {
   // ユーザー情報を取得
   const user = await getUser(userId);
@@ -720,6 +721,15 @@ export async function listUserProjects(
       });
       explicitProjectIds.add(projectId);
     }
+  }
+
+  // プロジェクト情報を含めるかどうか
+  const includeProject = options.includeProject !== false;
+  if (!includeProject) {
+    return explicitProjects.map((item) => ({
+      ...item,
+      project: undefined,
+    }));
   }
 
   // プロジェクト情報を含めて返す

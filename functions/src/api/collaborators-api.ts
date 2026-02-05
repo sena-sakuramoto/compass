@@ -67,7 +67,7 @@ router.get('/', async (req: any, res, next) => {
     for (const collaborator of collaborators) {
       if (collaborator.email && collaborator.email.trim()) {
         try {
-          const existingUser = await getUserByEmail(collaborator.email.trim());
+          const existingUser = await getUserByEmail(collaborator.email.trim().toLowerCase());
           if (existingUser) {
             // 組織名を取得
             let orgName = '組織';
@@ -85,6 +85,7 @@ router.get('/', async (req: any, res, next) => {
               orgId: existingUser.orgId,
               orgName,
               displayName: existingUser.displayName,
+              email: existingUser.email,
             };
           }
         } catch (err) {
