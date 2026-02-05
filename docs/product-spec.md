@@ -256,4 +256,4 @@ interface SeatInfo {
 |------|------|
 | trialEndsAt フィールド | 未実装（Stripeのtrial_endで代用中） |
 | LP改修 | 未着手 |
-| checkout.tsのデプロイ | 未デプロイ（git statusで変更中） |
+| checkout.tsのデプロイ | 完了（commit: fc62461 / Functionsデプロイ済み） |
