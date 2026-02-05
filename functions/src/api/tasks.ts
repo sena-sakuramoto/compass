@@ -44,7 +44,7 @@ router.get('/', async (req: any, res, next) => {
     }
 
     // ユーザーが参加している全プロジェクトを取得（クロスオーガナイゼーション対応）
-    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const userProjectMemberships = await listUserProjects(null, req.uid, { includeProject: false });
     const projectIds = userProjectMemberships.map(m => m.projectId);
 
     if (projectIds.length === 0) {
@@ -73,7 +73,6 @@ router.get('/', async (req: any, res, next) => {
         return;
       }
       const projectOrgId =
-        membership.project?.ownerOrgId ||
         membership.member.projectOrgId ||
         membership.member.orgId;
       const memberOrgId = membership.member.orgId;
@@ -107,20 +106,28 @@ router.get('/', async (req: any, res, next) => {
         console.log(`[GET /tasks] Skipping orgId=${orgId}, projectId=${params.projectId} not in projectIdSet`);
         continue;
       }
-      console.log(`[GET /tasks] Fetching tasks for orgId=${orgId}, projectIds=${Array.from(projectIdSet)}`);
-      const orgTasks = await listTasks({ ...params, orgId });
-      console.log(`[GET /tasks] orgId=${orgId} returned ${orgTasks.length} tasks`);
-      const filtered = orgTasks.filter((task) => {
-        const taskProjectId = String(task.projectId ?? (task as any).ProjectID ?? '').trim();
-        if (!taskProjectId) return false;
-        if (!projectIdSet.has(taskProjectId)) return false;
-        if (!task.projectId) {
-          task.projectId = taskProjectId;
-        }
-        return true;
-      });
-      console.log(`[GET /tasks] orgId=${orgId} after filtering: ${filtered.length} tasks`);
-      allTasks.push(...filtered);
+      const projectIdsForOrg = params.projectId
+        ? [params.projectId]
+        : Array.from(projectIdSet);
+
+      for (let i = 0; i < projectIdsForOrg.length; i += 10) {
+        const batch = projectIdsForOrg.slice(i, i + 10);
+        if (batch.length === 0) continue;
+        console.log(`[GET /tasks] Fetching tasks for orgId=${orgId}, projectIds=${batch}`);
+        const orgTasks = await listTasks({ ...params, orgId, projectIds: batch });
+        console.log(`[GET /tasks] orgId=${orgId} returned ${orgTasks.length} tasks`);
+        const filtered = orgTasks.filter((task) => {
+          const taskProjectId = String(task.projectId ?? (task as any).ProjectID ?? '').trim();
+          if (!taskProjectId) return false;
+          if (!projectIdSet.has(taskProjectId)) return false;
+          if (!task.projectId) {
+            task.projectId = taskProjectId;
+          }
+          return true;
+        });
+        console.log(`[GET /tasks] orgId=${orgId} after filtering: ${filtered.length} tasks`);
+        allTasks.push(...filtered);
+      }
     }
 
     console.log(`[GET /tasks] Total tasks being returned: ${allTasks.length}`);

@@ -120,6 +120,7 @@ export async function listPeople(orgId?: string) {
 
 export interface TaskListFilters {
   projectId?: string;
+  projectIds?: string[];
   assignee?: string;
   assigneeEmail?: string;
   status?: string;
@@ -131,12 +132,14 @@ export interface TaskListFilters {
 export async function listTasks(filters: TaskListFilters & { orgId?: string; includeDeleted?: boolean }) {
   const targetOrgId = filters.orgId ?? ORG_ID;
   let ref: FirebaseFirestore.Query = db.collection('orgs').doc(targetOrgId).collection('tasks');
-  if (filters.projectId) ref = ref.where('projectId', '==', filters.projectId);
-  if (filters.assignee) ref = ref.where('assignee', '==', filters.assignee);
-  if (filters.status) ref = ref.where('ステータス', '==', filters.status);
-  const normalizedEmail = normalizeAssigneeEmail(filters.assigneeEmail);
-  if (normalizedEmail) ref = ref.where('担当者メール', '==', normalizedEmail);
-  ref = ref.orderBy('updatedAt', 'desc');
+  const projectIds = Array.isArray(filters.projectIds)
+    ? filters.projectIds.map((id) => String(id)).filter(Boolean)
+    : [];
+  if (projectIds.length > 0) {
+    ref = ref.where('projectId', 'in', projectIds);
+  } else if (filters.projectId) {
+    ref = ref.where('projectId', '==', filters.projectId);
+  }
   const snap = await ref.get();
   let results = snap.docs.map((doc) => serialize<TaskDoc>(doc));
 
@@ -182,6 +185,19 @@ export async function listTasks(filters: TaskListFilters & { orgId?: string; inc
     });
   }
 
+  if (filters.assignee) {
+    results = results.filter((task) => task.assignee === filters.assignee);
+  }
+
+  if (filters.status) {
+    results = results.filter((task) => task.ステータス === filters.status);
+  }
+
+  const normalizedEmail = normalizeAssigneeEmail(filters.assigneeEmail);
+  if (normalizedEmail) {
+    results = results.filter((task) => (task.担当者メール ?? '').toLowerCase() === normalizedEmail);
+  }
+
   if (filters.q) {
     const q = filters.q.toLowerCase();
     results = results.filter((task) => {
@@ -203,6 +219,14 @@ export async function listTasks(filters: TaskListFilters & { orgId?: string; inc
       return haystack.includes(q);
     });
   }
+
+  // updatedAt desc（FirestoreのorderByを外したため、ここで安定ソート）
+  const toTime = (value?: string | null) => {
+    if (!value) return 0;
+    const t = new Date(value).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  };
+  results.sort((a, b) => toTime(b.updatedAt) - toTime(a.updatedAt));
 
   // デバッグ: マイルストーンフィールドを含むタスクをログ出力
   const tasksWithMilestone = results.filter(t => t['マイルストーン'] !== undefined);

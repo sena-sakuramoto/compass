@@ -20,7 +20,7 @@ router.get('/', async (req: any, res, next) => {
 
     // ユーザーがメンバーとして参加している全プロジェクトを取得（組織をまたいでも）
     const { listUserProjects } = await import('../lib/project-members');
-    const userProjectMemberships = await listUserProjects(null, req.uid); // orgId=null で全組織のプロジェクトを取得
+    const userProjectMemberships = await listUserProjects(null, req.uid, { includeProject: false }); // orgId=null で全組織のプロジェクトを取得
     const projectIds = userProjectMemberships.map(m => m.projectId);
 
     if (projectIds.length === 0) {
@@ -30,8 +30,12 @@ router.get('/', async (req: any, res, next) => {
 
     // 組織IDごとにプロジェクトをグループ化
     const projectsByOrg = new Map<string, string[]>();
-    for (const { projectId, member, project } of userProjectMemberships) {
-      const projectOrgId = project?.ownerOrgId || member.projectOrgId || member.orgId;
+    for (const { projectId, member } of userProjectMemberships) {
+      const projectOrgId = member.projectOrgId || member.orgId;
+      if (!projectOrgId) {
+        console.warn('[projects] Missing projectOrgId for project:', projectId);
+        continue;
+      }
       if (!projectsByOrg.has(projectOrgId)) {
         projectsByOrg.set(projectOrgId, []);
       }
