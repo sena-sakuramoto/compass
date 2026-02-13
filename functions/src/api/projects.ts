@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
-import { createProject, listProjects, updateProject, deleteProject as deleteProjectRepo, ProjectInput, getProject } from '../lib/firestore';
+import { createProject, listProjects, updateProject, deleteProject as deleteProjectRepo, ProjectInput, getProject, db } from '../lib/firestore';
 import { getUser } from '../lib/users';
 import { logActivity, calculateChanges } from '../lib/activity-log';
 import { canDeleteProject } from '../lib/access-control';
 import { getProjectForUser, getEffectiveOrgId } from '../lib/access-helpers';
+import { createDriveFolder, expandFolderNameTemplate } from '../lib/driveIntegration';
+import { createChatSpace, expandSpaceNameTemplate, addChatMembersBatch } from '../lib/chatIntegration';
+import { DEFAULT_GOOGLE_INTEGRATION_SETTINGS } from '../lib/types';
+import { listProjectMembers } from '../lib/project-members';
 
 const router = Router();
 
@@ -112,6 +116,72 @@ router.post('/', async (req: any, res, next) => {
     const effectiveOrgId = getEffectiveOrgId(user);
     const id = await createProject(payload, effectiveOrgId, req.uid);
 
+    // Google連携設定を取得して自動作成
+    let driveFolderUrl: string | null = null;
+    let driveFolderId: string | null = null;
+    let chatSpaceUrl: string | null = null;
+    let chatSpaceId: string | null = null;
+
+    try {
+      const settingsDoc = await db.collection('orgs').doc(effectiveOrgId).collection('settings').doc('google-integration').get();
+      const settings = settingsDoc.exists ? settingsDoc.data() : DEFAULT_GOOGLE_INTEGRATION_SETTINGS;
+
+      const projectData = { id, 物件名: payload.物件名, クライアント: payload.クライアント };
+
+      // Drive フォルダ自動作成
+      if (settings?.drive?.enabled) {
+        try {
+          const folderName = expandFolderNameTemplate(
+            settings.drive.folderNameTemplate || '{projectName}',
+            projectData
+          );
+          const driveResult = await createDriveFolder({
+            folderName,
+            parentFolderId: settings.drive.parentFolderId,
+          });
+          driveFolderId = driveResult.folderId;
+          driveFolderUrl = driveResult.folderUrl;
+          console.log('[projects] Drive folder created:', driveResult);
+        } catch (driveError) {
+          console.error('[projects] Failed to create Drive folder:', driveError);
+          // Drive作成失敗してもプロジェクト作成は続行
+        }
+      }
+
+      // Chat スペース自動作成
+      if (settings?.chat?.enabled) {
+        try {
+          const spaceName = expandSpaceNameTemplate(
+            settings.chat.spaceNameTemplate || '【COMPASS】{projectName}',
+            projectData
+          );
+          const chatResult = await createChatSpace({
+            displayName: spaceName,
+            description: settings.chat.defaultDescription,
+          });
+          chatSpaceId = chatResult.spaceId;
+          chatSpaceUrl = chatResult.spaceUrl;
+          console.log('[projects] Chat space created:', chatResult);
+        } catch (chatError) {
+          console.error('[projects] Failed to create Chat space:', chatError);
+          // Chat作成失敗してもプロジェクト作成は続行
+        }
+      }
+
+      // 作成した連携情報をプロジェクトに保存
+      if (driveFolderId || chatSpaceId) {
+        await updateProject(id, {
+          driveFolderId,
+          driveFolderUrl,
+          chatSpaceId,
+          chatSpaceUrl,
+        } as any, effectiveOrgId);
+      }
+    } catch (settingsError) {
+      console.error('[projects] Failed to process Google integration:', settingsError);
+      // 設定取得失敗してもプロジェクト作成は続行
+    }
+
     // アクティビティログを記録
     await logActivity({
       orgId: effectiveOrgId,
@@ -127,10 +197,12 @@ router.post('/', async (req: any, res, next) => {
       metadata: {
         ステータス: payload.ステータス,
         優先度: payload.優先度,
+        driveFolderUrl,
+        chatSpaceUrl,
       },
     });
 
-    res.status(201).json({ id });
+    res.status(201).json({ id, driveFolderUrl, chatSpaceUrl });
   } catch (error) {
     next(error);
   }
@@ -219,6 +291,95 @@ router.delete('/:id', async (req: any, res, next) => {
     });
 
     res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Chat メンバー招待スキーマ
+const chatMembersSchema = z.object({
+  memberIds: z.array(z.string()).min(1),
+});
+
+/**
+ * POST /:id/chat-members
+ * プロジェクトメンバーをChatスペースに招待
+ */
+router.post('/:id/chat-members', async (req: any, res, next) => {
+  try {
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const payload = chatMembersSchema.parse(req.body);
+    const projectId = req.params.id;
+
+    // プロジェクトを取得
+    const projectData = await getProjectForUser(req.uid, projectId);
+    if (!projectData) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
+    }
+
+    const { project, orgId: projectOrgId } = projectData;
+
+    // Chat スペースが設定されていない場合はエラー
+    if (!project.chatSpaceId) {
+      return res.status(400).json({ error: 'Chat space not configured for this project' });
+    }
+
+    // プロジェクトメンバーを取得
+    const members = await listProjectMembers(projectOrgId, projectId);
+
+    // 指定されたメンバーのメールアドレスを収集
+    const emails: string[] = [];
+    const missingEmails: string[] = [];
+
+    for (const memberId of payload.memberIds) {
+      const member = members.find(m => m.id === memberId || m.userId === memberId);
+      if (member) {
+        if (member.email) {
+          emails.push(member.email);
+        } else {
+          missingEmails.push(member.displayName || memberId);
+        }
+      }
+    }
+
+    if (emails.length === 0) {
+      return res.status(400).json({
+        error: 'No valid email addresses found',
+        missingEmails,
+      });
+    }
+
+    // Chat スペースにメンバーを追加
+    const result = await addChatMembersBatch(project.chatSpaceId, emails);
+
+    // アクティビティログを記録
+    await logActivity({
+      orgId: projectOrgId,
+      projectId,
+      type: 'project.chat_members_invited',
+      userId: user.id,
+      userName: user.displayName,
+      userEmail: user.email,
+      targetType: 'project',
+      targetId: projectId,
+      targetName: project.物件名,
+      action: 'Chatメンバー招待',
+      metadata: {
+        invitedCount: result.successCount,
+        failedCount: result.failedCount,
+        emails: emails,
+      },
+    });
+
+    res.json({
+      success: true,
+      ...result,
+      missingEmails,
+    });
   } catch (error) {
     next(error);
   }

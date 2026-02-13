@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import toast from 'react-hot-toast';
-import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check } from 'lucide-react';
+import { X, Users, History, Plus, Trash2, UserPlus, Mail, Shield, Briefcase, AlertCircle, Check, FolderOpen, MessageSquare, ExternalLink } from 'lucide-react';
 import type { Project, Task, ManageableUserSummary, Stage } from '../lib/types';
 import type { ProjectMember, ProjectMemberInput, ProjectRole, JobTitleType, ProjectPermissions } from '../lib/auth-types';
 import { listProjectMembers, addProjectMember, addProjectMembersBatch, type BatchAddMembersPayload, listActivityLogs, type ActivityLog, buildAuthHeaders, listManageableProjectUsers, listCollaborators, type Collaborator, listStages, createStage, updateStage, deleteStage, updateProject, listUsers, getCurrentUser, type User } from '../lib/api';
@@ -18,6 +18,7 @@ import { formatDate, formatJapaneseEra } from '../lib/date';
 import { resolveApiBase } from '../lib/apiBase';
 import { usePendingOverlay } from '../state/pendingOverlay';
 import { calculateProjectStatus, getStatusColor } from '../lib/projectStatus';
+import { ChatMemberInviteDialog } from './ChatMemberInviteDialog';
 import { getOrgKey, getOrgLabel } from '../lib/org-utils';
 
 // 日本語ロケールを登録
@@ -129,6 +130,7 @@ export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onS
 
   // メンバー管理用の状態
   const [showInviteForm, setShowInviteForm] = useState(false);
+  const [showChatInviteDialog, setShowChatInviteDialog] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<ProjectRole>('member');
   const [inviteJob, setInviteJob] = useState<JobTitleType | ''>('');
@@ -1697,6 +1699,46 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
               </div>
             </div>
 
+            {/* Google連携ボタン（編集モードで連携設定がある場合） */}
+            {mode === 'edit' && (formData.driveFolderUrl || formData.chatSpaceUrl) && (
+              <div className="flex flex-wrap gap-2 pt-2 pb-2">
+                {formData.driveFolderUrl && (
+                  <a
+                    href={formData.driveFolderUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-sm hover:bg-amber-100 transition-colors"
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                    Driveを開く
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+                {formData.chatSpaceUrl && (
+                  <>
+                    <a
+                      href={formData.chatSpaceUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm hover:bg-green-100 transition-colors"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      Chatを開く
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setShowChatInviteDialog(true)}
+                      className="inline-flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm hover:bg-green-100 transition-colors"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      Chatに招待
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-slate-700">備考</label>
               <textarea
@@ -2616,6 +2658,16 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
           </div>
         </form>
       </div>
+
+      {/* Chatメンバー招待ダイアログ */}
+      {showChatInviteDialog && project && (
+        <ChatMemberInviteDialog
+          projectId={project.id}
+          projectName={project.物件名}
+          chatSpaceUrl={formData.chatSpaceUrl}
+          onClose={() => setShowChatInviteDialog(false)}
+        />
+      )}
     </div>
   );
 }

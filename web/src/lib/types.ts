@@ -43,6 +43,33 @@ export interface Project {
   PM?: string | null;
   設計?: string | null;
   施工管理?: string | null;
+  // Google連携フィールド
+  driveFolderId?: string;
+  driveFolderUrl?: string;
+  chatSpaceId?: string;
+  chatSpaceUrl?: string;
+}
+
+// Google連携設定（フロントエンド用）
+export interface GoogleDriveSettings {
+  enabled: boolean;
+  parentFolderId: string | null;
+  parentFolderUrl: string | null;
+  folderNameTemplate: string;
+}
+
+export interface GoogleChatSettings {
+  enabled: boolean;
+  spaceNameTemplate: string;
+  defaultDescription: string | null;
+}
+
+export interface GoogleIntegrationSettings {
+  drive: GoogleDriveSettings;
+  chat: GoogleChatSettings;
+  memberSyncMode: 'none' | 'addOnly';
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface TaskNotificationSettings {

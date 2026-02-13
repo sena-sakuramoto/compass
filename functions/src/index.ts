@@ -29,6 +29,7 @@ import commentsRouter from './api/comments-api';
 import orgSetupRouter from './api/org-setup';
 import adminImpersonationRouter from './api/admin-impersonation';
 import checkoutRouter from './api/checkout';
+import googleIntegrationRouter from './api/google-integration';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 import { cleanupDeletedItems } from './cleanupDeletedItems';
@@ -104,6 +105,7 @@ app.use('/api/admin', adminCleanupRouter);
 app.use('/api/admin', migrateClientsRouter);
 app.use('/api/admin', adminImpersonationRouter);
 app.use('/api', billingRouter);
+app.use('/api/org/google-integration', googleIntegrationRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });

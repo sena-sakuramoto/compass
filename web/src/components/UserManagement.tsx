@@ -5,7 +5,8 @@ import { OrgMemberInvitationModal } from './OrgMemberInvitationModal';
 import { UserEditModal } from './UserEditModal';
 import { invalidateCollaboratorsCache } from '../hooks/useProjectMembers';
 import type { Project } from '../lib/types';
-import { Building2, Plus, Trash2, Check, X, Users, Pencil, Mail, UserPlus, ExternalLink, AlertCircle, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import { Building2, Plus, Trash2, Check, X, Users, Pencil, Mail, UserPlus, ExternalLink, AlertCircle, Clock, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { GoogleIntegrationSettings } from './GoogleIntegrationSettings';
 
 interface UserManagementProps {
   projects?: Project[];
@@ -37,6 +38,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   const [editingCollaboratorEmail, setEditingCollaboratorEmail] = useState('');
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set(['own']));
+  const [activeTab, setActiveTab] = useState<'members' | 'google'>('members');
 
   // 席数関連
   const [seatUsage, setSeatUsage] = useState<SeatUsageInfo | null>(null);
@@ -448,17 +450,55 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-slate-900">人員管理</h2>
-        <button
-          onClick={() => setInvitationModalOpen(true)}
-          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700"
-        >
-          メンバーを招待
-        </button>
+      {/* タブナビゲーション */}
+      <div className="border-b border-slate-200">
+        <nav className="-mb-px flex gap-4">
+          <button
+            onClick={() => setActiveTab('members')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'members'
+                ? 'border-teal-600 text-teal-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            人員管理
+          </button>
+          {(currentUserRole === 'super_admin' || currentUserRole === 'admin' || currentUserRole === 'owner') && (
+            <button
+              onClick={() => setActiveTab('google')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'google'
+                  ? 'border-teal-600 text-teal-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+              Google連携
+            </button>
+          )}
+        </nav>
       </div>
 
-      {/* 席数情報 */}
+      {/* Google連携タブ */}
+      {activeTab === 'google' && (
+        <GoogleIntegrationSettings />
+      )}
+
+      {/* 人員管理タブ */}
+      {activeTab === 'members' && (
+        <>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-slate-900">人員管理</h2>
+            <button
+              onClick={() => setInvitationModalOpen(true)}
+              className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700"
+            >
+              メンバーを招待
+            </button>
+          </div>
+
+          {/* 席数情報 */}
       {!seatLoading && seatUsage && (
         <div className="bg-gradient-to-r from-slate-50 to-slate-100 border border-slate-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
@@ -1119,6 +1159,8 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
           )}
         </div>
       </div>
+        </>
+      )}
 
       {/* 招待モーダル */}
       <OrgMemberInvitationModal

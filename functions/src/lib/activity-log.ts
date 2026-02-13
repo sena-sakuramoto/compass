@@ -12,6 +12,7 @@ export type ActivityType =
   | 'project.created'
   | 'project.updated'
   | 'project.deleted'
+  | 'project.chat_members_invited'
   | 'task.created'
   | 'task.updated'
   | 'task.deleted'

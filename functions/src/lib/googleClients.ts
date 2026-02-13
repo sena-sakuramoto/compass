@@ -2,6 +2,12 @@ import { google } from 'googleapis';
 
 const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.send'];
 const CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar'];
+const DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive'];
+const CHAT_SCOPES = [
+  'https://www.googleapis.com/auth/chat.spaces',
+  'https://www.googleapis.com/auth/chat.spaces.create',
+  'https://www.googleapis.com/auth/chat.memberships',
+];
 
 function loadServiceAccount() {
   const clientEmail = process.env.GSA_CLIENT_EMAIL;
@@ -33,4 +39,16 @@ export async function getCalendarClient() {
   const auth = createAuth(CALENDAR_SCOPES);
   await auth.authorize();
   return google.calendar({ version: 'v3', auth });
+}
+
+export async function getDriveClient() {
+  const auth = createAuth(DRIVE_SCOPES);
+  await auth.authorize();
+  return google.drive({ version: 'v3', auth });
+}
+
+export async function getChatClient() {
+  const auth = createAuth(CHAT_SCOPES);
+  await auth.authorize();
+  return google.chat({ version: 'v1', auth });
 }

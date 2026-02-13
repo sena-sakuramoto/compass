@@ -1014,3 +1014,63 @@ export async function inviteOrganization(projectId: string, targetOrgId: string)
     body: JSON.stringify({ targetOrgId }),
   });
 }
+
+// ==================== Google連携設定 API ====================
+
+import type { GoogleIntegrationSettings } from './types';
+
+export interface GoogleIntegrationSettingsResponse {
+  settings: GoogleIntegrationSettings;
+}
+
+export interface GoogleIntegrationStatusResponse {
+  driveEnabled: boolean;
+  chatEnabled: boolean;
+}
+
+export interface InviteChatMembersResult {
+  success: boolean;
+  totalRequested: number;
+  successCount: number;
+  failedCount: number;
+  missingEmails: string[];
+  results: Array<{
+    email: string;
+    success: boolean;
+    error?: string;
+  }>;
+}
+
+/**
+ * 組織のGoogle連携設定を取得
+ */
+export async function getGoogleIntegrationSettings() {
+  return request<GoogleIntegrationSettingsResponse>('/org/google-integration');
+}
+
+/**
+ * 組織のGoogle連携設定を更新
+ */
+export async function updateGoogleIntegrationSettings(settings: Omit<GoogleIntegrationSettings, 'updatedAt' | 'updatedBy'>) {
+  return request<{ ok: true }>('/org/google-integration', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+}
+
+/**
+ * Google連携のステータスを取得（一般ユーザー向け）
+ */
+export async function getGoogleIntegrationStatus() {
+  return request<GoogleIntegrationStatusResponse>('/org/google-integration/status');
+}
+
+/**
+ * プロジェクトメンバーをChatスペースに招待
+ */
+export async function inviteChatMembers(projectId: string, memberIds: string[]) {
+  return request<InviteChatMembersResult>(`/projects/${projectId}/chat-members`, {
+    method: 'POST',
+    body: JSON.stringify({ memberIds }),
+  });
+}

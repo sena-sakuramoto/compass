@@ -34,6 +34,11 @@ export interface Project {
   施工費?: number | null;
   memberNames?: string[];
   memberNamesUpdatedAt?: FirebaseFirestore.Timestamp;
+  // Google連携フィールド
+  driveFolderId?: string | null;
+  driveFolderUrl?: string | null;
+  chatSpaceId?: string | null;
+  chatSpaceUrl?: string | null;
   createdAt: FirebaseFirestore.Timestamp;
   updatedAt: FirebaseFirestore.Timestamp;
 }
@@ -158,6 +163,44 @@ export interface TaskCreator {
 
 // Stage は Task の特殊ケース（type='stage', parentId=null）
 export type Stage = Task & { type: 'stage'; parentId: null };
+
+// Google連携設定（org単位）
+export interface GoogleDriveSettings {
+  enabled: boolean;
+  parentFolderId: string | null;
+  parentFolderUrl: string | null;
+  folderNameTemplate: string; // "{projectName}" がデフォルト
+}
+
+export interface GoogleChatSettings {
+  enabled: boolean;
+  spaceNameTemplate: string; // "【COMPASS】{projectName}" がデフォルト
+  defaultDescription: string | null;
+}
+
+export interface GoogleIntegrationSettings {
+  drive: GoogleDriveSettings;
+  chat: GoogleChatSettings;
+  memberSyncMode: 'none' | 'addOnly';
+  updatedAt: FirebaseFirestore.Timestamp;
+  updatedBy: string;
+}
+
+// Google連携設定のデフォルト値
+export const DEFAULT_GOOGLE_INTEGRATION_SETTINGS: Omit<GoogleIntegrationSettings, 'updatedAt' | 'updatedBy'> = {
+  drive: {
+    enabled: false,
+    parentFolderId: null,
+    parentFolderUrl: null,
+    folderNameTemplate: '{projectName}',
+  },
+  chat: {
+    enabled: false,
+    spaceNameTemplate: '【COMPASS】{projectName}',
+    defaultDescription: null,
+  },
+  memberSyncMode: 'none',
+};
 
 // API用の入力型（createdAt/updatedAtなし）
 export type ProjectInput = Omit<Project, 'id' | 'createdAt' | 'updatedAt'>;
