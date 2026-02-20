@@ -56,6 +56,8 @@ export interface GoogleDriveSettings {
   parentFolderId: string | null;
   parentFolderUrl: string | null;
   folderNameTemplate: string;
+  numberStart: number;
+  numberDigits: number;
 }
 
 export interface GoogleChatSettings {
@@ -163,3 +165,37 @@ export interface CompassState {
 
 // Stage は Task の特殊ケース（type='stage', parentId=null）
 export type Stage = Task & { type: 'stage'; parentId: null };
+
+// ── Bulk Import ──
+export interface ParsedItem {
+  tempId: string;
+  name: string;
+  type: 'stage' | 'task' | 'meeting' | 'milestone';
+  parentTempId?: string | null;
+  assignee?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  confidence: number;
+}
+
+export interface BulkImportParseResponse {
+  items: ParsedItem[];
+  warnings: string[];
+}
+
+export interface ConfirmedItem {
+  tempId: string;
+  name: string;
+  type: 'stage' | 'task' | 'meeting' | 'milestone';
+  parentTempId?: string | null;
+  assignee?: string | null;
+  assigneeEmail?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  orderIndex: number;
+}
+
+export interface BulkImportSaveResponse {
+  created: { stages: number; tasks: number; meetings: number; milestones: number };
+  stageIdMap: Record<string, string>;
+}

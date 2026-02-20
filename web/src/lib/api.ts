@@ -1,4 +1,4 @@
-import type { Project, Task, Person, ManageableUserSummary } from './types';
+import type { Project, Task, Person, ManageableUserSummary, BulkImportParseResponse, ConfirmedItem, BulkImportSaveResponse } from './types';
 import type { ProjectMember } from './auth-types';
 import { getCachedIdToken } from './authToken';
 
@@ -1041,6 +1041,45 @@ export interface InviteChatMembersResult {
   }>;
 }
 
+// ==================== Per-User Google OAuth API ====================
+
+export interface GoogleConnectResult {
+  connected: boolean;
+  email?: string;
+}
+
+export interface GoogleStatusResult {
+  connected: boolean;
+  email?: string | null;
+  connectedAt?: string | null;
+}
+
+/**
+ * Google authorization code をバックエンドに送信してトークン交換
+ */
+export async function connectGoogle(code: string) {
+  return request<GoogleConnectResult>('/google/connect', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+/**
+ * Google接続状態を取得
+ */
+export async function getGoogleStatus() {
+  return request<GoogleStatusResult>('/google/status');
+}
+
+/**
+ * Googleアカウントの接続を解除
+ */
+export async function disconnectGoogle() {
+  return request<{ disconnected: boolean }>('/google/disconnect', {
+    method: 'POST',
+  });
+}
+
 /**
  * 組織のGoogle連携設定を取得
  */
@@ -1072,5 +1111,28 @@ export async function inviteChatMembers(projectId: string, memberIds: string[]) 
   return request<InviteChatMembersResult>(`/projects/${projectId}/chat-members`, {
     method: 'POST',
     body: JSON.stringify({ memberIds }),
+  });
+}
+
+// ── Bulk Import ──
+export async function bulkImportParse(payload: {
+  text: string;
+  model: 'flash' | 'sonnet';
+  projectId: string;
+  inputType: 'excel' | 'text' | 'pdf' | 'image';
+}) {
+  return request<BulkImportParseResponse>('/bulk-import/parse', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function bulkImportSave(payload: {
+  projectId: string;
+  items: ConfirmedItem[];
+}) {
+  return request<BulkImportSaveResponse>('/bulk-import/save', {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
