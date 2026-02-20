@@ -70,6 +70,7 @@ import { ProjectEditDialog } from './components/ProjectEditDialog';
 import { PersonEditDialog } from './components/PersonEditDialog';
 import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { NotificationBell } from './components/NotificationBell';
+import { BulkImportModal } from './components/BulkImportModal';
 import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
 import { AdminPage } from './pages/AdminPage';
@@ -646,18 +647,21 @@ function HeaderActions({
                   <span className="text-[11px] text-slate-500">同期有効</span>
                 </div>
               </button>
+              {/* 登録モード解除吹き出し - 同期有効ボタンに追従 */}
               {privateSettings.holidayClickEnabled && (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onPrivateSettingsChange(prev => ({ ...prev, holidayClickEnabled: false }));
-                  }}
-                  className="absolute -bottom-3 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap rounded-full border border-amber-300 bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-md transition hover:bg-amber-200"
-                  aria-label="休み登録を終了して通常モードに戻る"
-                >
-                  休み登録中 → 通常へ
-                </button>
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-[9999]">
+                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-700 rotate-45" />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPrivateSettingsChange(prev => ({ ...prev, holidayClickEnabled: false }));
+                    }}
+                    className="relative rounded-lg bg-slate-700 px-3 py-1 text-[11px] font-medium text-white shadow-lg transition hover:bg-slate-800 whitespace-nowrap"
+                  >
+                    登録モード解除
+                  </button>
+                </div>
               )}
             </div>
             <button
@@ -1566,10 +1570,12 @@ function SchedulePage({
   personalHolidaySet,
   onTogglePersonalHoliday,
   holidayClickEnabled,
+  onDisableHolidayClick,
   user,
   expandedProjectIds,
   onToggleProject,
   dimOthersEnabled,
+  onBulkImport,
 }: {
   filteredTasks: Task[];
   filteredTasksWithStages: Task[];
@@ -1616,10 +1622,12 @@ function SchedulePage({
   personalHolidaySet: Set<string>;
   onTogglePersonalHoliday: (dateStr: string) => void;
   holidayClickEnabled: boolean;
+  onDisableHolidayClick?: () => void;
   user: User | null;
   expandedProjectIds?: Set<string>;
   onToggleProject?: (projectId: string) => void;
   dimOthersEnabled?: boolean;
+  onBulkImport?: () => void;
 }) {
   const [draggedAssignee, setDraggedAssignee] = useState<string | null>(null);
   const jumpToTodayRef = useRef<(() => void) | null>(null);
@@ -2147,7 +2155,7 @@ function SchedulePage({
     <>
       <div className="no-print h-full flex flex-col gap-0 min-h-0 -mx-4 lg:-mx-8">
       {/* ヘッダー & フィルター */}
-      <section className="sticky top-0 z-[45] border-b border-slate-200 bg-white px-3 py-1.5 shadow-sm sm:px-4 lg:px-6 flex-shrink-0">
+      <section className="sticky top-0 z-20 border-b border-slate-200 bg-white px-3 py-1.5 shadow-sm sm:px-4 lg:px-6 flex-shrink-0">
         <div className="flex flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-1.5">
             <div className="min-w-[160px]">
@@ -2409,6 +2417,7 @@ function SchedulePage({
               await onTaskDelete(task.id);
             }
           }}
+          onBulkImport={onBulkImport}
           jumpToTodayRef={jumpToTodayRef}
           expandedProjectIds={expandedProjectIds}
           onToggleProject={onToggleProject}
@@ -3301,6 +3310,7 @@ function App() {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskModalDefaults, setTaskModalDefaults] = useState<{ projectId?: string; stageId?: string } | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [personModalOpen, setPersonModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
@@ -3812,51 +3822,9 @@ function App() {
     [normalizeOrgId, orgSetupForm, pushToast]
   );
 
-  // プロジェクトメンバーを一括取得（最適化版：未読み込みのプロジェクトのみ）
-  useEffect(() => {
-    if (!canSync) return;
-    if (location.pathname !== '/summary') return;
-
-    const loadMissingMembers = async () => {
-      const loadedIds = loadedProjectMembersRef.current;
-      const projectsToLoad = state.projects.filter(
-        (project) =>
-          !loadedIds.has(project.id) &&
-          (!project.memberNames || project.memberNames.length === 0)
-      );
-
-      if (projectsToLoad.length === 0) return; // 追加ロード不要
-
-      console.log(`[Members API] Loading members for ${projectsToLoad.length} projects missing summary`);
-
-      for (const project of projectsToLoad) {
-        try {
-          const members = await listProjectMembers(project.id, { status: 'active' });
-          const memberNames = buildMemberNamesFromMembers(members);
-          setAllProjectMembers(prev => new Map(prev).set(project.id, members));
-          // IndexedDBキャッシュに保存
-          cacheProjectMembers(project.id, members).catch(() => {});
-          setState((prev) => ({
-            ...prev,
-            projects: prev.projects.map((item) =>
-              item.id === project.id ? { ...item, memberNames } : item
-            ),
-          }));
-          loadedIds.add(project.id);
-        } catch (error: any) {
-          if (error?.status === 404) {
-            console.debug(`Project ${project.id} not found in Firestore, skipping member load`);
-          } else {
-            console.warn(`Failed to load members for project ${project.id}:`, error);
-          }
-          setAllProjectMembers(prev => new Map(prev).set(project.id, []));
-          loadedIds.add(project.id);
-        }
-      }
-    };
-
-    loadMissingMembers();
-  }, [state.projects, canSync, location.pathname, setState]);
+  // プロジェクトメンバーの一括取得は行わない
+  // メンバー情報はプロジェクト個別表示時に loadProjectMembersForProject で取得する
+  // memberNames は Firestore のプロジェクトドキュメントに含まれるサマリーを使用する
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -5927,7 +5895,7 @@ function App() {
             </ul>
             <div className="flex flex-col sm:flex-row gap-3">
               <a
-                href="https://buy.stripe.com/dRm00l0J75OR3eV8Cbf7i00"
+                href="/checkout?tier=small"
                 target="blank"
                 rel="noreferrer"
                 className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-sm font-semibold shadow-lg shadow-indigo-900/30 transition"
@@ -6265,6 +6233,7 @@ function App() {
                 personalHolidaySet={personalHolidaySet}
                 onTogglePersonalHoliday={togglePersonalHoliday}
                 holidayClickEnabled={privateSettings.holidayClickEnabled}
+                onDisableHolidayClick={() => setPrivateSettings(prev => ({ ...prev, holidayClickEnabled: false }))}
                 user={user}
                 expandedProjectIds={expandedProjectIds}
                 onToggleProject={(projectId) => {
@@ -6280,6 +6249,7 @@ function App() {
                   });
                 }}
                 dimOthersEnabled={dimOthersEnabled}
+                onBulkImport={() => setBulkImportOpen(true)}
               />
             }
           />
@@ -6396,6 +6366,7 @@ function App() {
                 personalHolidaySet={personalHolidaySet}
                 onTogglePersonalHoliday={togglePersonalHoliday}
                 holidayClickEnabled={privateSettings.holidayClickEnabled}
+                onDisableHolidayClick={() => setPrivateSettings(prev => ({ ...prev, holidayClickEnabled: false }))}
                 user={user}
                 expandedProjectIds={expandedProjectIds}
                 onToggleProject={(projectId) => {
@@ -6411,6 +6382,7 @@ function App() {
                   });
                 }}
                 dimOthersEnabled={dimOthersEnabled}
+                onBulkImport={() => setBulkImportOpen(true)}
               />
             }
           />
@@ -6449,6 +6421,14 @@ function App() {
         onNotify={pushToast}
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
+      <BulkImportModal
+        open={bulkImportOpen}
+        onOpenChange={setBulkImportOpen}
+        projects={state.projects}
+        onImported={() => {
+          reloadTasks();
+        }}
+      />
       <PersonModal open={personModalOpen} onOpenChange={setPersonModalOpen} onSubmit={handleCreatePerson} onNotify={pushToast} />
       <StageEditModal
         open={stageEditModalOpen}

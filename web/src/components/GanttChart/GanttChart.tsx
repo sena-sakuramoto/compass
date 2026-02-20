@@ -46,6 +46,7 @@ interface GanttChartProps {
   personalHolidaySet?: Set<string>;
   holidayClickEnabled?: boolean;
   onTogglePersonalHoliday?: (dateStr: string) => void;
+  onBulkImport?: () => void;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -74,6 +75,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   personalHolidaySet,
   holidayClickEnabled = false,
   onTogglePersonalHoliday,
+  onBulkImport,
 }) => {
   const holidaySet = useJapaneseHolidaySet();
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
@@ -575,6 +577,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onToday={handleJumpToToday}
+          onBulkImport={onBulkImport}
           className="pointer-events-auto"
         />
       </div>
