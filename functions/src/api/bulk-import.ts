@@ -3,12 +3,15 @@ import { z } from 'zod';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Anthropic from '@anthropic-ai/sdk';
+import multer from 'multer';
 import { authMiddleware } from '../lib/auth';
 import { getUser } from '../lib/users';
 import { getEffectiveOrgId } from '../lib/access-helpers';
 import { db } from '../lib/firestore';
 import { getNextTaskId } from '../lib/counters';
 import { FieldValue } from 'firebase-admin/firestore';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
 
 const router = Router();
 
@@ -78,6 +81,32 @@ const PARSE_SYSTEM_PROMPT = `あなたは建築プロジェクトの工程表を
 }`;
 
 // ---------------------------------------------------------------------------
+// Per-user daily rate limit (Gemini API cost control)
+// ---------------------------------------------------------------------------
+
+const DAILY_PARSE_LIMIT = 10; // 1ユーザー1日10回まで
+
+async function checkRateLimit(uid: string, orgId: string): Promise<{ allowed: boolean; remaining: number }> {
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const ref = db.collection('orgs').doc(orgId).collection('bulk-import-usage').doc(uid);
+  const doc = await ref.get();
+  const data = doc.data();
+
+  if (!data || data.date !== today) {
+    // New day or first use
+    await ref.set({ date: today, count: 1 });
+    return { allowed: true, remaining: DAILY_PARSE_LIMIT - 1 };
+  }
+
+  if (data.count >= DAILY_PARSE_LIMIT) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  await ref.update({ count: FieldValue.increment(1) });
+  return { allowed: true, remaining: DAILY_PARSE_LIMIT - data.count - 1 };
+}
+
+// ---------------------------------------------------------------------------
 // POST /bulk-import/parse
 // ---------------------------------------------------------------------------
 
@@ -85,6 +114,17 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
   try {
     // Validate request body
     const parsed = parseRequestSchema.parse(req.body);
+
+    // Rate limit check
+    const uid = (req as any).uid;
+    const user = await getUser(uid);
+    if (!user) { res.status(401).json({ error: 'User not found' }); return; }
+    const userOrgId = getEffectiveOrgId(user);
+    const rateCheck = await checkRateLimit(uid, userOrgId);
+    if (!rateCheck.allowed) {
+      res.status(429).json({ error: `本日の利用上限（${DAILY_PARSE_LIMIT}回/日）に達しました。明日またお試しください。` });
+      return;
+    }
 
     if (parsed.model === 'sonnet') {
       const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -305,6 +345,152 @@ router.post('/bulk-import/save', async (req: Request, res: Response) => {
     }
     console.error('[bulk-import/save] Error:', err);
     res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /bulk-import/parse-file — Parse uploaded PDF or image file
+// ---------------------------------------------------------------------------
+
+router.post('/bulk-import/parse-file', upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    // Rate limit check
+    const fileUid = (req as any).uid;
+    const fileUser = await getUser(fileUid);
+    if (!fileUser) { res.status(401).json({ error: 'User not found' }); return; }
+    const fileOrgId = getEffectiveOrgId(fileUser);
+    const fileRateCheck = await checkRateLimit(fileUid, fileOrgId);
+    if (!fileRateCheck.allowed) {
+      res.status(429).json({ error: `本日の利用上限（${DAILY_PARSE_LIMIT}回/日）に達しました。明日またお試しください。` });
+      return;
+    }
+
+    const file = req.file;
+    if (!file) {
+      res.status(400).json({ error: 'No file uploaded' });
+      return;
+    }
+
+    const projectId = req.body.projectId;
+    const model = req.body.model || 'flash';
+    if (!projectId) {
+      res.status(400).json({ error: 'projectId is required' });
+      return;
+    }
+
+    const mimeType = file.mimetype;
+    let parseText = '';
+
+    // For PDFs, try text extraction first
+    if (mimeType === 'application/pdf') {
+      try {
+        const { PDFParse: PDFParseClass } = await import('pdf-parse');
+        const parser = new PDFParseClass({ data: new Uint8Array(file.buffer) });
+        const textResult = await parser.getText();
+        parseText = textResult.text;
+        await parser.destroy();
+      } catch {
+        // If text extraction fails, fall through to Vision API
+      }
+    }
+
+    // If we have text from PDF, use the regular text parsing flow
+    if (parseText && parseText.trim().length > 50) {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        res.status(500).json({ error: 'AI service is not configured' });
+        return;
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const genModel = genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash',
+        systemInstruction: PARSE_SYSTEM_PROMPT,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+
+      const result = await genModel.generateContent(parseText);
+      const responseText = result.response.text();
+
+      let data: { items: any[]; warnings: string[] };
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        res.status(500).json({ error: 'AI returned invalid JSON' });
+        return;
+      }
+
+      if (!Array.isArray(data.items)) data.items = [];
+      for (const item of data.items) {
+        if (!item.tempId) item.tempId = `tmp_${crypto.randomUUID()}`;
+      }
+      if (!Array.isArray(data.warnings)) data.warnings = [];
+
+      res.json({ items: data.items, warnings: data.warnings });
+      return;
+    }
+
+    // For images or scanned PDFs, use Gemini Vision API
+    const isImage = mimeType.startsWith('image/');
+    const isScannedPdf = mimeType === 'application/pdf';
+
+    if (!isImage && !isScannedPdf) {
+      res.status(400).json({ error: 'Unsupported file type. Please upload PDF, JPG, or PNG.' });
+      return;
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ error: 'AI service is not configured' });
+      return;
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const genModel = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: PARSE_SYSTEM_PROMPT,
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.1,
+      },
+    });
+
+    // Send image/PDF as inline data to Gemini Vision
+    const base64Data = file.buffer.toString('base64');
+    const result = await genModel.generateContent([
+      {
+        inlineData: {
+          mimeType: mimeType,
+          data: base64Data,
+        },
+      },
+      { text: 'この画像/文書から工程表の情報を抽出してJSON形式で返してください。' },
+    ]);
+
+    const responseText = result.response.text();
+
+    let data: { items: any[]; warnings: string[] };
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      console.error('[bulk-import/parse-file] Failed to parse Vision response:', responseText);
+      res.status(500).json({ error: 'AI returned invalid JSON' });
+      return;
+    }
+
+    if (!Array.isArray(data.items)) data.items = [];
+    for (const item of data.items) {
+      if (!item.tempId) item.tempId = `tmp_${crypto.randomUUID()}`;
+    }
+    if (!Array.isArray(data.warnings)) data.warnings = [];
+
+    res.json({ items: data.items, warnings: data.warnings });
+  } catch (err: any) {
+    console.error('[bulk-import/parse-file] Error:', err);
+    res.status(500).json({ error: err.message || 'File parsing failed' });
   }
 });
 

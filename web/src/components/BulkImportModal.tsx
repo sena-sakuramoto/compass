@@ -310,7 +310,7 @@ function InputStep({
 
   const models: { key: Model; label: string; disabled: boolean; description?: string }[] = [
     { key: 'flash', label: 'Gemini Flash', disabled: false, description: '高速' },
-    { key: 'sonnet', label: 'Claude Sonnet', disabled: false, description: '高精度' },
+    { key: 'sonnet', label: 'Claude Sonnet', disabled: true, description: '高精度 - 準備中' },
     { key: 'local', label: 'ローカルAI', disabled: !isWebGPUSupported(), description: isWebGPUSupported() ? '無料・ベータ' : 'WebGPU非対応' },
   ];
 
