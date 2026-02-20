@@ -29,7 +29,10 @@ import commentsRouter from './api/comments-api';
 import orgSetupRouter from './api/org-setup';
 import adminImpersonationRouter from './api/admin-impersonation';
 import checkoutRouter from './api/checkout';
+import enterpriseInquiryRouter from './api/enterprise-inquiry';
 import googleIntegrationRouter from './api/google-integration';
+import googleOAuthRouter from './api/google-oauth';
+import bulkImportRouter from './api/bulk-import';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 import { cleanupDeletedItems } from './cleanupDeletedItems';
@@ -40,6 +43,7 @@ const app = express();
 // Public checkout endpoint (no auth required) - MUST be before global CORS
 // This allows any origin to access the checkout API
 app.use('/api/public', checkoutRouter);
+app.use('/api/public', enterpriseInquiryRouter);
 
 // CORS configuration with strict origin validation
 const allowedOrigins = process.env.CORS_ORIGIN
@@ -106,6 +110,8 @@ app.use('/api/admin', migrateClientsRouter);
 app.use('/api/admin', adminImpersonationRouter);
 app.use('/api', billingRouter);
 app.use('/api/org/google-integration', googleIntegrationRouter);
+app.use('/api/google', googleOAuthRouter);
+app.use('/api', bulkImportRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
@@ -139,8 +145,10 @@ const REMINDER_ENABLED = process.env.TASK_REMINDER_ENABLED ?? 'true';
 
 export const api = onRequest({
   region: REGION,
-  maxInstances: 10,
-  secrets: ['STRIPE_SECRET_KEY'],
+  maxInstances: 50,
+  memory: '512MiB',
+  secrets: ['STRIPE_SECRET_KEY', 'GMAIL_USER', 'GMAIL_APP_PASSWORD'],
+  // TODO: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET をSecret Managerに登録後に追加
 }, app);
 
 export const jobRunner = onRequest({
