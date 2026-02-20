@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import Anthropic from '@anthropic-ai/sdk';
 import { authMiddleware } from '../lib/auth';
 import { getUser } from '../lib/users';
 import { getEffectiveOrgId } from '../lib/access-helpers';
@@ -85,9 +86,45 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
     // Validate request body
     const parsed = parseRequestSchema.parse(req.body);
 
-    // Sonnet not yet supported
     if (parsed.model === 'sonnet') {
-      res.status(400).json({ error: 'Sonnet is not yet supported' });
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (!anthropicKey) {
+        console.error('[bulk-import/parse] ANTHROPIC_API_KEY is not set');
+        res.status(500).json({ error: 'Claude Sonnet is not configured' });
+        return;
+      }
+
+      const anthropic = new Anthropic({ apiKey: anthropicKey });
+      const message = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        system: PARSE_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: parsed.text }],
+      });
+
+      // Extract text content from response
+      const textBlock = message.content.find((block) => block.type === 'text');
+      if (!textBlock || textBlock.type !== 'text') {
+        res.status(500).json({ error: 'AI returned no text response' });
+        return;
+      }
+
+      let data: { items: any[]; warnings: string[] };
+      try {
+        data = JSON.parse(textBlock.text);
+      } catch {
+        console.error('[bulk-import/parse] Failed to parse Sonnet response:', textBlock.text);
+        res.status(500).json({ error: 'AI returned invalid JSON' });
+        return;
+      }
+
+      if (!Array.isArray(data.items)) data.items = [];
+      for (const item of data.items) {
+        if (!item.tempId) item.tempId = `tmp_${crypto.randomUUID()}`;
+      }
+      if (!Array.isArray(data.warnings)) data.warnings = [];
+
+      res.json({ items: data.items, warnings: data.warnings });
       return;
     }
 

@@ -94,9 +94,9 @@ export function BulkImportModal({
     try {
       const result = await bulkImportParse({
         text: text.trim(),
-        model: 'flash',
+        model: model === 'local' ? 'flash' : model as 'flash' | 'sonnet',
         projectId,
-        inputType: 'text',
+        inputType: tab,
       });
       setParsedItems(result.items);
       setWarnings(result.warnings);
@@ -227,7 +227,7 @@ function InputStep({
 
   const models: { key: Model; label: string; disabled: boolean; description?: string }[] = [
     { key: 'flash', label: 'Gemini Flash', disabled: false, description: '高速' },
-    { key: 'sonnet', label: 'Claude Sonnet', disabled: true, description: '高精度 - 近日公開' },
+    { key: 'sonnet', label: 'Claude Sonnet', disabled: false, description: '高精度' },
     { key: 'local', label: 'ローカルAI', disabled: true, description: '無料 - 近日公開' },
   ];
 

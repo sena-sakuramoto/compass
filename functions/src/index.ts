@@ -147,7 +147,7 @@ export const api = onRequest({
   region: REGION,
   maxInstances: 50,
   memory: '512MiB',
-  secrets: ['STRIPE_SECRET_KEY', 'GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GEMINI_API_KEY'],
+  secrets: ['STRIPE_SECRET_KEY', 'GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY'],
   // TODO: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET をSecret Managerに登録後に追加
 }, app);
 
