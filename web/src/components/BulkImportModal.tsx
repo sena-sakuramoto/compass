@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { X } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import type { Project, ParsedItem } from '../lib/types';
 import { bulkImportParse, listProjectMembers } from '../lib/api';
 import { BulkImportReviewTable } from './BulkImportReviewTable';
@@ -33,6 +34,7 @@ export function BulkImportModal({
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [members, setMembers] = useState<string[]>([]);
+  const [file, setFile] = useState<File | null>(null);
 
   // Sync defaultProjectId when it changes
   useEffect(() => {
@@ -79,6 +81,7 @@ export function BulkImportModal({
     setParsedItems([]);
     setWarnings([]);
     setMembers([]);
+    setFile(null);
   }, [defaultProjectId]);
 
   const handleClose = useCallback(() => {
@@ -87,16 +90,39 @@ export function BulkImportModal({
   }, [resetState, onOpenChange]);
 
   const handleParse = async () => {
-    if (!projectId || !text.trim()) return;
-
     setError('');
     setParsing(true);
     try {
+      let parseText = text.trim();
+      let inputType: 'text' | 'excel' = 'text';
+
+      // If Excel tab, read the file and convert to text
+      if (tab === 'excel' && file) {
+        inputType = 'excel';
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        // Convert all sheets to text
+        const lines: string[] = [];
+        for (const sheetName of workbook.SheetNames) {
+          lines.push(`--- ${sheetName} ---`);
+          const sheet = workbook.Sheets[sheetName];
+          const csv = XLSX.utils.sheet_to_csv(sheet);
+          lines.push(csv);
+        }
+        parseText = lines.join('\n');
+      }
+
+      if (!parseText) {
+        setError('解析するデータがありません');
+        setParsing(false);
+        return;
+      }
+
       const result = await bulkImportParse({
-        text: text.trim(),
+        text: parseText,
         model: model === 'local' ? 'flash' : model as 'flash' | 'sonnet',
         projectId,
-        inputType: tab,
+        inputType,
       });
       setParsedItems(result.items);
       setWarnings(result.warnings);
@@ -129,7 +155,7 @@ export function BulkImportModal({
 
   if (!open) return null;
 
-  const canParse = !!projectId && !!text.trim() && !parsing;
+  const canParse = !!projectId && !parsing && (tab === 'text' ? !!text.trim() : tab === 'excel' ? !!file : false);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto">
@@ -164,6 +190,8 @@ export function BulkImportModal({
               onProjectIdChange={setProjectId}
               text={text}
               onTextChange={setText}
+              file={file}
+              onFileChange={setFile}
               parsing={parsing}
               error={error}
               canParse={canParse}
@@ -197,6 +225,8 @@ interface InputStepProps {
   onProjectIdChange: (id: string) => void;
   text: string;
   onTextChange: (text: string) => void;
+  file: File | null;
+  onFileChange: (file: File | null) => void;
   parsing: boolean;
   error: string;
   canParse: boolean;
@@ -213,6 +243,8 @@ function InputStep({
   onProjectIdChange,
   text,
   onTextChange,
+  file,
+  onFileChange,
   parsing,
   error,
   canParse,
@@ -221,7 +253,7 @@ function InputStep({
 }: InputStepProps) {
   const tabs: { key: Tab; label: string; disabled: boolean }[] = [
     { key: 'text', label: 'テキスト', disabled: false },
-    { key: 'excel', label: 'Excel', disabled: true },
+    { key: 'excel', label: 'Excel/CSV', disabled: false },
     { key: 'pdf', label: 'PDF/画像', disabled: true },
   ];
 
@@ -290,8 +322,55 @@ function InputStep({
         </div>
       )}
 
-      {/* Coming soon placeholder for other tabs */}
-      {tab !== 'text' && (
+      {/* Excel/CSV file upload */}
+      {tab === 'excel' && (
+        <div>
+          <div
+            className="flex h-48 flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50 transition cursor-pointer"
+            onClick={() => document.getElementById('bulk-import-file')?.click()}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const f = e.dataTransfer.files?.[0];
+              if (f) onFileChange(f);
+            }}
+          >
+            {file ? (
+              <div className="text-center">
+                <p className="text-sm font-medium text-slate-700">{file.name}</p>
+                <p className="text-xs text-slate-500 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onFileChange(null); }}
+                  className="mt-2 text-xs text-red-500 hover:text-red-700"
+                >
+                  ファイルを変更
+                </button>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-sm text-slate-500">ファイルをドラッグ＆ドロップ</p>
+                <p className="text-xs text-slate-400 mt-1">または クリックして選択</p>
+                <p className="text-xs text-slate-400 mt-1">.xlsx .xls .csv 対応</p>
+              </div>
+            )}
+          </div>
+          <input
+            id="bulk-import-file"
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onFileChange(f);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Coming soon placeholder for PDF tab */}
+      {tab === 'pdf' && (
         <div className="flex h-48 items-center justify-center rounded-lg border-2 border-dashed border-slate-200 text-slate-400">
           近日公開
         </div>
