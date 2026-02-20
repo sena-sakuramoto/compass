@@ -2,8 +2,9 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Project, ParsedItem } from '../lib/types';
-import { bulkImportParse, listProjectMembers } from '../lib/api';
+import { bulkImportParse, bulkImportParseFile, listProjectMembers } from '../lib/api';
 import { BulkImportReviewTable } from './BulkImportReviewTable';
+import { isWebGPUSupported, parseWithLocalLLM, MODEL_CONFIGS, type LocalModelSize } from '../lib/localLLM';
 
 type Step = 'input' | 'review';
 type Tab = 'text' | 'excel' | 'pdf';
@@ -35,6 +36,9 @@ export function BulkImportModal({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [members, setMembers] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [localModelSize, setLocalModelSize] = useState<LocalModelSize>('medium');
+  const [localProgress, setLocalProgress] = useState<{ status: string; progress?: number } | null>(null);
 
   // Sync defaultProjectId when it changes
   useEffect(() => {
@@ -82,6 +86,8 @@ export function BulkImportModal({
     setWarnings([]);
     setMembers([]);
     setFile(null);
+    setPdfFile(null);
+    setLocalProgress(null);
   }, [defaultProjectId]);
 
   const handleClose = useCallback(() => {
@@ -93,6 +99,20 @@ export function BulkImportModal({
     setError('');
     setParsing(true);
     try {
+      // If PDF/image tab, use file upload endpoint
+      if (tab === 'pdf' && pdfFile) {
+        const result = await bulkImportParseFile(
+          pdfFile,
+          projectId,
+          model === 'local' ? 'flash' : model as 'flash' | 'sonnet',
+        );
+        setParsedItems(result.items);
+        setWarnings(result.warnings);
+        setStep('review');
+        setParsing(false);
+        return;
+      }
+
       let parseText = text.trim();
       let inputType: 'text' | 'excel' = 'text';
 
@@ -118,9 +138,20 @@ export function BulkImportModal({
         return;
       }
 
+      // If local model, parse entirely in browser
+      if (model === 'local') {
+        const result = await parseWithLocalLLM(parseText, localModelSize, setLocalProgress);
+        setParsedItems(result.items);
+        setWarnings(result.warnings);
+        setStep('review');
+        setLocalProgress(null);
+        setParsing(false);
+        return;
+      }
+
       const result = await bulkImportParse({
         text: parseText,
-        model: model === 'local' ? 'flash' : model as 'flash' | 'sonnet',
+        model,
         projectId,
         inputType,
       });
@@ -155,7 +186,12 @@ export function BulkImportModal({
 
   if (!open) return null;
 
-  const canParse = !!projectId && !parsing && (tab === 'text' ? !!text.trim() : tab === 'excel' ? !!file : false);
+  const canParse = !!projectId && !parsing && (
+    tab === 'text' ? !!text.trim() :
+    tab === 'excel' ? !!file :
+    tab === 'pdf' ? !!pdfFile :
+    false
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto">
@@ -192,11 +228,16 @@ export function BulkImportModal({
               onTextChange={setText}
               file={file}
               onFileChange={setFile}
+              pdfFile={pdfFile}
+              onPdfFileChange={setPdfFile}
               parsing={parsing}
               error={error}
               canParse={canParse}
               onParse={handleParse}
               projects={projects}
+              localModelSize={localModelSize}
+              onLocalModelSizeChange={setLocalModelSize}
+              localProgress={localProgress}
             />
           ) : (
             <BulkImportReviewTable
@@ -227,11 +268,16 @@ interface InputStepProps {
   onTextChange: (text: string) => void;
   file: File | null;
   onFileChange: (file: File | null) => void;
+  pdfFile: File | null;
+  onPdfFileChange: (file: File | null) => void;
   parsing: boolean;
   error: string;
   canParse: boolean;
   onParse: () => void;
   projects: Project[];
+  localModelSize: LocalModelSize;
+  onLocalModelSizeChange: (size: LocalModelSize) => void;
+  localProgress: { status: string; progress?: number } | null;
 }
 
 function InputStep({
@@ -245,22 +291,27 @@ function InputStep({
   onTextChange,
   file,
   onFileChange,
+  pdfFile,
+  onPdfFileChange,
   parsing,
   error,
   canParse,
   onParse,
   projects,
+  localModelSize,
+  onLocalModelSizeChange,
+  localProgress,
 }: InputStepProps) {
   const tabs: { key: Tab; label: string; disabled: boolean }[] = [
     { key: 'text', label: 'テキスト', disabled: false },
     { key: 'excel', label: 'Excel/CSV', disabled: false },
-    { key: 'pdf', label: 'PDF/画像', disabled: true },
+    { key: 'pdf', label: 'PDF/画像', disabled: false },
   ];
 
   const models: { key: Model; label: string; disabled: boolean; description?: string }[] = [
     { key: 'flash', label: 'Gemini Flash', disabled: false, description: '高速' },
     { key: 'sonnet', label: 'Claude Sonnet', disabled: false, description: '高精度' },
-    { key: 'local', label: 'ローカルAI', disabled: true, description: '無料 - 近日公開' },
+    { key: 'local', label: 'ローカルAI', disabled: !isWebGPUSupported(), description: isWebGPUSupported() ? '無料・ベータ' : 'WebGPU非対応' },
   ];
 
   return (
@@ -369,10 +420,50 @@ function InputStep({
         </div>
       )}
 
-      {/* Coming soon placeholder for PDF tab */}
+      {/* PDF/Image file upload */}
       {tab === 'pdf' && (
-        <div className="flex h-48 items-center justify-center rounded-lg border-2 border-dashed border-slate-200 text-slate-400">
-          近日公開
+        <div>
+          <div
+            className="flex h-48 flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50 transition cursor-pointer"
+            onClick={() => document.getElementById('bulk-import-pdf')?.click()}
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const f = e.dataTransfer.files?.[0];
+              if (f) onPdfFileChange(f);
+            }}
+          >
+            {pdfFile ? (
+              <div className="text-center">
+                <p className="text-sm font-medium text-slate-700">{pdfFile.name}</p>
+                <p className="text-xs text-slate-500 mt-1">{(pdfFile.size / 1024).toFixed(1)} KB</p>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onPdfFileChange(null); }}
+                  className="mt-2 text-xs text-red-500 hover:text-red-700"
+                >
+                  ファイルを変更
+                </button>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-sm text-slate-500">ファイルをドラッグ＆ドロップ</p>
+                <p className="text-xs text-slate-400 mt-1">または クリックして選択</p>
+                <p className="text-xs text-slate-400 mt-1">.pdf .jpg .png 対応</p>
+              </div>
+            )}
+          </div>
+          <input
+            id="bulk-import-pdf"
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onPdfFileChange(f);
+            }}
+          />
         </div>
       )}
 
@@ -410,11 +501,54 @@ function InputStep({
             </label>
           ))}
         </div>
+
+        {/* Local model size selection */}
+        {model === 'local' && isWebGPUSupported() && (
+          <div className="ml-8 mt-2 space-y-1.5">
+            <p className="text-xs text-slate-500">モデルサイズ:</p>
+            <div className="flex gap-2">
+              {(Object.entries(MODEL_CONFIGS) as [LocalModelSize, typeof MODEL_CONFIGS['small']][]).map(([key, config]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => onLocalModelSizeChange(key)}
+                  className={[
+                    'rounded-lg border px-3 py-1.5 text-xs transition',
+                    localModelSize === key
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50',
+                  ].join(' ')}
+                >
+                  <span className="font-medium">{config.label}</span>
+                  <span className="ml-1 text-slate-400">({config.sizeLabel})</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-400">
+              ※ 初回はモデルのダウンロードが必要です
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Error */}
       {error && (
         <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
+      )}
+
+      {/* Local progress */}
+      {localProgress && (
+        <div className="rounded-lg bg-blue-50 px-4 py-3">
+          <p className="text-sm text-blue-700">{localProgress.status}</p>
+          {localProgress.progress !== undefined && localProgress.progress < 100 && (
+            <div className="mt-2 h-2 rounded-full bg-blue-100 overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                style={{ width: `${localProgress.progress}%` }}
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {/* Parse button */}
