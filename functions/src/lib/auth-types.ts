@@ -6,7 +6,8 @@ import { Role, ProjectRole, ProjectPermissions, RolePermissions } from './roles'
  * 将来的に Circle系、AI heavy、省エネ連携プランなどを追加可能
  */
 export type SubscriptionPlan =
-  | 'starter'
+  | 'small'
+  | 'standard'
   | 'business'
   | 'enterprise';
   // 将来の拡張例:
@@ -19,13 +20,17 @@ export type SubscriptionPlan =
  * ゲスト機能廃止により、メンバー数のみ管理
  */
 export const PLAN_LIMITS = {
-  starter: {
-    price: 5000,        // ¥5,000/月
-    members: 5,         // 組織メンバー上限
+  small: {
+    price: 5000,        // ¥5,000/月（〜5名）
+    members: 5,
+  },
+  standard: {
+    price: 15000,       // ¥15,000/月（〜15名）
+    members: 15,
   },
   business: {
-    price: 30000,       // ¥30,000/月
-    members: 30,        // 組織メンバー上限
+    price: 35000,       // ¥35,000/月（〜40名）
+    members: 40,
   },
   enterprise: {
     price: null,        // カスタム料金
@@ -73,7 +78,7 @@ export interface Organization {
   type: OrganizationType;        // 組織タイプ
   domain?: string;               // メールドメイン（例: "archi-prisma.co.jp"）
   settings?: OrganizationSettings; // 組織設定（レガシーデータ対応でoptional）
-  plan?: SubscriptionPlan;       // サブスクリプションプラン（未設定の場合はstarter扱い）
+  plan?: SubscriptionPlan;       // サブスクリプションプラン（未設定の場合はsmall扱い）
   limits?: OrganizationLimits;   // カスタム上限（未設定の場合はプランのデフォルト値を使用）
   usage?: OrganizationUsage;     // 現在の利用状況
   createdAt: Timestamp;

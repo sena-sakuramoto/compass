@@ -6,8 +6,6 @@ import {
   BarChart3,
   Banknote,
   Download,
-  FileJson,
-  FileSpreadsheet,
   ListChecks,
   Plus,
   Users,
@@ -35,10 +33,8 @@ import {
   deleteTask,
   deleteProject,
   completeTask,
-  importExcel,
   exportExcel,
   exportSnapshot,
-  importSnapshot,
   moveTaskDates,
   seedTaskReminders,
   syncTaskCalendar,
@@ -73,6 +69,8 @@ import { NotificationBell } from './components/NotificationBell';
 import { BulkImportModal } from './components/BulkImportModal';
 import { UserManagement } from './components/UserManagement';
 import { HelpPage } from './pages/HelpPage';
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
+import { CommercialTransactionPage } from './pages/CommercialTransactionPage';
 import { AdminPage } from './pages/AdminPage';
 import NotificationsPage from './pages/NotificationsPage';
 import { SetupPage } from './pages/SetupPage';
@@ -257,8 +255,6 @@ function AppLayout({
   canSync,
   onExportSnapshot,
   onExportExcel,
-  onImportSnapshot,
-  onImportExcel,
   onNotify,
   actionPanel,
   loading,
@@ -282,8 +278,6 @@ function AppLayout({
   canSync: boolean;
   onExportSnapshot(): Promise<SnapshotPayload>;
   onExportExcel(): Promise<Blob>;
-  onImportSnapshot(payload: SnapshotPayload): Promise<void>;
-  onImportExcel(file: File): Promise<void>;
   onNotify(message: ToastInput): void;
   actionPanel?: React.ReactNode;
   loading?: boolean;
@@ -319,24 +313,21 @@ function AppLayout({
       </div>
       <div className="app-content flex-1 flex flex-col lg:pl-56 min-h-0">
         <header className="no-print flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl flex-col gap-1 px-4 py-1 lg:px-6">
-            <div className="flex items-center justify-between gap-1">
-              {/* モバイル：ハンバーガーメニュー用のスペース + タイトル */}
-              <div className="flex items-center gap-2 flex-1 min-w-0 lg:ml-0 pl-12 lg:pl-0">
-                <div>
-                  <h1 className="text-base lg:text-lg font-semibold text-slate-900 truncate">APDW Project Compass</h1>
-                  <p className="hidden lg:block text-[11px] text-slate-500 leading-tight">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
-                </div>
+          <div className="flex items-center justify-between gap-2 px-4 py-1 lg:px-6">
+            {/* 左側：タイトル */}
+            <div className="flex items-center gap-2 min-w-0 pl-12 lg:pl-0">
+              <div>
+                <h1 className="text-base lg:text-lg font-semibold text-slate-900 truncate">APDW Project Compass</h1>
+                <p className="hidden lg:block text-[11px] text-slate-500 leading-tight">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
               </div>
+            </div>
 
-              {/* 右側：通知とその他のアクション */}
-              <div className="flex items-center gap-2">
-                {/* 通知は常に表示 */}
-                {authSupported && user && <NotificationBell />}
+            {/* 右側：通知・エクスポート・ユーザー */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {authSupported && user && <NotificationBell />}
 
-                {/* その他のアクションはPCのみ */}
-                <div className="hidden lg:block">
-                  <HeaderActions
+              <div className="hidden lg:block">
+                <HeaderActions
                     user={user}
                     authSupported={authSupported}
                     authReady={authReady}
@@ -346,33 +337,14 @@ function AppLayout({
                     canSync={canSync}
                     onExportSnapshot={onExportSnapshot}
                     onExportExcel={onExportExcel}
-                    onImportSnapshot={onImportSnapshot}
-                    onImportExcel={onImportExcel}
                     onNotify={onNotify}
                     privateSettings={privateSettings}
                     onPrivateSettingsChange={onPrivateSettingsChange}
                     personalHolidayCount={personalHolidayCount}
                     onResetPersonalHolidays={onResetPersonalHolidays}
                   />
-                </div>
               </div>
             </div>
-            <nav className="hidden flex-wrap gap-2">
-              {navLinks.map((link) => (
-                <NavLink
-                  key={link.path}
-                  to={link.path}
-                  className={({ isActive }) =>
-                    `rounded-full px-4 py-2 text-sm font-medium transition ${isActive
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'bg-white text-slate-600 hover:bg-slate-100'
-                    }`
-                  }
-                >
-                  {link.label}
-                </NavLink>
-              ))}
-            </nav>
           </div>
           {!authSupported && !DEMO_MODE ? (
             <div className="bg-amber-50 text-amber-700">
@@ -439,8 +411,6 @@ function HeaderActions({
   canSync,
   onExportSnapshot,
   onExportExcel,
-  onImportSnapshot,
-  onImportExcel,
   onNotify,
   privateSettings,
   onPrivateSettingsChange,
@@ -456,8 +426,6 @@ function HeaderActions({
   canSync: boolean;
   onExportSnapshot(): Promise<SnapshotPayload>;
   onExportExcel(): Promise<Blob>;
-  onImportSnapshot(payload: SnapshotPayload): Promise<void>;
-  onImportExcel(file: File): Promise<void>;
   onNotify(message: ToastInput): void;
   privateSettings: PrivateSettings;
   onPrivateSettingsChange: React.Dispatch<React.SetStateAction<PrivateSettings>>;
@@ -465,8 +433,6 @@ function HeaderActions({
   onResetPersonalHolidays(): void;
 }) {
   const [busy, setBusy] = useState(false);
-  const jsonInputRef = React.useRef<HTMLInputElement | null>(null);
-  const excelInputRef = React.useRef<HTMLInputElement | null>(null);
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const [privateSettingsOpen, setPrivateSettingsOpen] = useState(false);
 
@@ -514,44 +480,6 @@ function HeaderActions({
       console.error(error);
       onNotify({ tone: 'error', title: 'Excelエクスポートに失敗しました' });
     } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleJsonSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      setBusy(true);
-      const parsed = JSON.parse(await file.text()) as SnapshotPayload;
-      await onImportSnapshot(parsed);
-      onNotify({ tone: 'success', title: 'JSONを読み込みました' });
-    } catch (error) {
-      console.error(error);
-      onNotify({ tone: 'error', title: 'JSON読み込みに失敗しました' });
-    } finally {
-      event.target.value = '';
-      setBusy(false);
-    }
-  };
-
-  const handleExcelSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!canSync) {
-      onNotify({ tone: 'info', title: 'サインインするとExcel読み込みを利用できます' });
-      event.target.value = '';
-      return;
-    }
-    try {
-      setBusy(true);
-      await onImportExcel(file);
-      onNotify({ tone: 'success', title: 'Excelを読み込みました' });
-    } catch (error) {
-      console.error(error);
-      onNotify({ tone: 'error', title: 'Excel読み込みに失敗しました' });
-    } finally {
-      event.target.value = '';
       setBusy(false);
     }
   };
@@ -605,26 +533,7 @@ function HeaderActions({
       >
         <Download className="h-4 w-4" /> Excel
       </button>
-      <input ref={jsonInputRef} type="file" accept="application/json" className="hidden" onChange={handleJsonSelected} />
-      <input ref={excelInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleExcelSelected} />
       <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelected} />
-      <button
-        type="button"
-        onClick={() => jsonInputRef.current?.click()}
-        className="flex items-center gap-1 rounded-2xl bg-slate-900 px-3 py-2 text-sm text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={busy}
-      >
-        <FileJson className="h-4 w-4" /> JSON読み込み
-      </button>
-      <button
-        type="button"
-        onClick={() => excelInputRef.current?.click()}
-        className="flex items-center gap-1 rounded-2xl bg-slate-900 px-3 py-2 text-sm text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={busy || !canSync}
-        title={!canSync ? 'サインインすると利用できます' : undefined}
-      >
-        <FileSpreadsheet className="h-4 w-4" /> Excel読み込み
-      </button>
       <div className="h-6 w-px bg-slate-200" />
       {authSupported && !DEMO_MODE ? (
         user ? (
@@ -2187,6 +2096,15 @@ function SchedulePage({
                 </svg>
                 今日
               </button>
+              {onBulkImport && (
+                <button
+                  type="button"
+                  onClick={onBulkImport}
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  一括取込
+                </button>
+              )}
               <button
                 type="button"
                 onClick={openPrintPanel}
@@ -2411,13 +2329,19 @@ function SchedulePage({
 
             pushToast({ title: `${taskIds.length}個のアイテムを更新しました`, tone: 'success' });
           }}
+          onTaskBatchDelete={(taskIds) => {
+            if (!onTaskDelete) return;
+            taskIds.forEach(taskId => {
+              onTaskDelete(taskId);
+            });
+            pushToast({ title: `${taskIds.length}個のアイテムを削除しました`, tone: 'success' });
+          }}
           onTaskDelete={async (task) => {
             // handleDeleteTaskを使用（temp IDガード付き、確認ダイアログはGanttChart側で表示済み）
             if (onTaskDelete) {
               await onTaskDelete(task.id);
             }
           }}
-          onBulkImport={onBulkImport}
           jumpToTodayRef={jumpToTodayRef}
           expandedProjectIds={expandedProjectIds}
           onToggleProject={onToggleProject}
@@ -4465,10 +4389,14 @@ function App() {
       const projectMatch = myProjectsFilterActive
         ? effectiveProjectFilter.includes(task.projectId)
         : effectiveProjectFilter.length === 0 || effectiveProjectFilter.includes(task.projectId);
-      const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
+
+      // 工程(stage)・マイルストーンは担当者/ステータスフィルターの対象外
+      // フィルターすると子タスクの階層表示やマイルストーン表示が壊れる
+      const isStageOrMilestone = task.type === 'stage' || task.マイルストーン;
+      const assigneeMatch = isStageOrMilestone || assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
       // タスクのステータスは「完了/未完了」でフィルター
       const isCompleted = task.ステータス === '完了';
-      const statusMatch = statusFilter.length === 0 ||
+      const statusMatch = isStageOrMilestone || statusFilter.length === 0 ||
         (statusFilter.includes('完了') && isCompleted) ||
         (statusFilter.includes('未完了') && !isCompleted);
       const haystack = [
@@ -5722,34 +5650,6 @@ function App() {
     return exportExcel();
   }, [canSync]);
 
-  const handleImportSnapshot = useCallback(async (payload: SnapshotPayload) => {
-    if (canSync) {
-      await importSnapshot(payload);
-      // インポート後は全キャッシュを無効化
-      cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
-      cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
-      requestSnapshotReload('snapshot:import', 1000);
-      return;
-    }
-    const normalized = normalizeSnapshot(payload);
-    setState({
-      projects: normalized.projects,
-      tasks: normalized.tasks,
-      people: normalized.people,
-    });
-  }, [canSync, setState, requestSnapshotReload]);
-
-  const handleImportExcelSafe = useCallback(async (file: File) => {
-    if (!canSync) {
-      throw new Error('Excel import is available after signing in.');
-    }
-    await importExcel(file);
-    // Excelインポート後は全キャッシュを無効化
-    cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
-    cacheDelete(CACHE_KEY_PROJECTS).catch(() => {});
-    requestSnapshotReload('excel:import', 1000);
-  }, [canSync, requestSnapshotReload]);
-
   const handleEmailAuth = useCallback(
     async (mode: 'signin' | 'signup') => {
       const email = emailAuthInput.email.trim();
@@ -5772,6 +5672,17 @@ function App() {
     },
     [emailAuthInput, signIn, signUpWithEmail]
   );
+
+  // 公開ページ（認証不要）
+  const isPublicPage = location.pathname === '/privacy' || location.pathname === '/commercial-transaction';
+  if (isPublicPage) {
+    return (
+      <Routes>
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/commercial-transaction" element={<CommercialTransactionPage />} />
+      </Routes>
+    );
+  }
 
   // 認証準備中（デモモードではスキップ）
   if (!authReady && !DEMO_MODE) {
@@ -6164,8 +6075,6 @@ function App() {
         canSync={canSync}
         onExportSnapshot={handleExportSnapshot}
         onExportExcel={handleExportExcelSafe}
-        onImportSnapshot={handleImportSnapshot}
-        onImportExcel={handleImportExcelSafe}
         onNotify={pushToast}
         loading={loading}
         sidebarPanel={filtersSidebarPanel}
@@ -6394,6 +6303,8 @@ function App() {
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/help" element={<HelpPage />} />
           <Route path="/admin" element={<AdminPage user={user} currentUserRole={currentUserRole} />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/commercial-transaction" element={<CommercialTransactionPage />} />
         </Routes>
       </AppLayout>
       <TaskModal

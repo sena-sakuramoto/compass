@@ -11,6 +11,7 @@ interface BatchEditModalProps {
   stages?: GanttTask[];
   onClose: () => void;
   onSave: (updates: BatchUpdate) => void;
+  onDelete?: (taskIds: string[]) => void;
 }
 
 export interface BatchUpdate {
@@ -27,7 +28,8 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
   projectMembers = [],
   stages = [],
   onClose,
-  onSave
+  onSave,
+  onDelete
 }) => {
   const [assignee, setAssignee] = useState<string>('');
   const [applyAssignee, setApplyAssignee] = useState(false);
@@ -39,6 +41,7 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
   const [applyPriority, setApplyPriority] = useState(false);
   const [parentId, setParentId] = useState<string>('');
   const [applyParentId, setApplyParentId] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // 選択中のタスクに工程が含まれているかチェック（工程は工程の変更対象外）
   const hasStagesSelected = selectedTasks.some(t => t.type === 'stage');
@@ -283,6 +286,47 @@ export const BatchEditModal: React.FC<BatchEditModalProps> = ({
             <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
               工程が選択されています。工程の所属先は変更できません。
             </p>
+          )}
+
+          {/* 一括削除 */}
+          {onDelete && (
+            <div className="border-t border-slate-200 pt-4">
+              {!confirmDelete ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-sm text-red-500 hover:text-red-700 transition-colors"
+                >
+                  選択した{selectedTasks.length}個を削除...
+                </button>
+              ) : (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+                  <p className="text-sm font-medium text-red-700 mb-2">
+                    {selectedTasks.length}個のアイテムを削除しますか？
+                  </p>
+                  <p className="text-xs text-red-600 mb-3">この操作は元に戻せません。</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDelete(selectedTasks.map(t => t.id));
+                        onClose();
+                      }}
+                      className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      削除する
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      className="px-3 py-1.5 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                    >
+                      やめる
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
 

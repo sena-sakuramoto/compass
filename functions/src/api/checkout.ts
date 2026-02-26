@@ -20,7 +20,11 @@ const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey, { apiVersion: '2025-12-15.clover' }) : null;
 
 // 価格設定
-const COMPASS_PRICE_ID = process.env.COMPASS_PRICE_ID || 'price_1SDiNTRpUEcUjSDNZa2AYMWq';
+const TIER_PRICE_IDS: Record<'small' | 'standard' | 'business', string> = {
+  small: process.env.COMPASS_PRICE_ID_SMALL || 'price_PLACEHOLDER_SMALL',
+  standard: process.env.COMPASS_PRICE_ID_STANDARD || 'price_PLACEHOLDER_STANDARD',
+  business: process.env.COMPASS_PRICE_ID_BUSINESS || 'price_PLACEHOLDER_BUSINESS',
+};
 const COMPASS_PRICE_ID_STUDENT = process.env.COMPASS_PRICE_ID_STUDENT || 'price_1SrgWhRpUEcUjSDNfR0wVCvJ';
 
 // 学生ドメインパターン
@@ -33,7 +37,7 @@ function isStudentEmail(email: string): boolean {
 
 const checkoutSchema = z.object({
   email: z.string().email(),
-  quantity: z.number().int().min(1).max(100).optional().default(1),
+  tier: z.enum(['small', 'standard', 'business']).optional().default('small'),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
 });
@@ -50,10 +54,13 @@ router.post('/checkout', async (req, res) => {
 
   try {
     const payload = checkoutSchema.parse(req.body);
-    const { email, quantity } = payload;
+    const { email, tier } = payload;
 
     const isStudent = isStudentEmail(email);
-    const priceId = isStudent ? COMPASS_PRICE_ID_STUDENT : COMPASS_PRICE_ID;
+    const priceId = isStudent ? COMPASS_PRICE_ID_STUDENT : TIER_PRICE_IDS[tier];
+    if (!priceId) {
+      return res.status(400).json({ error: `Invalid tier: ${tier}` });
+    }
 
     // 成功・キャンセルURL
     const baseUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
@@ -67,7 +74,7 @@ router.post('/checkout', async (req, res) => {
       line_items: [
         {
           price: priceId,
-          quantity: quantity,
+          quantity: 1,
         },
       ],
       success_url: successUrl,
@@ -77,6 +84,7 @@ router.post('/checkout', async (req, res) => {
       metadata: {
         source: 'compass_lp',
         isStudent: isStudent ? 'true' : 'false',
+        tier: isStudent ? 'student' : tier,
       },
     };
 
@@ -86,6 +94,7 @@ router.post('/checkout', async (req, res) => {
         trial_period_days: 14,
         metadata: {
           source: 'compass_lp',
+          tier: tier,
         },
       };
     }
@@ -97,14 +106,14 @@ router.post('/checkout', async (req, res) => {
       email,
       isStudent,
       priceId,
-      quantity,
+      tier: isStudent ? 'student' : tier,
     });
 
     res.json({
       url: session.url,
       sessionId: session.id,
       isStudent,
-      plan: isStudent ? 'student' : 'standard',
+      plan: isStudent ? 'student' : tier,
       trialDays: isStudent ? 0 : 14,
     });
   } catch (error: any) {
@@ -124,21 +133,49 @@ router.post('/checkout', async (req, res) => {
  */
 router.get('/checkout/plans', async (_req, res) => {
   res.json({
-    standard: {
-      name: 'Compass Pro',
-      pricePerSeat: 1000,
+    small: {
+      name: 'Compass Small',
+      price: 5000,
+      maxMembers: 5,
       currency: 'JPY',
       interval: 'month',
       trialDays: 14,
       features: [
         '全機能が使える',
-        '席数に上限なし',
+        '最大5名まで',
+        '14日間の無料トライアル',
+      ],
+    },
+    standard: {
+      name: 'Compass Standard',
+      price: 15000,
+      maxMembers: 15,
+      currency: 'JPY',
+      interval: 'month',
+      trialDays: 14,
+      features: [
+        '全機能が使える',
+        '最大15名まで',
+        '14日間の無料トライアル',
+      ],
+    },
+    business: {
+      name: 'Compass Business',
+      price: 35000,
+      maxMembers: 40,
+      currency: 'JPY',
+      interval: 'month',
+      trialDays: 14,
+      features: [
+        '全機能が使える',
+        '最大40名まで',
         '14日間の無料トライアル',
       ],
     },
     student: {
       name: 'Compass 学生プラン',
-      pricePerSeat: 0,
+      price: 0,
+      maxMembers: 5,
       currency: 'JPY',
       interval: 'month',
       trialDays: 0,

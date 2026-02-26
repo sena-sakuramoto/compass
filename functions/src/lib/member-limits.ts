@@ -78,9 +78,10 @@ export async function getOrganizationLimits(orgId: string): Promise<{
     };
   }
 
-  // プランに基づいた上限を取得（未設定の場合はstarter扱い）
+  // プランに基づいた上限を取得（未設定の場合はsmall扱い）
   const planOverride = PLAN_OVERRIDES[orgDoc.id];
-  const plan = planOverride || org.plan || 'starter';
+  const rawPlan = planOverride || org.plan || 'small';
+  const plan = rawPlan in PLAN_LIMITS ? rawPlan : 'small';
   const planLimits = PLAN_LIMITS[plan];
 
   return {

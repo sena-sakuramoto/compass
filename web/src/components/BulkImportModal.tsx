@@ -1,8 +1,8 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { X, Plus } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import type { Project, ParsedItem } from '../lib/types';
-import { bulkImportParse, bulkImportParseFile, listProjectMembers } from '../lib/api';
+import type { Project, ParsedItem, Stage } from '../lib/types';
+import { bulkImportParse, bulkImportParseFile, createProject, listProjectMembers, listStages, listUsers } from '../lib/api';
 import { BulkImportReviewTable } from './BulkImportReviewTable';
 import { isWebGPUSupported, parseWithLocalLLM, MODEL_CONFIGS, type LocalModelSize } from '../lib/localLLM';
 
@@ -35,10 +35,13 @@ export function BulkImportModal({
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [members, setMembers] = useState<string[]>([]);
+  const [existingStages, setExistingStages] = useState<Stage[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [localModelSize, setLocalModelSize] = useState<LocalModelSize>('medium');
   const [localProgress, setLocalProgress] = useState<{ status: string; progress?: number } | null>(null);
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const [localProjects, setLocalProjects] = useState<Project[]>(projects);
 
   // Sync defaultProjectId when it changes
   useEffect(() => {
@@ -47,26 +50,55 @@ export function BulkImportModal({
     }
   }, [defaultProjectId]);
 
-  // Fetch project members when projectId changes
+  // Sync localProjects with props
+  useEffect(() => {
+    setLocalProjects(projects);
+  }, [projects]);
+
+  const handleProjectCreated = useCallback((newProject: Project) => {
+    setLocalProjects((prev) => [...prev, newProject]);
+    setProjectId(newProject.id);
+  }, []);
+
+  // Fetch project members and existing stages when projectId changes
   useEffect(() => {
     if (!projectId) {
       setMembers([]);
+      setExistingStages([]);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const memberList = await listProjectMembers(projectId, { status: 'active' });
+        const [memberList, stagesResult] = await Promise.all([
+          listProjectMembers(projectId, { status: 'active' }),
+          listStages(projectId).catch(() => ({ stages: [] as Stage[] })),
+        ]);
         if (!cancelled) {
-          const names = memberList
-            .map((m) => m.displayName || m.email)
-            .filter(Boolean) as string[];
-          // Deduplicate
+          let names: string[];
+          if (memberList.length > 0) {
+            names = memberList
+              .map((m) => m.displayName || m.email)
+              .filter(Boolean) as string[];
+          } else {
+            // フォールバック: プロジェクトメンバー未追加時は組織メンバーを取得
+            try {
+              const orgUsers = await listUsers({ isActive: true });
+              names = orgUsers
+                .map((u: any) => u.displayName || u.email)
+                .filter(Boolean) as string[];
+            } catch {
+              names = [];
+            }
+          }
           setMembers([...new Set(names)]);
+          setExistingStages(stagesResult.stages || []);
         }
       } catch {
-        // If members can't be loaded, just keep empty
-        if (!cancelled) setMembers([]);
+        if (!cancelled) {
+          setMembers([]);
+          setExistingStages([]);
+        }
       }
     })();
     return () => {
@@ -85,10 +117,13 @@ export function BulkImportModal({
     setParsedItems([]);
     setWarnings([]);
     setMembers([]);
+    setExistingStages([]);
     setFile(null);
     setPdfFile(null);
     setLocalProgress(null);
-  }, [defaultProjectId]);
+    setRemaining(null);
+    setLocalProjects(projects);
+  }, [defaultProjectId, projects]);
 
   const handleClose = useCallback(() => {
     resetState();
@@ -108,6 +143,7 @@ export function BulkImportModal({
         );
         setParsedItems(result.items);
         setWarnings(result.warnings);
+        if (result.remaining !== undefined) setRemaining(result.remaining);
         setStep('review');
         setParsing(false);
         return;
@@ -157,6 +193,7 @@ export function BulkImportModal({
       });
       setParsedItems(result.items);
       setWarnings(result.warnings);
+      if (result.remaining !== undefined) setRemaining(result.remaining);
       setStep('review');
     } catch (err: any) {
       setError(err.message || '解析に失敗しました。入力内容を確認してください。');
@@ -234,10 +271,12 @@ export function BulkImportModal({
               error={error}
               canParse={canParse}
               onParse={handleParse}
-              projects={projects}
+              projects={localProjects}
+              onProjectCreated={handleProjectCreated}
               localModelSize={localModelSize}
               onLocalModelSizeChange={setLocalModelSize}
               localProgress={localProgress}
+              remaining={remaining}
             />
           ) : (
             <BulkImportReviewTable
@@ -245,12 +284,226 @@ export function BulkImportModal({
               warnings={warnings}
               projectId={projectId}
               members={members}
+              existingStages={existingStages}
               onSaved={handleSaved}
               onBack={handleBackToInput}
             />
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Project Combobox ─────────────────────────────────────
+
+function ProjectCombobox({
+  projects,
+  value,
+  onChange,
+  onProjectCreated,
+}: {
+  projects: Project[];
+  value: string;
+  onChange: (id: string) => void;
+  onProjectCreated?: (project: Project) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const newNameRef = useRef<HTMLInputElement>(null);
+
+  const selected = useMemo(
+    () => projects.find((p) => p.id === value),
+    [projects, value]
+  );
+
+  const filtered = useMemo(() => {
+    if (!search) return projects;
+    const q = search.toLowerCase();
+    return projects.filter(
+      (p) =>
+        (p.物件名 || '').toLowerCase().includes(q) ||
+        (p.クライアント || '').toLowerCase().includes(q)
+    );
+  }, [projects, search]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setShowCreateForm(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleCreateProject = async () => {
+    const name = newProjectName.trim();
+    if (!name || creating) return;
+    setCreating(true);
+    try {
+      const result = await createProject({
+        物件名: name,
+        ステータス: '計画中',
+        優先度: '中',
+      } as any);
+      const newProject: Project = {
+        id: result.id,
+        物件名: name,
+        ステータス: '計画中',
+        優先度: '中',
+      } as Project;
+      onProjectCreated?.(newProject);
+      setShowCreateForm(false);
+      setNewProjectName('');
+      setSearch('');
+      setOpen(false);
+    } catch (err: any) {
+      console.error('Failed to create project:', err);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <label className="mb-1.5 block text-sm font-medium text-slate-700">
+        対象プロジェクト
+      </label>
+      <div
+        className="flex items-center gap-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-200 cursor-text"
+        onClick={() => {
+          setOpen(true);
+          inputRef.current?.focus();
+        }}
+      >
+        <svg className="h-4 w-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <input
+          ref={inputRef}
+          type="text"
+          value={open ? search : (selected?.物件名 ?? '')}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            if (!open) setOpen(true);
+          }}
+          onFocus={() => {
+            setOpen(true);
+            setSearch('');
+          }}
+          placeholder="プロジェクトを検索..."
+          className="w-full bg-transparent outline-none text-sm placeholder:text-slate-400"
+        />
+        {value && !open && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange('');
+              setSearch('');
+              setOpen(true);
+              inputRef.current?.focus();
+            }}
+            className="flex-shrink-0 text-slate-400 hover:text-slate-600"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="absolute z-50 mt-1 w-full max-h-72 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg">
+          {filtered.length === 0 && !showCreateForm && (
+            <div className="px-3 py-2 text-sm text-slate-500">
+              該当なし
+            </div>
+          )}
+          {filtered.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                onChange(p.id);
+                setSearch('');
+                setOpen(false);
+                setShowCreateForm(false);
+              }}
+              className={[
+                'w-full text-left px-3 py-2 text-sm hover:bg-slate-50 transition-colors',
+                p.id === value ? 'bg-blue-50 text-blue-700' : 'text-slate-700',
+              ].join(' ')}
+            >
+              <div className="font-medium">{p.物件名}</div>
+              {p.クライアント && (
+                <div className="text-[11px] text-slate-400">{p.クライアント}</div>
+              )}
+            </button>
+          ))}
+          {/* 区切り線 + 新規作成 */}
+          <div className="border-t border-slate-200">
+            {!showCreateForm ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCreateForm(true);
+                  setNewProjectName(search);
+                  setTimeout(() => newNameRef.current?.focus(), 50);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                新規プロジェクト作成
+              </button>
+            ) : (
+              <div className="px-3 py-2 space-y-2">
+                <label className="block text-xs font-medium text-slate-600">物件名</label>
+                <input
+                  ref={newNameRef}
+                  type="text"
+                  value={newProjectName}
+                  onChange={(e) => setNewProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreateProject();
+                    }
+                    if (e.key === 'Escape') {
+                      setShowCreateForm(false);
+                    }
+                  }}
+                  placeholder="物件名を入力..."
+                  className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-200"
+                />
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateForm(false)}
+                    className="rounded px-3 py-1 text-xs text-slate-600 hover:bg-slate-100 transition"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateProject}
+                    disabled={!newProjectName.trim() || creating}
+                    className="rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                  >
+                    {creating ? '作成中...' : '作成'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -275,9 +528,11 @@ interface InputStepProps {
   canParse: boolean;
   onParse: () => void;
   projects: Project[];
+  onProjectCreated?: (project: Project) => void;
   localModelSize: LocalModelSize;
   onLocalModelSizeChange: (size: LocalModelSize) => void;
   localProgress: { status: string; progress?: number } | null;
+  remaining: number | null;
 }
 
 function InputStep({
@@ -298,9 +553,11 @@ function InputStep({
   canParse,
   onParse,
   projects,
+  onProjectCreated,
   localModelSize,
   onLocalModelSizeChange,
   localProgress,
+  remaining,
 }: InputStepProps) {
   const tabs: { key: Tab; label: string; disabled: boolean }[] = [
     { key: 'text', label: 'テキスト', disabled: false },
@@ -308,32 +565,22 @@ function InputStep({
     { key: 'pdf', label: 'PDF/画像', disabled: false },
   ];
 
+  const flashDesc = remaining !== null ? `高速・残り${remaining}回/日` : '高速・1日10回';
   const models: { key: Model; label: string; disabled: boolean; description?: string }[] = [
-    { key: 'flash', label: 'Gemini Flash', disabled: false, description: '高速' },
+    { key: 'flash', label: 'Gemini Flash', disabled: false, description: flashDesc },
     { key: 'sonnet', label: 'Claude Sonnet', disabled: true, description: '高精度 - 準備中' },
-    { key: 'local', label: 'ローカルAI', disabled: !isWebGPUSupported(), description: isWebGPUSupported() ? '無料・ベータ' : 'WebGPU非対応' },
+    { key: 'local', label: 'ローカルAI', disabled: !isWebGPUSupported(), description: isWebGPUSupported() ? '無料・回数無制限' : 'WebGPU非対応' },
   ];
 
   return (
     <div className="space-y-5">
-      {/* Project selector */}
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-700">
-          対象プロジェクト
-        </label>
-        <select
-          value={projectId}
-          onChange={(e) => onProjectIdChange(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-        >
-          <option value="">プロジェクトを選択してください</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.物件名}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Project selector (searchable) */}
+      <ProjectCombobox
+        projects={projects}
+        value={projectId}
+        onChange={onProjectIdChange}
+        onProjectCreated={onProjectCreated}
+      />
 
       {/* Tab buttons */}
       <div className="flex gap-2">

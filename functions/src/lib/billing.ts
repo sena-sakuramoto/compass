@@ -19,7 +19,7 @@ export interface OrgBillingDoc {
     priceIds?: string[];
   };
   // 席数管理
-  seatLimit?: number | null;           // 契約席数（Stripeのquantityから同期、またはサークル特典）
+  seatLimit?: number | null;           // 契約メンバー上限（Stripeのquantityから同期、またはサークル特典）
   isCircleMember?: boolean | null;     // サークル会員かどうか
   circleBaseSeats?: number | null;     // サークル特典の基本席数（デフォルト3）
   additionalSeats?: number | null;     // 追加購入席数（Stripeのquantity）
@@ -442,7 +442,7 @@ export function isCircleMember(billingDoc: OrgBillingDoc | null): boolean {
  * 優先順位：
  * 1. 明示的に設定されたseatLimit
  * 2. サークル会員の場合: circleBaseSeats + additionalSeats
- * 3. Stripe課金の場合: additionalSeats（quantity）
+ * 3. レガシーStripe課金の場合: additionalSeats（旧quantity）
  * 4. デフォルト: null（member-limits.tsのプラン上限を使用）
  */
 export function getSeatLimit(billingDoc: OrgBillingDoc | null): number | null {
@@ -460,7 +460,7 @@ export function getSeatLimit(billingDoc: OrgBillingDoc | null): number | null {
     return baseSeats + additionalSeats;
   }
 
-  // Stripe課金でquantityがある場合
+  // ティア制seatLimitが未設定の旧データ用フォールバック
   if (billingDoc.additionalSeats !== null && billingDoc.additionalSeats !== undefined) {
     return billingDoc.additionalSeats;
   }

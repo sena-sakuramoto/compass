@@ -37,6 +37,7 @@ import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 import { cleanupDeletedItems } from './cleanupDeletedItems';
 import { firestoreBackup } from './firestoreBackup';
+import { mcpApp } from './mcp/index';
 
 const app = express();
 
@@ -147,9 +148,16 @@ export const api = onRequest({
   region: REGION,
   maxInstances: 50,
   memory: '512MiB',
-  secrets: ['STRIPE_SECRET_KEY', 'GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY'],
+  secrets: ['STRIPE_SECRET_KEY', 'GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GEMINI_API_KEY'],
   // TODO: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET をSecret Managerに登録後に追加
 }, app);
+
+export const mcpGateway = onRequest({
+  region: REGION,
+  maxInstances: 20,
+  memory: '512MiB',
+  timeoutSeconds: 60,
+}, mcpApp);
 
 export const jobRunner = onRequest({
   region: REGION,

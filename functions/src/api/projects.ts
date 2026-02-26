@@ -10,6 +10,8 @@ import { createDriveFolder, expandFolderNameTemplate } from '../lib/driveIntegra
 import { createChatSpace, expandSpaceNameTemplate, addChatMembersBatch } from '../lib/chatIntegration';
 import { DEFAULT_GOOGLE_INTEGRATION_SETTINGS } from '../lib/types';
 import { listProjectMembers } from '../lib/project-members';
+import { getNextDriveFolderNumber } from '../lib/counters';
+import { isGoogleConnected, getUserDriveClient, getUserChatClient } from '../lib/perUserGoogleClient';
 
 const router = Router();
 
@@ -102,6 +104,8 @@ const projectSchema = z.object({
   'フォルダURL': z.string().optional().nullable(),
   '備考': z.string().optional().nullable(),
   施工費: z.number().optional().nullable(),
+  driveFolderUrl: z.string().optional().nullable(),
+  driveFolderId: z.string().optional().nullable(),
 });
 
 router.post('/', async (req: any, res, next) => {
@@ -121,6 +125,7 @@ router.post('/', async (req: any, res, next) => {
     let driveFolderId: string | null = null;
     let chatSpaceUrl: string | null = null;
     let chatSpaceId: string | null = null;
+    let googleConnected = false;
 
     try {
       const settingsDoc = await db.collection('orgs').doc(effectiveOrgId).collection('settings').doc('google-integration').get();
@@ -128,43 +133,73 @@ router.post('/', async (req: any, res, next) => {
 
       const projectData = { id, 物件名: payload.物件名, クライアント: payload.クライアント };
 
+      // Per-user Google接続チェック
+      googleConnected = await isGoogleConnected(req.uid);
+      let userDriveClient;
+      let userChatClient;
+      if (googleConnected) {
+        try {
+          userDriveClient = await getUserDriveClient(req.uid);
+        } catch (e) {
+          console.warn('[projects] Failed to get per-user Drive client, will skip:', e);
+        }
+        try {
+          userChatClient = await getUserChatClient(req.uid);
+        } catch (e) {
+          console.warn('[projects] Failed to get per-user Chat client, will skip:', e);
+        }
+      }
+
       // Drive フォルダ自動作成
       if (settings?.drive?.enabled) {
-        try {
-          const folderName = expandFolderNameTemplate(
-            settings.drive.folderNameTemplate || '{projectName}',
-            projectData
-          );
-          const driveResult = await createDriveFolder({
-            folderName,
-            parentFolderId: settings.drive.parentFolderId,
-          });
-          driveFolderId = driveResult.folderId;
-          driveFolderUrl = driveResult.folderUrl;
-          console.log('[projects] Drive folder created:', driveResult);
-        } catch (driveError) {
-          console.error('[projects] Failed to create Drive folder:', driveError);
-          // Drive作成失敗してもプロジェクト作成は続行
+        if (!googleConnected) {
+          console.log('[projects] Drive enabled but user not connected to Google, skipping folder creation');
+        } else {
+          try {
+            const template = settings.drive.folderNameTemplate || '{projectName}';
+            let numberStr: string | undefined;
+            if (template.includes('{number}')) {
+              const startNumber = settings.drive.numberStart ?? 1;
+              const digits = settings.drive.numberDigits ?? 3;
+              const num = await getNextDriveFolderNumber(effectiveOrgId, startNumber);
+              numberStr = String(num).padStart(digits, '0');
+            }
+            const folderName = expandFolderNameTemplate(template, projectData, numberStr);
+            const driveResult = await createDriveFolder({
+              folderName,
+              parentFolderId: settings.drive.parentFolderId,
+            }, userDriveClient);
+            driveFolderId = driveResult.folderId;
+            driveFolderUrl = driveResult.folderUrl;
+            console.log('[projects] Drive folder created:', driveResult);
+          } catch (driveError) {
+            console.error('[projects] Failed to create Drive folder:', driveError);
+            // Drive作成失敗してもプロジェクト作成は続行
+          }
         }
       }
 
       // Chat スペース自動作成
       if (settings?.chat?.enabled) {
-        try {
-          const spaceName = expandSpaceNameTemplate(
-            settings.chat.spaceNameTemplate || '【COMPASS】{projectName}',
-            projectData
-          );
-          const chatResult = await createChatSpace({
-            displayName: spaceName,
-            description: settings.chat.defaultDescription,
-          });
-          chatSpaceId = chatResult.spaceId;
-          chatSpaceUrl = chatResult.spaceUrl;
-          console.log('[projects] Chat space created:', chatResult);
-        } catch (chatError) {
-          console.error('[projects] Failed to create Chat space:', chatError);
-          // Chat作成失敗してもプロジェクト作成は続行
+        if (!googleConnected) {
+          console.log('[projects] Chat enabled but user not connected to Google, skipping space creation');
+        } else {
+          try {
+            const spaceName = expandSpaceNameTemplate(
+              settings.chat.spaceNameTemplate || '【COMPASS】{projectName}',
+              projectData
+            );
+            const chatResult = await createChatSpace({
+              displayName: spaceName,
+              description: settings.chat.defaultDescription,
+            }, userChatClient);
+            chatSpaceId = chatResult.spaceId;
+            chatSpaceUrl = chatResult.spaceUrl;
+            console.log('[projects] Chat space created:', chatResult);
+          } catch (chatError) {
+            console.error('[projects] Failed to create Chat space:', chatError);
+            // Chat作成失敗してもプロジェクト作成は続行
+          }
         }
       }
 
@@ -202,7 +237,7 @@ router.post('/', async (req: any, res, next) => {
       },
     });
 
-    res.status(201).json({ id, driveFolderUrl, chatSpaceUrl });
+    res.status(201).json({ id, driveFolderUrl, chatSpaceUrl, googleConnected });
   } catch (error) {
     next(error);
   }

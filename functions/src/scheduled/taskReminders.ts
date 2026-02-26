@@ -156,9 +156,13 @@ export async function runDailyTaskReminders() {
     const projectsRef = db.collection('orgs').doc(orgId).collection('projects');
     const usersRef = db.collection('users');
 
-    // Cache for project names and user info
+    // Cache for project names, statuses, and user info
     const projectNames = new Map<string, string>();
+    const projectStatuses = new Map<string, string>();
     const userInfoCache = new Map<string, { displayName: string; orgName: string }>();
+
+    // 通知対象外のプロジェクトステータス
+    const EXCLUDED_PROJECT_STATUSES = ['失注', '引渡し完了', '竣工済'];
 
     const processSnapshot = async (
       snapshot: FirebaseFirestore.QuerySnapshot,
@@ -194,20 +198,29 @@ export async function runDailyTaskReminders() {
         const startDate = getTaskStartDate(task);
         const projectId = String(task.projectId ?? task['ProjectID'] ?? '');
 
-        // Get project name if not cached
+        // Get project name & status if not cached
         if (projectId && !projectNames.has(projectId)) {
           try {
             const projectDoc = await projectsRef.doc(projectId).get();
             if (projectDoc.exists) {
               const projectData = projectDoc.data();
               projectNames.set(projectId, projectData?.物件名 || projectId);
+              projectStatuses.set(projectId, projectData?.ステータス || '');
             } else {
               projectNames.set(projectId, projectId);
+              projectStatuses.set(projectId, '');
             }
           } catch (error) {
             console.error('[TaskReminders] Failed to fetch project name', { projectId, error });
             projectNames.set(projectId, projectId);
+            projectStatuses.set(projectId, '');
           }
+        }
+
+        // 失注・引渡し完了・竣工済プロジェクトのタスクはスキップ
+        const pStatus = projectStatuses.get(projectId) || '';
+        if (EXCLUDED_PROJECT_STATUSES.includes(pStatus)) {
+          continue;
         }
 
         const summary: DigestTaskSummary = {

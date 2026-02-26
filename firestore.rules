@@ -40,6 +40,11 @@ service cloud.firestore {
       // 管理者は全ユーザーを読み取り・更新可能
       allow read, update: if isAdmin();
       allow delete: if false;
+
+      // Private subcollection (OAuth tokens etc.) - Cloud Functions only
+      match /private/{document=**} {
+        allow read, write: if false;
+      }
     }
 
     // ===== 組織コレクション =====
@@ -159,6 +164,20 @@ service cloud.firestore {
       allow read, update: if isAuthenticated() && resource.data.recipientId == request.auth.uid;
       allow create: if isAuthenticated();
       allow delete: if false;
+    }
+
+    // ===== MCP OAuth (server-only — Cloud Functions のみアクセス) =====
+
+    match /mcp_oauth_clients/{doc} {
+      allow read, write: if false;
+    }
+
+    match /mcp_oauth_codes/{doc} {
+      allow read, write: if false;
+    }
+
+    match /mcp_oauth_tokens/{doc} {
+      allow read, write: if false;
     }
   }
 }

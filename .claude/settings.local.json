@@ -143,7 +143,21 @@
       "Bash(npm test:*)",
       "Bash(pnpm -C web build:*)",
       "Bash(pnpm -C web install)",
-      "Bash(CI=true pnpm:*)"
+      "Bash(CI=true pnpm:*)",
+      "Bash(git stash:*)",
+      "Bash(npm ls:*)",
+      "Bash(git status:*)",
+      "Bash(pnpm add:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:shisa.ai)",
+      "WebFetch(domain:docs.cloud.google.com)",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(NODE_OPTIONS=\"--max-old-space-size=8192\" npx tsc:*)",
+      "Bash(firebase:*)"
     ],
     "deny": [],
     "ask": []

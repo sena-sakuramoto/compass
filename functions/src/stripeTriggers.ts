@@ -2,6 +2,7 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { db } from './lib/firestore';
 import { serializeStripeCustomer } from './lib/billing';
 import { sendEmail } from './lib/gmail';
+import { PLAN_LIMITS } from './lib/auth-types';
 
 const REGION = process.env.COMPASS_FUNCTION_REGION ?? 'asia-northeast1';
 const APP_URL = process.env.ORG_SETUP_URL || process.env.APP_URL || 'https://compass-31e9e.web.app';
@@ -85,10 +86,41 @@ export const syncStripeCustomers = onDocumentWritten(
         updates.circleBaseSeats = 3; // サークル特典の基本席数
         updates.additionalSeats = quantity !== null ? Math.max(0, quantity - 1) : 0; // quantity=1が基本、それ以上が追加席
         updates.seatLimit = 3 + updates.additionalSeats;
-      } else if (quantity !== null) {
-        // 通常課金の場合、quantityをそのまま席数として使用
-        updates.additionalSeats = quantity;
-        updates.seatLimit = quantity;
+      } else {
+        // ティア制: priceIdからティアを特定してメンバー上限を設定
+        const priceIds = (after.priceIds || []) as string[];
+        const tierPriceMap: Record<string, string> = {
+          [process.env.COMPASS_PRICE_ID_SMALL || '']: 'small',
+          [process.env.COMPASS_PRICE_ID_STANDARD || '']: 'standard',
+          [process.env.COMPASS_PRICE_ID_BUSINESS || '']: 'business',
+        };
+        delete tierPriceMap['']; // 未設定の空文字キーを除去
+
+        let detectedTier: string | null = null;
+        for (const pid of priceIds) {
+          if (tierPriceMap[pid]) {
+            detectedTier = tierPriceMap[pid];
+            break;
+          }
+        }
+
+        // メタデータからもティアを検出（フォールバック）
+        if (!detectedTier) {
+          const metadata = (subscription.metadata as Record<string, unknown> | undefined) ?? {};
+          const metadataTier = metadata.tier;
+          detectedTier = typeof metadataTier === 'string' ? metadataTier : null;
+        }
+
+        if (detectedTier && detectedTier in PLAN_LIMITS) {
+          const tierLimits = PLAN_LIMITS[detectedTier as keyof typeof PLAN_LIMITS];
+          updates.tier = detectedTier;
+          updates.seatLimit = tierLimits.members;
+          updates.additionalSeats = 0; // ティア制では追加席の概念なし
+        } else if (quantity !== null) {
+          // レガシーフォールバック: 旧席単価サブスク
+          updates.additionalSeats = quantity;
+          updates.seatLimit = quantity;
+        }
       }
 
       console.log('[billing] Syncing org billing', { customerId, updates });

@@ -11,21 +11,21 @@ export interface LocalModelConfig {
 
 export const MODEL_CONFIGS: Record<LocalModelSize, LocalModelConfig> = {
   small: {
-    id: 'onnx-community/Qwen2.5-0.5B-Instruct',
+    id: 'onnx-community/Qwen3-0.6B-ONNX',
     label: '軽量',
     sizeLabel: '~400MB',
     description: '低スペックPCでも動作',
   },
   medium: {
-    id: 'onnx-community/Qwen2.5-1.5B-Instruct',
+    id: 'onnx-community/TinyLlama-1.1B-Chat-v1.0-ONNX',
     label: '標準',
-    sizeLabel: '~1GB',
+    sizeLabel: '~700MB',
     description: 'バランス型',
   },
   large: {
-    id: 'onnx-community/Qwen2.5-3B-Instruct',
+    id: 'onnx-community/Phi-3.5-mini-instruct-onnx-web',
     label: '高精度',
-    sizeLabel: '~2GB',
+    sizeLabel: '~2.5GB',
     description: 'GPU 4GB+推奨',
   },
 };
@@ -34,8 +34,13 @@ export function isWebGPUSupported(): boolean {
   return typeof navigator !== 'undefined' && 'gpu' in navigator;
 }
 
-const SYSTEM_PROMPT = `あなたは建築プロジェクトの工程表を解析するアシスタントです。
+function buildLocalSystemPrompt(): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const year = new Date().getFullYear();
+  return `あなたは建築プロジェクトの工程表を解析するアシスタントです。
 入力テキストから工程（Stage）、タスク、打合せ、マイルストーンを抽出してください。
+
+重要: 今日は${today}です。年が明示されていない日付は${year}年として扱ってください。
 
 分類ルール:
 - stage: 大きなフェーズ（基本設計、実施設計、施工 等）
@@ -49,6 +54,7 @@ const SYSTEM_PROMPT = `あなたは建築プロジェクトの工程表を解析
 
 出力はJSON形式のみ:
 {"items":[{"tempId":"tmp_1","name":"名前","type":"stage","parentTempId":null,"assignee":null,"startDate":null,"endDate":null,"confidence":0.8}],"warnings":[]}`;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let cachedPipeline: any = null;
@@ -85,7 +91,7 @@ export async function parseWithLocalLLM(
   onProgress?.({ status: '解析中...' });
 
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: buildLocalSystemPrompt() },
     { role: 'user', content: text },
   ];
 

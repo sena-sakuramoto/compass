@@ -1699,21 +1699,49 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
               </div>
             </div>
 
-            {/* Google連携ボタン（編集モードで連携設定がある場合） */}
-            {mode === 'edit' && (formData.driveFolderUrl || formData.chatSpaceUrl) && (
-              <div className="flex flex-wrap gap-2 pt-2 pb-2">
-                {formData.driveFolderUrl && (
-                  <a
-                    href={formData.driveFolderUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-3 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-sm hover:bg-amber-100 transition-colors"
-                  >
-                    <FolderOpen className="w-4 h-4" />
-                    Driveを開く
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
+            {/* Google連携（Drive / Chat） */}
+            {mode === 'edit' && (
+              <div className="space-y-2 pt-2 pb-2">
+                {/* DriveフォルダURL（手動入力 or 自動作成済み） */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <FolderOpen className="w-4 h-4 inline mr-1 text-amber-600" />
+                    Google Drive フォルダ
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={formData.driveFolderUrl || ''}
+                      onChange={(e) => {
+                        const url = e.target.value;
+                        let folderId: string | null = null;
+                        if (url) {
+                          const match = url.match(/folders\/([a-zA-Z0-9_-]+)/);
+                          if (match) folderId = match[1];
+                        }
+                        setFormData({ ...formData, driveFolderUrl: url || undefined, driveFolderId: folderId || undefined });
+                      }}
+                      placeholder="https://drive.google.com/drive/folders/..."
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    />
+                    {formData.driveFolderUrl && (
+                      <a
+                        href={formData.driveFolderUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-3 py-2 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-sm hover:bg-amber-100 transition-colors"
+                      >
+                        開く
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    既存のDriveフォルダURLを貼り付けて紐づけできます
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
                 {formData.chatSpaceUrl && (
                   <>
                     <a
@@ -1736,6 +1764,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
                     </button>
                   </>
                 )}
+                </div>
               </div>
             )}
 

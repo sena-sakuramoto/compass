@@ -81,3 +81,28 @@ export async function getNextJobId(): Promise<string> {
   return `JOB-${String(result).padStart(8, '0')}`;
 }
 
+/**
+ * Driveフォルダ連番を採番
+ * @param orgId 組織ID
+ * @param startNumber 開始番号（カウンター初回作成時に使用）
+ * @returns 次の番号（数値）
+ */
+export async function getNextDriveFolderNumber(orgId: string, startNumber: number = 1): Promise<number> {
+  const db = getFirestore();
+  const counterRef = db.doc(`orgs/${orgId}/counters/drive-folders`);
+
+  return db.runTransaction(async (transaction) => {
+    const counterDoc = await transaction.get(counterRef);
+
+    let nextValue: number;
+    if (counterDoc.exists) {
+      nextValue = (counterDoc.data()?.value ?? startNumber - 1) + 1;
+    } else {
+      nextValue = startNumber;
+    }
+
+    transaction.set(counterRef, { value: nextValue }, { merge: true });
+    return nextValue;
+  });
+}
+

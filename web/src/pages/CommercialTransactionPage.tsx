@@ -85,13 +85,41 @@ export function CommercialTransactionPage() {
 
               {/* 会員以外 */}
               <div className="bg-white border border-slate-200 rounded-lg p-5">
-                <h3 className="font-bold text-slate-900 mb-2">一般利用（サークル会員以外）</h3>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold text-slate-700">¥1,000</span>
-                  <span className="text-slate-600">/人・月（税込）</span>
+                <h3 className="font-bold text-slate-900 mb-3">一般利用（サークル会員以外）</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <div>
+                      <span className="font-semibold text-slate-800">Small</span>
+                      <span className="text-sm text-slate-500 ml-2">〜5名</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xl font-bold text-slate-700">¥5,000</span>
+                      <span className="text-slate-500 text-sm">/月（税込）</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                    <div>
+                      <span className="font-semibold text-slate-800">Standard</span>
+                      <span className="text-sm text-slate-500 ml-2">〜15名</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xl font-bold text-slate-700">¥15,000</span>
+                      <span className="text-slate-500 text-sm">/月（税込）</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="font-semibold text-slate-800">Business</span>
+                      <span className="text-sm text-slate-500 ml-2">〜40名</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xl font-bold text-slate-700">¥35,000</span>
+                      <span className="text-slate-500 text-sm">/月（税込）</span>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-sm text-slate-600 mt-2">
-                  AI×建築サークルに入会せずにCompassのみをご利用いただく場合の料金です。
+                <p className="text-sm text-slate-500 mt-3">
+                  14日間の無料トライアルあり。全プラン全機能利用可能です。
                 </p>
               </div>
             </div>

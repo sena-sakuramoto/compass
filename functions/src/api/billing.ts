@@ -119,7 +119,7 @@ router.get('/billing/seats', async (req: any, res) => {
     });
   } catch (error: any) {
     console.error('[billing] Failed to get seat usage', error);
-    res.status(500).json({ error: '席数情報の取得に失敗しました' });
+    res.status(500).json({ error: 'プラン情報の取得に失敗しました' });
   }
 });
 

@@ -24,6 +24,42 @@
             "region": "asia-northeast1"
           }
         },
+        {
+          "source": "/.well-known/oauth-protected-resource/**",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
+        {
+          "source": "/.well-known/oauth-authorization-server",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
+        {
+          "source": "/authorize{,/**}",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
+        {
+          "source": "/token{,/**}",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
+        {
+          "source": "/register{,/**}",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
+        {
+          "source": "/revoke{,/**}",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
+        {
+          "source": "/oauth/**",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
+        {
+          "source": "/mcp{,/**}",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
+        {
+          "source": "/gpt{,/**}",
+          "function": { "functionId": "mcpGateway", "region": "asia-northeast1" }
+        },
         { "source": "**", "destination": "/index.html" }
       ]
     },

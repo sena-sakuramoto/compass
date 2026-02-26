@@ -28,6 +28,7 @@ interface GanttChartProps {
   onTaskCopy?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
   onTaskSave?: (task: GanttTask & { assigneeEmail?: string }) => void;
   onTaskBatchUpdate?: (taskIds: string[], updates: BatchUpdate) => void;
+  onTaskBatchDelete?: (taskIds: string[]) => void;
   onTaskDelete?: (task: GanttTask) => void;
   onTaskToggleComplete?: (task: GanttTask) => void;
   onProjectClick?: (projectId: string) => void;
@@ -46,7 +47,6 @@ interface GanttChartProps {
   personalHolidaySet?: Set<string>;
   holidayClickEnabled?: boolean;
   onTogglePersonalHoliday?: (dateStr: string) => void;
-  onBulkImport?: () => void;
 }
 
 export const GanttChart: React.FC<GanttChartProps> = ({
@@ -57,6 +57,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onTaskCopy,
   onTaskSave,
   onTaskBatchUpdate,
+  onTaskBatchDelete,
   onTaskDelete,
   onTaskToggleComplete,
   onProjectClick,
@@ -75,7 +76,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   personalHolidaySet,
   holidayClickEnabled = false,
   onTogglePersonalHoliday,
-  onBulkImport,
 }) => {
   const holidaySet = useJapaneseHolidaySet();
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
@@ -577,7 +577,6 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           onZoomIn={handleZoomIn}
           onZoomOut={handleZoomOut}
           onToday={handleJumpToToday}
-          onBulkImport={onBulkImport}
           className="pointer-events-auto"
         />
       </div>
@@ -742,6 +741,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           })()}
           onClose={() => setShowBatchEditModal(false)}
           onSave={handleBatchEditSave}
+          onDelete={onTaskBatchDelete ? (taskIds) => {
+            onTaskBatchDelete(taskIds);
+            handleClearSelection();
+          } : undefined}
         />
       )}
     </div>

@@ -38,6 +38,7 @@ const saveItemSchema = z.object({
   startDate: z.string().nullable().optional(),
   endDate: z.string().nullable().optional(),
   orderIndex: z.number(),
+  participants: z.array(z.string()).optional(),
 });
 
 const saveRequestSchema = z.object({
@@ -49,8 +50,14 @@ const saveRequestSchema = z.object({
 // System prompt for Gemini
 // ---------------------------------------------------------------------------
 
-const PARSE_SYSTEM_PROMPT = `あなたは建築プロジェクトの工程表を解析するアシスタントです。
+function buildSystemPrompt(): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const year = new Date().getFullYear();
+  return `あなたは建築プロジェクトの工程表を解析するアシスタントです。
 入力テキストから工程（Stage）、タスク、打合せ、マイルストーンを抽出してください。
+
+重要: 今日は${today}です。年が明示されていない日付は${year}年として扱ってください。
+和暦の場合: 令和${year - 2018}年 = ${year}年 です。
 
 分類ルール:
 - stage: 大きなフェーズ（基本設計、実施設計、施工 等）
@@ -62,6 +69,12 @@ const PARSE_SYSTEM_PROMPT = `あなたは建築プロジェクトの工程表を
 - 工程(stage)の下にタスクや打合せがぶら下がる
 - インデント、番号体系、文脈から親子関係を推定
 - 親のないタスクはparentTempIdをnullにする
+
+日付ルール:
+- 必ずYYYY-MM-DD形式で出力（例: ${today}）
+- 「3月」「3/15」のように年が省略されている場合は${year}年とする
+- 「R8」「令和8年」は${year}年（令和${year - 2018}年）
+- 日付が不明な場合はnull
 
 出力は以下のJSON形式のみ返してください（説明文不要）:
 {
@@ -79,6 +92,7 @@ const PARSE_SYSTEM_PROMPT = `あなたは建築プロジェクトの工程表を
   ],
   "warnings": []
 }`;
+}
 
 // ---------------------------------------------------------------------------
 // Per-user daily rate limit (Gemini API cost control)
@@ -138,7 +152,7 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
       const message = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 4096,
-        system: PARSE_SYSTEM_PROMPT,
+        system: buildSystemPrompt(),
         messages: [{ role: 'user', content: parsed.text }],
       });
 
@@ -164,7 +178,7 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
       }
       if (!Array.isArray(data.warnings)) data.warnings = [];
 
-      res.json({ items: data.items, warnings: data.warnings });
+      res.json({ items: data.items, warnings: data.warnings, remaining: rateCheck.remaining });
       return;
     }
 
@@ -178,8 +192,8 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: PARSE_SYSTEM_PROMPT,
+      model: 'gemini-2.5-flash',
+      systemInstruction: buildSystemPrompt(),
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0.1,
@@ -220,6 +234,7 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
     res.json({
       items: data.items,
       warnings: data.warnings,
+      remaining: rateCheck.remaining,
     });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
@@ -302,8 +317,10 @@ router.post('/bulk-import/save', async (req: Request, res: Response) => {
         const taskId = await getNextTaskId();
 
         // Resolve parentTempId to real Firestore ID
+        // If parentTempId is in stageIdMap (new stage), use mapped ID;
+        // otherwise use it as-is (existing stage ID from Firestore)
         const resolvedParentId = item.parentTempId
-          ? stageIdMap[item.parentTempId] || null
+          ? (stageIdMap[item.parentTempId] || item.parentTempId)
           : null;
 
         const docRef = db.collection('orgs').doc(orgId).collection('tasks').doc(taskId);
@@ -319,7 +336,7 @@ router.post('/bulk-import/save', async (req: Request, res: Response) => {
           担当者: item.assignee || null,
           担当者メール: item.assigneeEmail || null,
           マイルストーン: item.type === 'milestone' ? true : null,
-          participants: item.type === 'meeting' ? [] : null,
+          participants: item.type === 'meeting' ? (item.participants || []) : null,
           orgId,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
@@ -404,8 +421,8 @@ router.post('/bulk-import/parse-file', upload.single('file'), async (req: Reques
 
       const genAI = new GoogleGenerativeAI(apiKey);
       const genModel = genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash',
-        systemInstruction: PARSE_SYSTEM_PROMPT,
+        model: 'gemini-2.5-flash',
+        systemInstruction: buildSystemPrompt(),
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0.1,
@@ -429,7 +446,7 @@ router.post('/bulk-import/parse-file', upload.single('file'), async (req: Reques
       }
       if (!Array.isArray(data.warnings)) data.warnings = [];
 
-      res.json({ items: data.items, warnings: data.warnings });
+      res.json({ items: data.items, warnings: data.warnings, remaining: fileRateCheck.remaining });
       return;
     }
 
@@ -450,8 +467,8 @@ router.post('/bulk-import/parse-file', upload.single('file'), async (req: Reques
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const genModel = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: PARSE_SYSTEM_PROMPT,
+      model: 'gemini-2.5-flash',
+      systemInstruction: buildSystemPrompt(),
       generationConfig: {
         responseMimeType: 'application/json',
         temperature: 0.1,
@@ -487,7 +504,7 @@ router.post('/bulk-import/parse-file', upload.single('file'), async (req: Reques
     }
     if (!Array.isArray(data.warnings)) data.warnings = [];
 
-    res.json({ items: data.items, warnings: data.warnings });
+    res.json({ items: data.items, warnings: data.warnings, remaining: fileRateCheck.remaining });
   } catch (err: any) {
     console.error('[bulk-import/parse-file] Error:', err);
     res.status(500).json({ error: err.message || 'File parsing failed' });

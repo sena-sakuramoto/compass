@@ -5,8 +5,8 @@ interface TrialExpiredModalProps {
   onClose: () => void;
 }
 
-// サブスク申込リンク（既存のApp.tsxから流用）
-const SUBSCRIBE_URL = 'https://buy.stripe.com/dRm00l0J75OR3eV8Cbf7i00';
+// サブスク申込リンク（Smallをデフォルトで案内）
+const SUBSCRIBE_URL = '/checkout?tier=small';
 // サークル入会リンク
 const CIRCLE_URL = 'https://stripe-discord-pro-417218426761.asia-northeast1.run.app';
 
@@ -67,7 +67,7 @@ export function TrialExpiredModal({ onClose }: TrialExpiredModalProps) {
             <div className="flex-1">
               <h3 className="font-semibold text-slate-900">Compassサブスクを開始</h3>
               <p className="mt-1 text-xs text-slate-600">
-                1席 ¥1,000/月〜
+                ¥5,000/月〜（Small 5名・Standard 15名・Business 40名）
               </p>
             </div>
           </a>

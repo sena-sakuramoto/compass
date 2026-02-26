@@ -170,6 +170,8 @@ export interface GoogleDriveSettings {
   parentFolderId: string | null;
   parentFolderUrl: string | null;
   folderNameTemplate: string; // "{projectName}" がデフォルト
+  numberStart: number;  // 連番の開始番号（デフォルト: 1）
+  numberDigits: number; // 連番の桁数（デフォルト: 3 → 001, 002...）
 }
 
 export interface GoogleChatSettings {
@@ -193,6 +195,8 @@ export const DEFAULT_GOOGLE_INTEGRATION_SETTINGS: Omit<GoogleIntegrationSettings
     parentFolderId: null,
     parentFolderUrl: null,
     folderNameTemplate: '{projectName}',
+    numberStart: 1,
+    numberDigits: 3,
   },
   chat: {
     enabled: false,

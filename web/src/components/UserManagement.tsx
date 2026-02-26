@@ -505,7 +505,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-slate-600" />
-                <span className="text-sm font-medium text-slate-700">契約席数</span>
+                <span className="text-sm font-medium text-slate-700">メンバー上限</span>
               </div>
               <div className="flex items-baseline gap-1">
                 <span className={`text-2xl font-bold ${seatUsage.remaining <= 0 ? 'text-rose-600' : seatUsage.remaining <= 2 ? 'text-amber-600' : 'text-slate-900'}`}>
@@ -513,7 +513,7 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                 </span>
                 <span className="text-slate-500">/</span>
                 <span className="text-xl font-semibold text-slate-700">{seatUsage.max}</span>
-                <span className="text-sm text-slate-500 ml-1">席</span>
+                <span className="text-sm text-slate-500 ml-1">名</span>
               </div>
               {seatUsage.remaining <= 0 && (
                 <div className="flex items-center gap-1 text-rose-600 text-sm">
@@ -524,12 +524,12 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
               {seatUsage.remaining > 0 && seatUsage.remaining <= 2 && (
                 <div className="flex items-center gap-1 text-amber-600 text-sm">
                   <AlertCircle className="w-4 h-4" />
-                  <span>残り{seatUsage.remaining}席</span>
+                  <span>残り{seatUsage.remaining}名</span>
                 </div>
               )}
               {seatUsage.seatInfo.isCircleMember && (
                 <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                  サークル会員（特典{seatUsage.seatInfo.circleBaseSeats}席）
+                  サークル会員（特典{seatUsage.seatInfo.circleBaseSeats}名）
                 </span>
               )}
               {seatUsage.isTrialing && seatUsage.trialDaysRemaining !== null && (
@@ -547,16 +547,16 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
                   className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700 disabled:opacity-50"
                 >
                   <UserPlus className="w-4 h-4" />
-                  {portalLoading ? '読込中...' : '席を追加'}
+                  {portalLoading ? '読込中...' : 'プランをアップグレード'}
                   <ExternalLink className="w-3 h-3" />
                 </button>
-                <span className="text-xs text-slate-500">追加分は日割りで即時課金されます</span>
+                <span className="text-xs text-slate-500">プラン変更は即時反映されます</span>
               </div>
             )}
           </div>
           {seatUsage.seatInfo.source === 'circle' && seatUsage.seatInfo.additionalSeats > 0 && (
             <div className="mt-2 text-xs text-slate-500">
-              内訳: サークル特典 {seatUsage.seatInfo.circleBaseSeats}席 + 追加購入 {seatUsage.seatInfo.additionalSeats}席
+              内訳: サークル特典 {seatUsage.seatInfo.circleBaseSeats}名 + 追加購入 {seatUsage.seatInfo.additionalSeats}名
             </div>
           )}
         </div>

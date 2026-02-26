@@ -845,20 +845,21 @@ TASK_REMINDER_TIMEZONE=Asia/Tokyo
 
 ```typescript
 export const PLAN_LIMITS = {
-  starter: {
-    price: 5000,        // ¥5,000/月
-    members: 5,         // 正式メンバー上限
-    guests: 10,         // ゲスト上限
+  small: {
+    price: 5000,        // ¥5,000/月（〜5名）
+    members: 5,
+  },
+  standard: {
+    price: 15000,       // ¥15,000/月（〜15名）
+    members: 15,
   },
   business: {
-    price: 30000,       // ¥30,000/月
-    members: 30,
-    guests: 100,
+    price: 35000,       // ¥35,000/月（〜40名）
+    members: 40,
   },
   enterprise: {
     price: null,        // カスタム料金
     members: 999999,    // 実質無制限
-    guests: 999999,
   },
 };
 ```

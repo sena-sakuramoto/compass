@@ -1136,3 +1136,27 @@ export async function bulkImportSave(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export async function bulkImportParseFile(file: File, projectId: string, model: 'flash' | 'sonnet' = 'flash'): Promise<BulkImportParseResponse> {
+  const token = await getCachedIdToken();
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('projectId', projectId);
+  formData.append('model', model);
+
+  const res = await fetch(`${BASE_URL}/bulk-import/parse-file`, {
+    method: 'POST',
+    headers: buildAuthHeaders(token),
+    body: formData,
+    credentials: 'include',
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    let parsed: any = null;
+    try { parsed = JSON.parse(text); } catch { parsed = null; }
+    throw new ApiError(parsed?.error || text || res.statusText, res.status, res.statusText);
+  }
+
+  return res.json();
+}

@@ -1,19 +1,22 @@
 # Compass システム概要・権限・課金まとめ
 
 **作成日:** 2025-12-02
+**最終更新:** 2026-02-15
 **システム:** Compass（建築プロジェクト管理システム）
 
 ---
 
 ## 📊 課金プラン体系
 
-### プラン別料金・上限
+### プラン別料金・上限（2026-02-15確定）
 
-| プラン | 月額料金 | メンバー上限 | ゲスト上限 | 用途 |
-|--------|---------|------------|-----------|------|
-| **Starter** | ¥5,000 | 5人 | 10人 | 小規模組織向け |
-| **Business** | ¥30,000 | 30人 | 100人 | 中規模組織向け |
-| **Enterprise** | カスタム | 実質無制限 | 実質無制限 | 大規模組織向け |
+| プラン | 月額 | メンバー上限 |
+|--------|------|-------------|
+| Small | ¥5,000 | 5名 |
+| Standard | ¥15,000 | 15名 |
+| Business | ¥35,000 | 40名 |
+| Enterprise | 要相談 | 無制限 |
+| 学生 | ¥0 | 5名 |
 
 **実装場所:** `functions/src/lib/auth-types.ts:12-28`
 
@@ -31,10 +34,9 @@
 {
   id: "archi-prisma",
   name: "株式会社アーキプリズマ",
-  plan: "business",  // starter | business | enterprise
+  plan: "standard",  // small | standard | business | enterprise
   limits: {          // カスタム上限（オプション）
-    maxMembers: 50,
-    maxGuests: 200
+    maxMembers: 50
   }
 }
 ```
@@ -354,7 +356,7 @@ collaborators/
 
 ```
 組織
- ├── 課金プラン（Starter/Business/Enterprise）
+ ├── 課金プラン（Small/Standard/Business/Enterprise）
  ├── メンバー上限（プランによる）
  ├── ゲスト上限（プランによる）
  └── ユーザー

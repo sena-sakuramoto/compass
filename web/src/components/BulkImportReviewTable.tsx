@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useMemo } from 'react';
-import type { ParsedItem, ConfirmedItem } from '../lib/types';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import type { ParsedItem, ConfirmedItem, Stage } from '../lib/types';
 import { bulkImportSave } from '../lib/api';
 
 interface EditableItem extends ParsedItem {
   selected: boolean;
+  participants?: string[];
 }
 
 interface BulkImportReviewTableProps {
@@ -11,8 +12,17 @@ interface BulkImportReviewTableProps {
   warnings: string[];
   projectId: string;
   members: string[];
+  existingStages: Stage[];
   onSaved: () => void;
   onBack: () => void;
+}
+
+/** AI解析の担当者名をメンバーリストでファジーマッチ（部分一致）する */
+function fuzzyMatchAssignee(name: string | null | undefined, members: string[]): string | null {
+  if (!name || members.length === 0) return name ?? null;
+  if (members.includes(name)) return name;
+  const match = members.find((m) => m.includes(name) || name.includes(m));
+  return match ?? name;
 }
 
 const TYPE_OPTIONS: { value: ParsedItem['type']; label: string }[] = [
@@ -27,17 +37,23 @@ export function BulkImportReviewTable({
   warnings,
   projectId,
   members,
+  existingStages,
   onSaved,
   onBack,
 }: BulkImportReviewTableProps) {
   const [editableItems, setEditableItems] = useState<EditableItem[]>(() =>
-    items.map((item) => ({ ...item, selected: true }))
+    items.map((item) => ({
+      ...item,
+      assignee: fuzzyMatchAssignee(item.assignee ?? null, members),
+      selected: true,
+      participants: [],
+    }))
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // List of stage items for parent dropdown
-  const stageOptions = useMemo(
+  // AI-parsed stage items for parent dropdown
+  const parsedStageOptions = useMemo(
     () => editableItems.filter((item) => item.type === 'stage'),
     [editableItems]
   );
@@ -65,12 +81,11 @@ export function BulkImportReviewTable({
         const oldItem = next[index];
         const oldType = oldItem.type;
 
-        // Update the item type
         next[index] = {
           ...oldItem,
           type: newType,
-          // If becoming a stage, clear parent
           parentTempId: newType === 'stage' ? null : oldItem.parentTempId,
+          participants: newType === 'meeting' ? (oldItem.participants || []) : [],
         };
 
         // If changing FROM stage, clear any items that had this as parent
@@ -82,6 +97,22 @@ export function BulkImportReviewTable({
           }
         }
 
+        return next;
+      });
+    },
+    []
+  );
+
+  const toggleParticipant = useCallback(
+    (index: number, member: string) => {
+      setEditableItems((prev) => {
+        const next = [...prev];
+        const item = next[index];
+        const current = item.participants || [];
+        const updated = current.includes(member)
+          ? current.filter((p) => p !== member)
+          : [...current, member];
+        next[index] = { ...item, participants: updated };
         return next;
       });
     },
@@ -116,6 +147,7 @@ export function BulkImportReviewTable({
         startDate: item.startDate ?? null,
         endDate: item.endDate ?? null,
         orderIndex: idx,
+        participants: item.type === 'meeting' ? (item.participants || []) : undefined,
       }));
 
       await bulkImportSave({ projectId, items: confirmedItems });
@@ -222,9 +254,9 @@ export function BulkImportReviewTable({
           <tbody className="divide-y divide-slate-100">
             {editableItems.map((item, index) => {
               const isStage = item.type === 'stage';
+              const isMeeting = item.type === 'meeting';
               const hasParent = !isStage && item.parentTempId;
               const lowConfidence = item.confidence < 0.7;
-              const missingAssignee = !item.assignee;
 
               return (
                 <tr
@@ -299,43 +331,67 @@ export function BulkImportReviewTable({
                         className="w-full border-0 bg-transparent text-sm rounded px-1 py-0.5 focus:ring-1 focus:ring-blue-500"
                       >
                         <option value="">なし</option>
-                        {stageOptions.map((stage) => (
-                          <option key={stage.tempId} value={stage.tempId}>
-                            {stage.name}
-                          </option>
-                        ))}
+                        {existingStages.length > 0 && (
+                          <optgroup label="既存の工程">
+                            {existingStages.map((stage) => (
+                              <option key={stage.id} value={stage.id}>
+                                {stage.タスク名}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {parsedStageOptions.length > 0 && (
+                          <optgroup label="今回追加する工程">
+                            {parsedStageOptions.map((stage) => (
+                              <option key={stage.tempId} value={stage.tempId}>
+                                {stage.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                       </select>
                     )}
                   </td>
 
-                  {/* Assignee */}
+                  {/* Assignee / Participants */}
                   <td className="px-3 py-2">
-                    <div className="flex items-center gap-1">
-                      <select
-                        value={item.assignee ?? ''}
-                        onChange={(e) =>
-                          updateItem(index, {
-                            assignee: e.target.value || null,
-                          })
-                        }
-                        className={[
-                          'w-full border-0 bg-transparent text-sm rounded px-1 py-0.5 focus:ring-1 focus:ring-blue-500',
-                          missingAssignee ? 'text-amber-600' : '',
-                        ].join(' ')}
-                      >
-                        <option value="">未設定</option>
-                        {members.map((name) => (
-                          <option key={name} value={name}>
-                            {name}
-                          </option>
-                        ))}
-                      </select>
-                      {missingAssignee && (
-                        <span className="text-amber-500 text-xs" title="担当者が未設定です">
-                          &#9888;
-                        </span>
-                      )}
-                    </div>
+                    {isMeeting ? (
+                      <ParticipantsPicker
+                        members={members}
+                        selected={item.participants || []}
+                        onToggle={(member) => toggleParticipant(index, member)}
+                      />
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={item.assignee ?? ''}
+                          onChange={(e) =>
+                            updateItem(index, {
+                              assignee: e.target.value || null,
+                            })
+                          }
+                          className={[
+                            'w-full border-0 bg-transparent text-sm rounded px-1 py-0.5 focus:ring-1 focus:ring-blue-500',
+                            !item.assignee ? 'text-amber-600' : '',
+                          ].join(' ')}
+                        >
+                          <option value="">未設定</option>
+                          {item.assignee && !members.includes(item.assignee) && (
+                            <option value={item.assignee}>{item.assignee}（候補外）</option>
+                          )}
+                          {members.map((name) => (
+                            <option key={name} value={name}>
+                              {name}
+                            </option>
+                          ))}
+                        </select>
+                        {!item.assignee && (
+                          <span className="text-amber-500 text-xs" title="担当者が未設定です">
+                            &#9888;
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
 
                   {/* Start date */}
@@ -371,6 +427,70 @@ export function BulkImportReviewTable({
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// ─── Participants Picker (for meetings) ──────────────────
+
+function ParticipantsPicker({
+  members,
+  selected,
+  onToggle,
+}: {
+  members: string[];
+  selected: string[];
+  onToggle: (member: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full text-left border-0 bg-transparent text-sm rounded px-1 py-0.5 focus:ring-1 focus:ring-blue-500"
+      >
+        {selected.length > 0 ? (
+          <span className="text-slate-700">{selected.length}名選択</span>
+        ) : (
+          <span className="text-amber-600">参加者を選択</span>
+        )}
+      </button>
+      {open && members.length > 0 && (
+        <div className="absolute z-50 mt-1 w-48 max-h-40 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg p-1">
+          {members.map((name) => {
+            const isSelected = selected.includes(name);
+            return (
+              <label
+                key={name}
+                className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
+                  isSelected ? 'bg-slate-100' : 'hover:bg-slate-50'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => onToggle(name)}
+                  className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-xs text-slate-700">{name}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

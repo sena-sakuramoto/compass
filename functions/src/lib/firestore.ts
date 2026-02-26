@@ -221,9 +221,10 @@ export async function listTasks(filters: TaskListFilters & { orgId?: string; inc
   }
 
   // updatedAt desc（FirestoreのorderByを外したため、ここで安定ソート）
-  const toTime = (value?: string | null) => {
+  const toTime = (value?: string | admin.firestore.Timestamp | null) => {
     if (!value) return 0;
-    const t = new Date(value).getTime();
+    if (typeof value === 'object' && 'toMillis' in value) return value.toMillis();
+    const t = new Date(value as string).getTime();
     return Number.isNaN(t) ? 0 : t;
   };
   results.sort((a, b) => toTime(b.updatedAt) - toTime(a.updatedAt));
@@ -750,6 +751,16 @@ export interface ProjectInput {
   'フォルダURL'?: string | null;
   '備考'?: string | null;
   施工費?: number | null;
+  現地調査日?: string | null;
+  レイアウト確定日?: string | null;
+  パース確定日?: string | null;
+  基本設計完了日?: string | null;
+  設計施工現調日?: string | null;
+  見積確定日?: string | null;
+  着工日?: string | null;
+  中間検査日?: string | null;
+  竣工予定日?: string | null;
+  引渡し予定日?: string | null;
 }
 
 export interface TaskInput {

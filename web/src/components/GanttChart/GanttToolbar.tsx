@@ -9,7 +9,6 @@ interface GanttToolbarProps {
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onToday?: () => void;
-  onBulkImport?: () => void;
   className?: string;
 }
 
@@ -19,7 +18,6 @@ export const GanttToolbar: React.FC<GanttToolbarProps> = ({
   onZoomIn,
   onZoomOut,
   onToday,
-  onBulkImport,
   className = '',
 }) => {
   return (
@@ -59,17 +57,6 @@ export const GanttToolbar: React.FC<GanttToolbarProps> = ({
           今日
         </button>
       </div>
-      {onBulkImport && (
-        <div className="flex items-center gap-1 border-l border-slate-100 pl-1">
-          <button
-            onClick={onBulkImport}
-            className="px-2 py-1 rounded-full text-slate-600 hover:bg-slate-100"
-            title="一括インポート"
-          >
-            一括
-          </button>
-        </div>
-      )}
       <div className="hidden md:flex items-center gap-1 border-l border-slate-100 pl-1">
         <button
           onClick={onZoomOut}

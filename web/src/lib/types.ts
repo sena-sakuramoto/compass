@@ -181,6 +181,7 @@ export interface ParsedItem {
 export interface BulkImportParseResponse {
   items: ParsedItem[];
   warnings: string[];
+  remaining?: number;
 }
 
 export interface ConfirmedItem {
@@ -193,6 +194,7 @@ export interface ConfirmedItem {
   startDate?: string | null;
   endDate?: string | null;
   orderIndex: number;
+  participants?: string[];
 }
 
 export interface BulkImportSaveResponse {

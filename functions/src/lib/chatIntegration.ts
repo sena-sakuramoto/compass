@@ -4,6 +4,7 @@
  */
 
 import { getChatClient } from './googleClients';
+import type { chat_v1 } from 'googleapis';
 import { Project } from './types';
 
 export interface CreateChatSpaceOptions {
@@ -40,10 +41,16 @@ export interface BatchAddChatMembersResult {
  * Google Chat スペースを作成
  * Note: Google Chat API の spaces.create は管理者権限が必要
  */
+/**
+ * Google Chat スペースを作成
+ * @param options スペース作成オプション
+ * @param chatClient オプショナルなper-userクライアント。未指定時はサービスアカウントにフォールバック
+ */
 export async function createChatSpace(
-  options: CreateChatSpaceOptions
+  options: CreateChatSpaceOptions,
+  chatClient?: chat_v1.Chat
 ): Promise<CreateChatSpaceResult> {
-  const chat = await getChatClient();
+  const chat = chatClient ?? await getChatClient();
 
   const response = await chat.spaces.create({
     requestBody: {
@@ -78,10 +85,11 @@ export async function createChatSpace(
  */
 export async function addChatMember(
   spaceName: string,
-  email: string
+  email: string,
+  chatClient?: chat_v1.Chat
 ): Promise<AddChatMemberResult> {
   try {
-    const chat = await getChatClient();
+    const chat = chatClient ?? await getChatClient();
 
     const response = await chat.spaces.members.create({
       parent: spaceName,
@@ -120,7 +128,8 @@ export async function addChatMember(
  */
 export async function addChatMembersBatch(
   spaceId: string,
-  emails: string[]
+  emails: string[],
+  chatClient?: chat_v1.Chat
 ): Promise<BatchAddChatMembersResult> {
   const spaceName = spaceId.startsWith('spaces/') ? spaceId : `spaces/${spaceId}`;
   const results: BatchAddChatMembersResult['results'] = [];
@@ -131,7 +140,7 @@ export async function addChatMembersBatch(
     const batch = emails.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(async (email) => {
-        const result = await addChatMember(spaceName, email);
+        const result = await addChatMember(spaceName, email, chatClient);
         return {
           email,
           ...result,
@@ -171,9 +180,9 @@ export function expandSpaceNameTemplate(
 /**
  * スペースの存在確認
  */
-export async function checkChatSpaceExists(spaceId: string): Promise<boolean> {
+export async function checkChatSpaceExists(spaceId: string, chatClient?: chat_v1.Chat): Promise<boolean> {
   try {
-    const chat = await getChatClient();
+    const chat = chatClient ?? await getChatClient();
     const spaceName = spaceId.startsWith('spaces/') ? spaceId : `spaces/${spaceId}`;
     await chat.spaces.get({ name: spaceName });
     return true;
@@ -189,9 +198,10 @@ export async function checkChatSpaceExists(spaceId: string): Promise<boolean> {
  * スペースのメンバー一覧を取得
  */
 export async function listChatMembers(
-  spaceId: string
+  spaceId: string,
+  chatClient?: chat_v1.Chat
 ): Promise<Array<{ email: string; displayName?: string }>> {
-  const chat = await getChatClient();
+  const chat = chatClient ?? await getChatClient();
   const spaceName = spaceId.startsWith('spaces/') ? spaceId : `spaces/${spaceId}`;
 
   const members: Array<{ email: string; displayName?: string }> = [];
