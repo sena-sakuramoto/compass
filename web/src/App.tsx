@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -68,6 +69,7 @@ import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { NotificationBell } from './components/NotificationBell';
 import { BulkImportModal } from './components/BulkImportModal';
 import { UserManagement } from './components/UserManagement';
+import { FeedbackButton } from './components/FeedbackButton';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { CommercialTransactionPage } from './pages/CommercialTransactionPage';
@@ -171,6 +173,7 @@ import { SummaryCard } from './components/Charts/SummaryCard';
 import { WorkloadChart, WorkloadTimelineChart } from './components/Charts/WorkloadCharts';
 import { useSnapshot } from './hooks/useSnapshot';
 import { useRemoteData } from './hooks/useRemoteData';
+import { stagesQueryKey } from './lib/hooks/useStages';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true' || window.location.hostname === 'compass-demo.web.app';
 
@@ -3192,6 +3195,7 @@ const EMPTY_PROJECT_STAGES: Task[] = [];
 
 function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
+  const queryClient = useQueryClient();
   const location = useLocation();
   const isSetupRoute = location.pathname.startsWith('/setup');
   const [privateSettings, setPrivateSettings] = useState<PrivateSettings>(() => loadPrivateSettings());
@@ -4285,6 +4289,7 @@ function App() {
   const handleStageUpdate = useCallback(
     async (stageId: string, updates: { タスク名?: string }) => {
       await updateStage(stageId, updates);
+      const targetProjectId = state.tasks.find((t) => t.id === stageId)?.projectId;
       // ローカル状態を更新
       setState((prev) => ({
         ...prev,
@@ -4292,12 +4297,16 @@ function App() {
           t.id === stageId ? { ...t, ...updates } : t
         ),
       }));
+      if (targetProjectId) {
+        queryClient.invalidateQueries({ queryKey: stagesQueryKey(targetProjectId) });
+      }
     },
-    [setState]
+    [queryClient, setState, state.tasks]
   );
 
   const handleStageDelete = useCallback(
     async (stageId: string) => {
+      const targetProjectId = state.tasks.find((t) => t.id === stageId)?.projectId;
       await deleteStage(stageId);
       // ローカル状態から削除し、子タスクのparentIdをnullに
       setState((prev) => ({
@@ -4306,8 +4315,11 @@ function App() {
           .filter((t) => t.id !== stageId)
           .map((t) => (t.parentId === stageId ? { ...t, parentId: null } : t)),
       }));
+      if (targetProjectId) {
+        queryClient.invalidateQueries({ queryKey: stagesQueryKey(targetProjectId) });
+      }
     },
-    [setState]
+    [queryClient, setState, state.tasks]
   );
 
   useEffect(() => {
@@ -6390,6 +6402,7 @@ function App() {
       {showTrialExpiredModal && (
         <TrialExpiredModal onClose={() => setShowTrialExpiredModal(false)} />
       )}
+      <FeedbackButton />
       {/* デモモード: トライアル開始CTA */}
       {DEMO_MODE && (
         <a

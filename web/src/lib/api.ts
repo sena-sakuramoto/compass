@@ -1160,3 +1160,17 @@ export async function bulkImportParseFile(file: File, projectId: string, model: 
 
   return res.json();
 }
+
+// ==================== フィードバック API ====================
+
+export async function submitFeedback(payload: {
+  type: 'bug' | 'feature' | 'other';
+  message: string;
+  url: string;
+  userAgent: string;
+}) {
+  return request<{ ok: true }>('/feedback', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

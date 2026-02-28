@@ -33,6 +33,7 @@ import enterpriseInquiryRouter from './api/enterprise-inquiry';
 import googleIntegrationRouter from './api/google-integration';
 import googleOAuthRouter from './api/google-oauth';
 import bulkImportRouter from './api/bulk-import';
+import feedbackRouter from './api/feedback';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 import { cleanupDeletedItems } from './cleanupDeletedItems';
@@ -113,6 +114,7 @@ app.use('/api', billingRouter);
 app.use('/api/org/google-integration', googleIntegrationRouter);
 app.use('/api/google', googleOAuthRouter);
 app.use('/api', bulkImportRouter);
+app.use('/api/feedback', feedbackRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
@@ -148,7 +150,7 @@ export const api = onRequest({
   region: REGION,
   maxInstances: 50,
   memory: '512MiB',
-  secrets: ['STRIPE_SECRET_KEY', 'GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GEMINI_API_KEY'],
+  secrets: ['STRIPE_SECRET_KEY', 'GMAIL_USER', 'GMAIL_APP_PASSWORD', 'GEMINI_API_KEY', 'COMPASS_PRICE_ID_SMALL', 'COMPASS_PRICE_ID_STANDARD', 'COMPASS_PRICE_ID_BUSINESS'],
   // TODO: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET をSecret Managerに登録後に追加
 }, app);
 

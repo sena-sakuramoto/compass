@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { X, UserPlus, Mail, Shield, Trash2, Check, Clock, AlertCircle, Briefcase, Building2, Users, Building, CheckSquare, Square } from 'lucide-react';
 import { ProjectMember, ProjectMemberInput, PROJECT_ROLE_LABELS, ProjectRole, ROLE_LABELS, JobTitleType } from '../lib/auth-types';
 import { Project, ManageableUserSummary } from '../lib/types';
 import { buildAuthHeaders, type Collaborator, listAvailableOrganizations, previewOrgInvite, inviteOrganization, type AvailableOrganization, type OrgInvitePreview, addProjectMembersBatch, type BatchAddMembersPayload } from '../lib/api';
 import { getOrgKey, getOrgLabel } from '../lib/org-utils';
 import { useManageableUsers, useCollaborators, useInvalidateProjectMembers } from '../hooks/useProjectMembers';
+import { projectMembersQueryKey } from '../lib/hooks/useProjectMembers';
 
 // 職種の選択肢
 const JOB_TYPE_OPTIONS: (JobTitleType | '')[] = [
@@ -31,6 +33,7 @@ interface ProjectMembersDialogProps {
 }
 
 export default function ProjectMembersDialog({ project, onClose }: ProjectMembersDialogProps) {
+  const queryClient = useQueryClient();
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -78,6 +81,9 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
   } = useCollaborators(showInviteForm);
 
   const { invalidateAll } = useInvalidateProjectMembers();
+  const invalidateTaskModalMembersCache = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: projectMembersQueryKey(project.id) });
+  }, [project.id, queryClient]);
 
   const manageableError = manageableQueryError
     ? manageableQueryError instanceof Error && manageableQueryError.message.toLowerCase().includes('forbidden')
@@ -107,6 +113,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       const data = await response.json();
       setMembers(data);
       broadcastMemberUpdate(data);
+      queryClient.setQueryData(projectMembersQueryKey(project.id), data);
     } catch (err) {
       console.error('Error loading members:', err);
       setError('メンバー一覧の読み込みに失敗しました');
@@ -290,6 +297,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
       // キャッシュを更新
       invalidateAll(project.id);
+      invalidateTaskModalMembersCache();
 
       // 成功メッセージ
       let message = `${result.addedCount}人のメンバーを追加しました`;
@@ -411,6 +419,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
 
       // キャッシュを更新
       invalidateAll(project.id);
+      invalidateTaskModalMembersCache();
 
       setSuccess('メンバーを追加/招待しました');
       setInviteEmail('');
@@ -448,6 +457,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       });
 
       invalidateAll(project.id);
+      invalidateTaskModalMembersCache();
       setSuccess('メンバーを削除しました');
     } catch (err) {
       console.error('Error removing member:', err);
@@ -479,6 +489,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       });
 
       setSuccess('メンバーのロールを更新しました');
+      invalidateTaskModalMembersCache();
     } catch (err) {
       console.error('Error updating member:', err);
       setError('メンバーの更新に失敗しました');
@@ -509,6 +520,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       });
 
       setSuccess('メンバーの職種を更新しました');
+      invalidateTaskModalMembersCache();
     } catch (err) {
       console.error('Error updating member job type:', err);
       setError('職種の更新に失敗しました');
@@ -671,6 +683,7 @@ export default function ProjectMembersDialog({ project, onClose }: ProjectMember
       // メンバー一覧を再読み込み
       loadMembers();
       invalidateAll(project.id);
+      invalidateTaskModalMembersCache();
 
       // フォームをリセット
       setShowOrgInviteForm(false);

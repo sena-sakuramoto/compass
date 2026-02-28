@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { ja } from 'date-fns/locale';
 import DatePicker, { registerLocale } from 'react-datepicker';
@@ -20,6 +21,8 @@ import { usePendingOverlay } from '../state/pendingOverlay';
 import { calculateProjectStatus, getStatusColor } from '../lib/projectStatus';
 import { ChatMemberInviteDialog } from './ChatMemberInviteDialog';
 import { getOrgKey, getOrgLabel } from '../lib/org-utils';
+import { projectMembersQueryKey } from '../lib/hooks/useProjectMembers';
+import { stagesQueryKey } from '../lib/hooks/useStages';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
@@ -97,6 +100,7 @@ const CACHE_TTL = 5 * 60 * 1000; // 5分間キャッシュ
 let preloadPromise: Promise<void> | null = null;
 
 export function ProjectEditDialog({ project, mode = 'edit', onClose, onSave, onSaveLocal, onRollback, onDelete, onOpenTaskModal, projectMembers: propsProjectMembers = [], stages: propsStages = [], onStagesChanged, onStageCreated, onStageIdResolved }: ProjectEditDialogProps) {
+  const queryClient = useQueryClient();
   const [formData, setFormData] = useState<Partial<Project>>({
     id: '',
     物件名: '',
@@ -185,6 +189,12 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('project-members:updated', { detail: { projectId, members } }));
   }, []);
+  const invalidateTaskModalMembersCache = useCallback((projectId: string) => {
+    queryClient.invalidateQueries({ queryKey: projectMembersQueryKey(projectId) });
+  }, [queryClient]);
+  const invalidateTaskModalStagesCache = useCallback((projectId: string) => {
+    queryClient.invalidateQueries({ queryKey: stagesQueryKey(projectId) });
+  }, [queryClient]);
 
   // プロジェクトIDが変わった時に初期化フラグをリセット
   const isInitialMount = useRef(true);
@@ -636,6 +646,8 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     const members = await listProjectMembers(projectId);
     setProjectMembers(members);
     broadcastMemberUpdate(projectId, members);
+    queryClient.setQueryData(projectMembersQueryKey(projectId), members);
+    invalidateTaskModalMembersCache(projectId);
     await Promise.all([loadManageableUsers(true), loadCollaborators(true)]);
   };
 
@@ -773,7 +785,6 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     }
 
     const projectId = project.id;
-    const previousMembers = [...projectMembers];
 
     try {
       setSubmitting(true);
@@ -848,6 +859,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       if (projectId) {
         cacheDelete(`${CACHE_KEY_MANAGEABLE_USERS_PREFIX}${projectId}`).catch(() => {});
       }
+      invalidateTaskModalMembersCache(projectId);
     } catch (err: any) {
       console.error('Error bulk inviting members:', err);
       toast.error(err.message || '一括追加に失敗しました');
@@ -897,6 +909,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     const optimisticMembers = [...previousMembers, optimisticMember];
     setProjectMembers(optimisticMembers);
     broadcastMemberUpdate(projectId, optimisticMembers);
+    queryClient.setQueryData(projectMembersQueryKey(projectId), optimisticMembers);
 
     // 即座にフォームを閉じてトーストを表示
     const successMessage = memberInput.displayName && !memberInput.email
@@ -910,12 +923,14 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       .then(() => {
         // 成功時: キャッシュを無効化（次回のプリロードで最新を取得）
         memberCache.loadedAt = 0;
+        invalidateTaskModalMembersCache(projectId);
       })
       .catch((err) => {
         // 失敗時: ロールバックしてエラーを表示
         console.error('Error inviting member:', err);
         setProjectMembers(previousMembers);
         broadcastMemberUpdate(projectId, previousMembers);
+        queryClient.setQueryData(projectMembersQueryKey(projectId), previousMembers);
         toast.error(err instanceof Error ? err.message : 'メンバーの追加に失敗しました');
       });
   };
@@ -1023,6 +1038,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     const optimisticMembers = projectMembers.filter(m => m.userId !== userId);
     setProjectMembers(optimisticMembers);
     broadcastMemberUpdate(projectId, optimisticMembers);
+    queryClient.setQueryData(projectMembersQueryKey(projectId), optimisticMembers);
     toast.success('メンバーを削除しました');
 
     // バックグラウンドでAPIを呼び出す
@@ -1038,11 +1054,13 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
 
         // 成功時: キャッシュを無効化
         memberCache.loadedAt = 0;
+        invalidateTaskModalMembersCache(projectId);
       } catch (err) {
         // 失敗時: ロールバック
         console.error('Error removing member:', err);
         setProjectMembers(previousMembers);
         broadcastMemberUpdate(projectId, previousMembers);
+        queryClient.setQueryData(projectMembersQueryKey(projectId), previousMembers);
         toast.error('メンバーの削除に失敗しました');
       }
     })();
@@ -1058,6 +1076,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     );
     setProjectMembers(optimisticMembers);
     broadcastMemberUpdate(project.id, optimisticMembers);
+    queryClient.setQueryData(projectMembersQueryKey(project.id), optimisticMembers);
 
     try {
       const token = await getAuthToken();
@@ -1080,11 +1099,14 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
         : members;
       setProjectMembers(filteredMembers);
       broadcastMemberUpdate(project.id, filteredMembers);
+      queryClient.setQueryData(projectMembersQueryKey(project.id), filteredMembers);
+      invalidateTaskModalMembersCache(project.id);
     } catch (err) {
       // 失敗したら楽観的更新を取り消し
       console.error('Error updating member:', err);
       setProjectMembers(previousMembers);
       broadcastMemberUpdate(project.id, previousMembers);
+      queryClient.setQueryData(projectMembersQueryKey(project.id), previousMembers);
       setError('メンバーの更新に失敗しました');
     }
   };
@@ -1099,6 +1121,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     );
     setProjectMembers(optimisticMembers);
     broadcastMemberUpdate(project.id, optimisticMembers);
+    queryClient.setQueryData(projectMembersQueryKey(project.id), optimisticMembers);
 
     try {
       const token = await getAuthToken();
@@ -1121,11 +1144,14 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
         : members;
       setProjectMembers(filteredMembers);
       broadcastMemberUpdate(project.id, filteredMembers);
+      queryClient.setQueryData(projectMembersQueryKey(project.id), filteredMembers);
+      invalidateTaskModalMembersCache(project.id);
     } catch (err) {
       // 失敗したら楽観的更新を取り消し
       console.error('Error updating member job type:', err);
       setProjectMembers(previousMembers);
       broadcastMemberUpdate(project.id, previousMembers);
+      queryClient.setQueryData(projectMembersQueryKey(project.id), previousMembers);
       setError('職種の更新に失敗しました');
     }
   };
@@ -1322,6 +1348,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
           })
           .then(() => {
             // 同期完了後、フラグを下ろす
+            invalidateTaskModalStagesCache(project.id);
             setHasLocalStageChanges(false);
           })
           .catch(err => {
@@ -1359,6 +1386,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
             ));
             // App.tsxのstate.tasksのIDも更新
             onStageIdResolved?.(tempId, String(newId));
+            invalidateTaskModalStagesCache(project.id);
             setHasLocalStageChanges(false);
           })
           .catch(err => {
@@ -1387,6 +1415,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
   };
 
   const handleStageDelete = async (stageId: string) => {
+    if (!project?.id) return;
     if (!confirm('この工程を削除しますか？\n配下のタスクは未割り当てに戻ります。')) return;
 
     try {
@@ -1405,6 +1434,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
         })
         .then(() => {
           // 同期完了後、フラグを下ろす
+          invalidateTaskModalStagesCache(project.id);
           setHasLocalStageChanges(false);
         })
         .catch(err => {

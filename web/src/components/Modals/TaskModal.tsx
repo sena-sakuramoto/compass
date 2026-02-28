@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { format } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import { Modal, ModalProps } from './Modal';
-import { listProjectMembers, listStages } from '../../lib/api';
 import { clampToSingleDecimal, parseHoursInput } from '../../lib/number';
 import { PROJECT_ROLE_LABELS } from '../../lib/auth-types';
 import { computeDiff, isDiffEmpty } from '../../lib/diff';
-import type { Project, Task, Person, TaskNotificationSettings, Stage, WorkItemType } from '../../lib/types';
+import type { Project, Task, Person, TaskNotificationSettings } from '../../lib/types';
 import type { ProjectMember } from '../../lib/auth-types';
+import { useProjectMembers } from '../../lib/hooks/useProjectMembers';
+import { useStages } from '../../lib/hooks/useStages';
 import type { ToastMessage } from '../ToastStack';
 
 type TaskType = 'task' | 'meeting';
@@ -84,14 +85,27 @@ export function TaskModal({
   const [notifyDue, setNotifyDue] = useState(true);
   const [notifyOverdue, setNotifyOverdue] = useState(true);
   const [isMilestone, setIsMilestone] = useState(false);
-  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
   const [stageId, setStageId] = useState<string>('');
-  const [stages, setStages] = useState<Stage[]>([]);
   const taskNameInputRef = useRef<HTMLInputElement | null>(null);
   const submitIntentRef = useRef<'close' | 'continue'>('close');
   const prevProjectRef = useRef<string>('');
   const allowContinuous = Boolean(allowContinuousCreate && !editingTask);
+  const usePreloadedMembers = Boolean(preloadedProjectMembers?.length) && project === defaultProjectId;
+
+  const {
+    data: fetchedProjectMembers = [],
+    isLoading: membersQueryLoading,
+  } = useProjectMembers(project || undefined, {
+    initialData: usePreloadedMembers ? preloadedProjectMembers : undefined,
+  });
+
+  const projectMembers = useMemo<ProjectMember[]>(
+    () => (usePreloadedMembers ? preloadedProjectMembers ?? [] : fetchedProjectMembers),
+    [fetchedProjectMembers, preloadedProjectMembers, usePreloadedMembers]
+  );
+
+  const membersLoading = Boolean(project) && membersQueryLoading && projectMembers.length === 0;
+  const { data: stages = [] } = useStages(project || undefined);
 
   const resetFormFields = useCallback((keepContext: boolean) => {
     setName('');
@@ -160,11 +174,6 @@ export function TaskModal({
       resetFormFields(false);
       if (defaultProjectId) {
         setProject(defaultProjectId);
-        // preloadedProjectMembersがあれば即座に設定
-        if (preloadedProjectMembers && preloadedProjectMembers.length > 0) {
-          setProjectMembers(preloadedProjectMembers);
-          setMembersLoading(false);
-        }
       }
       if (defaultStageId) {
         setStageId(defaultStageId);
@@ -185,51 +194,6 @@ export function TaskModal({
     }
     prevProjectRef.current = project;
   }, [open, project]);
-
-  // プロジェクト選択時に工程一覧を取得（常にAPIから取得）
-  useEffect(() => {
-    if (!project) {
-      setStages([]);
-      return;
-    }
-
-    listStages(project)
-      .then(({ stages: stageList }) => {
-        setStages(stageList);
-      })
-      .catch(error => {
-        console.error('[TaskModal] Failed to load stages:', error);
-        setStages([]);
-      });
-  }, [project]);
-
-  // プロジェクトメンバーを取得
-  useEffect(() => {
-    if (!project) {
-      setProjectMembers([]);
-      return;
-    }
-
-    // preloadedProjectMembersにメンバーがある場合のみ使用、空配列の場合はAPIを呼ぶ
-    if (preloadedProjectMembers && preloadedProjectMembers.length > 0 && project === defaultProjectId) {
-      setProjectMembers(preloadedProjectMembers);
-      setMembersLoading(false);
-      return;
-    }
-
-    setMembersLoading(true);
-    listProjectMembers(project, { status: 'active' })
-      .then(members => {
-        setProjectMembers(members);
-      })
-      .catch(error => {
-        console.error('[TaskModal] Failed to load project members:', error);
-        setProjectMembers([]);
-      })
-      .finally(() => {
-        setMembersLoading(false);
-      });
-  }, [project, preloadedProjectMembers, defaultProjectId]);
 
   // 担当者選択時にメールアドレスを自動入力（プロジェクトメンバーから検索）
   useEffect(() => {
