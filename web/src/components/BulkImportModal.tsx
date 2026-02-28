@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { X, Plus } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import type { Project, ParsedItem, Stage } from '../lib/types';
-import { bulkImportParse, bulkImportParseFile, createProject, listProjectMembers, listStages, listUsers } from '../lib/api';
+import { bulkImportParse, bulkImportParseFile, createProject, generateStages, listProjectMembers, listStages, listUsers } from '../lib/api';
 import { BulkImportReviewTable } from './BulkImportReviewTable';
 import { isWebGPUSupported, parseWithLocalLLM, MODEL_CONFIGS, type LocalModelSize } from '../lib/localLLM';
 
@@ -31,6 +31,7 @@ export function BulkImportModal({
   const [projectId, setProjectId] = useState(defaultProjectId ?? '');
   const [text, setText] = useState('');
   const [parsing, setParsing] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -41,6 +42,8 @@ export function BulkImportModal({
   const [localModelSize, setLocalModelSize] = useState<LocalModelSize>('medium');
   const [localProgress, setLocalProgress] = useState<{ status: string; progress?: number } | null>(null);
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [monthlyUsed, setMonthlyUsed] = useState<number | null>(null);
+  const [monthlyLimit, setMonthlyLimit] = useState<number | null>(null);
   const [localProjects, setLocalProjects] = useState<Project[]>(projects);
 
   // Sync defaultProjectId when it changes
@@ -113,6 +116,7 @@ export function BulkImportModal({
     setProjectId(defaultProjectId ?? '');
     setText('');
     setParsing(false);
+    setGenerating(false);
     setError('');
     setParsedItems([]);
     setWarnings([]);
@@ -122,6 +126,8 @@ export function BulkImportModal({
     setPdfFile(null);
     setLocalProgress(null);
     setRemaining(null);
+    setMonthlyUsed(null);
+    setMonthlyLimit(null);
     setLocalProjects(projects);
   }, [defaultProjectId, projects]);
 
@@ -144,6 +150,8 @@ export function BulkImportModal({
         setParsedItems(result.items);
         setWarnings(result.warnings);
         if (result.remaining !== undefined) setRemaining(result.remaining);
+        if (result.monthlyUsed !== undefined) setMonthlyUsed(result.monthlyUsed);
+        if (result.monthlyLimit !== undefined) setMonthlyLimit(result.monthlyLimit);
         setStep('review');
         setParsing(false);
         return;
@@ -194,9 +202,17 @@ export function BulkImportModal({
       setParsedItems(result.items);
       setWarnings(result.warnings);
       if (result.remaining !== undefined) setRemaining(result.remaining);
+      if (result.monthlyUsed !== undefined) setMonthlyUsed(result.monthlyUsed);
+      if (result.monthlyLimit !== undefined) setMonthlyLimit(result.monthlyLimit);
       setStep('review');
     } catch (err: any) {
-      setError(err.message || '解析に失敗しました。入力内容を確認してください。');
+      if (err?.status === 429 && typeof err?.data?.monthlyLimit === 'number') {
+        if (typeof err?.data?.monthlyUsed === 'number') setMonthlyUsed(err.data.monthlyUsed);
+        setMonthlyLimit(err.data.monthlyLimit);
+        setError(`今月のAI利用上限（${err.data.monthlyLimit}回）に達しました。`);
+      } else {
+        setError(err.message || '解析に失敗しました。入力内容を確認してください。');
+      }
     } finally {
       setParsing(false);
     }
@@ -205,6 +221,31 @@ export function BulkImportModal({
   const handleBackToInput = useCallback(() => {
     setStep('input');
   }, []);
+
+  const handleGenerateStages = async () => {
+    if (!projectId || generating) return;
+    setError('');
+    setGenerating(true);
+    try {
+      const result = await generateStages(projectId);
+      setParsedItems(result.items);
+      setWarnings(result.warnings);
+      if (result.remaining !== undefined) setRemaining(result.remaining);
+      if (result.monthlyUsed !== undefined) setMonthlyUsed(result.monthlyUsed);
+      if (result.monthlyLimit !== undefined) setMonthlyLimit(result.monthlyLimit);
+      setStep('review');
+    } catch (err: any) {
+      if (err?.status === 429 && typeof err?.data?.monthlyLimit === 'number') {
+        if (typeof err?.data?.monthlyUsed === 'number') setMonthlyUsed(err.data.monthlyUsed);
+        setMonthlyLimit(err.data.monthlyLimit);
+        setError(`今月のAI利用上限（${err.data.monthlyLimit}回）に達しました。`);
+      } else {
+        setError(err.message || 'AI生成に失敗しました。');
+      }
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const handleSaved = useCallback(() => {
     handleClose();
@@ -223,7 +264,7 @@ export function BulkImportModal({
 
   if (!open) return null;
 
-  const canParse = !!projectId && !parsing && (
+  const canParse = !!projectId && !parsing && !generating && (
     tab === 'text' ? !!text.trim() :
     tab === 'excel' ? !!file :
     tab === 'pdf' ? !!pdfFile :
@@ -268,15 +309,19 @@ export function BulkImportModal({
               pdfFile={pdfFile}
               onPdfFileChange={setPdfFile}
               parsing={parsing}
+              generating={generating}
               error={error}
               canParse={canParse}
               onParse={handleParse}
+              onGenerateStages={handleGenerateStages}
               projects={localProjects}
               onProjectCreated={handleProjectCreated}
               localModelSize={localModelSize}
               onLocalModelSizeChange={setLocalModelSize}
               localProgress={localProgress}
               remaining={remaining}
+              monthlyUsed={monthlyUsed}
+              monthlyLimit={monthlyLimit}
             />
           ) : (
             <BulkImportReviewTable
@@ -524,15 +569,19 @@ interface InputStepProps {
   pdfFile: File | null;
   onPdfFileChange: (file: File | null) => void;
   parsing: boolean;
+  generating: boolean;
   error: string;
   canParse: boolean;
   onParse: () => void;
+  onGenerateStages: () => void;
   projects: Project[];
   onProjectCreated?: (project: Project) => void;
   localModelSize: LocalModelSize;
   onLocalModelSizeChange: (size: LocalModelSize) => void;
   localProgress: { status: string; progress?: number } | null;
   remaining: number | null;
+  monthlyUsed: number | null;
+  monthlyLimit: number | null;
 }
 
 function InputStep({
@@ -549,15 +598,19 @@ function InputStep({
   pdfFile,
   onPdfFileChange,
   parsing,
+  generating,
   error,
   canParse,
   onParse,
+  onGenerateStages,
   projects,
   onProjectCreated,
   localModelSize,
   onLocalModelSizeChange,
   localProgress,
   remaining,
+  monthlyUsed,
+  monthlyLimit,
 }: InputStepProps) {
   const tabs: { key: Tab; label: string; disabled: boolean }[] = [
     { key: 'text', label: 'テキスト', disabled: false },
@@ -776,6 +829,12 @@ function InputStep({
             </p>
           </div>
         )}
+
+        {monthlyUsed !== null && monthlyLimit !== null && (
+          <p className="mt-2 text-xs text-slate-500">
+            AI利用: {monthlyUsed}/{monthlyLimit}回（今月）
+          </p>
+        )}
       </div>
 
       {/* Error */}
@@ -798,8 +857,24 @@ function InputStep({
         </div>
       )}
 
-      {/* Parse button */}
-      <div className="flex justify-end">
+      {/* Action buttons */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <button
+          type="button"
+          onClick={onGenerateStages}
+          disabled={!projectId || parsing || generating}
+          className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {generating ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+              AI生成中...
+            </span>
+          ) : (
+            'AIで工程を自動生成'
+          )}
+        </button>
+
         <button
           type="button"
           onClick={onParse}

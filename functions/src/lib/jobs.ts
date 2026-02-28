@@ -142,7 +142,7 @@ export async function enqueueDigestNotification(input: {
   });
 }
 
-export async function enqueueCalendarSync(input: { taskId: string; mode: 'push' | 'sync'; userId?: string }) {
+export async function enqueueCalendarSync(input: { taskId: string; mode: 'push' | 'sync' | 'delete'; userId?: string; orgId?: string }) {
   const dueAt = new Date();
   await enqueueJob({
     type: 'task.calendar.sync',
@@ -151,6 +151,7 @@ export async function enqueueCalendarSync(input: { taskId: string; mode: 'push' 
       taskId: input.taskId,
       mode: input.mode,
       userId: input.userId ?? null,
+      orgId: input.orgId ?? null,
     },
   });
 }

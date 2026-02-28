@@ -1127,6 +1127,13 @@ export async function bulkImportParse(payload: {
   });
 }
 
+export async function generateStages(projectId: string) {
+  return request<BulkImportParseResponse>('/bulk-import/generate-stages', {
+    method: 'POST',
+    body: JSON.stringify({ projectId }),
+  });
+}
+
 export async function bulkImportSave(payload: {
   projectId: string;
   items: ConfirmedItem[];

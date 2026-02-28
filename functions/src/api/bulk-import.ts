@@ -7,6 +7,7 @@ import multer from 'multer';
 import { authMiddleware } from '../lib/auth';
 import { getUser } from '../lib/users';
 import { getEffectiveOrgId } from '../lib/access-helpers';
+import { getAiUsageLimits, getOrgBilling } from '../lib/billing';
 import { db } from '../lib/firestore';
 import { getNextTaskId } from '../lib/counters';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -26,6 +27,10 @@ const parseRequestSchema = z.object({
   model: z.enum(['flash', 'sonnet']),
   projectId: z.string().min(1),
   inputType: z.enum(['excel', 'text', 'pdf', 'image']),
+});
+
+const generateSchema = z.object({
+  projectId: z.string().min(1),
 });
 
 const saveItemSchema = z.object({
@@ -92,15 +97,91 @@ function buildSystemPrompt(): string {
   ],
   "warnings": []
 }`;
+} 
+
+function buildGenerateSystemPrompt(): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const year = new Date().getFullYear();
+  return `あなたは建築プロジェクトの工程管理の専門家です。
+プロジェクト情報から、実務で使える工程(stage)とタスク(task)を提案してください。
+
+重要: 今日は${today}です。年が明示されていない日付は${year}年として扱ってください。
+和暦の場合: 令和${year - 2018}年 = ${year}年 です。
+
+ルール:
+- stage(工程)の下にtask(タスク)を配置する
+- 日付は必ずYYYY-MM-DD形式（不明ならnull）
+- マイルストーン日程がある場合は、それを基準に逆算/順算する
+- 一般的な建築プロジェクトの工程を網羅する
+- 既に存在する工程名は生成しない
+
+出力JSON形式:
+{
+  "items": [
+    {
+      "tempId": "tmp_1",
+      "name": "工程名",
+      "type": "stage|task|meeting|milestone",
+      "parentTempId": null,
+      "assignee": null,
+      "startDate": "YYYY-MM-DD",
+      "endDate": "YYYY-MM-DD",
+      "confidence": 0.9
+    }
+  ],
+  "warnings": []
+}`;
+}
+
+function buildGeneratePrompt(project: any, existingStages: string[]): string {
+  const lines: string[] = ['以下のプロジェクト情報から工程表を生成してください。\n'];
+
+  lines.push(`物件名: ${project?.物件名 || '不明'}`);
+  if (project?.クライアント) lines.push(`クライアント: ${project.クライアント}`);
+  if (project?.ステータス) lines.push(`ステータス: ${project.ステータス}`);
+  if (project?.優先度) lines.push(`優先度: ${project.優先度}`);
+
+  const milestones: Array<[string, string]> = [
+    ['開始日', project?.開始日],
+    ['現地調査日', project?.現地調査日],
+    ['レイアウト確定日', project?.レイアウト確定日],
+    ['パース確定日', project?.パース確定日],
+    ['基本設計完了日', project?.基本設計完了日],
+    ['設計施工現調日', project?.設計施工現調日],
+    ['見積確定日', project?.見積確定日],
+    ['着工日', project?.着工日],
+    ['中間検査日', project?.中間検査日],
+    ['竣工予定日', project?.竣工予定日],
+    ['引渡し予定日', project?.引渡し予定日],
+    ['予定完了日', project?.予定完了日],
+  ].filter(([, value]) => typeof value === 'string' && value.trim().length > 0) as Array<[string, string]>;
+
+  if (milestones.length > 0) {
+    lines.push('\nマイルストーン日程:');
+    for (const [label, date] of milestones) {
+      lines.push(`  ${label}: ${date}`);
+    }
+  }
+
+  if (existingStages.length > 0) {
+    lines.push(`\n既存の工程（これらは生成しないでください）: ${existingStages.join(', ')}`);
+  }
+
+  lines.push('\n要件:');
+  lines.push('- 実行可能な粒度で工程とタスクを作る');
+  lines.push('- stageにはparentTempIdをnull、taskには対応するstageのtempIdを設定する');
+  lines.push('- 返答はJSONのみ');
+
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
 // Per-user daily rate limit (Gemini API cost control)
 // ---------------------------------------------------------------------------
 
-const DAILY_PARSE_LIMIT = 10; // 1ユーザー1日10回まで
+const DEFAULT_DAILY_LIMIT = 10; // デフォルト日次上限（ティア別上限が取得できない場合のフォールバック）
 
-async function checkRateLimit(uid: string, orgId: string): Promise<{ allowed: boolean; remaining: number }> {
+async function checkRateLimit(uid: string, orgId: string, dailyLimit = DEFAULT_DAILY_LIMIT): Promise<{ allowed: boolean; remaining: number; dailyLimit: number }> {
   const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const ref = db.collection('orgs').doc(orgId).collection('bulk-import-usage').doc(uid);
   const doc = await ref.get();
@@ -109,15 +190,39 @@ async function checkRateLimit(uid: string, orgId: string): Promise<{ allowed: bo
   if (!data || data.date !== today) {
     // New day or first use
     await ref.set({ date: today, count: 1 });
-    return { allowed: true, remaining: DAILY_PARSE_LIMIT - 1 };
+    return { allowed: true, remaining: dailyLimit - 1, dailyLimit };
   }
 
-  if (data.count >= DAILY_PARSE_LIMIT) {
-    return { allowed: false, remaining: 0 };
+  if (data.count >= dailyLimit) {
+    return { allowed: false, remaining: 0, dailyLimit };
   }
 
   await ref.update({ count: FieldValue.increment(1) });
-  return { allowed: true, remaining: DAILY_PARSE_LIMIT - data.count - 1 };
+  return { allowed: true, remaining: dailyLimit - data.count - 1, dailyLimit };
+}
+
+async function checkMonthlyLimit(orgId: string): Promise<{ allowed: boolean; used: number; limit: number; dailyLimit: number }> {
+  const billingDoc = await getOrgBilling(orgId);
+  const limits = getAiUsageLimits(billingDoc);
+
+  const yearMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const ref = db.collection('orgs').doc(orgId).collection('ai-usage-monthly').doc(yearMonth);
+
+  return db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(ref);
+    const used = snapshot.exists ? Number(snapshot.data()?.count || 0) : 0;
+
+    if (used >= limits.monthly) {
+      return { allowed: false, used, limit: limits.monthly, dailyLimit: limits.daily };
+    }
+
+    tx.set(ref, {
+      count: used + 1,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return { allowed: true, used: used + 1, limit: limits.monthly, dailyLimit: limits.daily };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -134,9 +239,19 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
     const user = await getUser(uid);
     if (!user) { res.status(401).json({ error: 'User not found' }); return; }
     const userOrgId = getEffectiveOrgId(user);
-    const rateCheck = await checkRateLimit(uid, userOrgId);
+    // 月間チェックを先に実行（ティア別日次上限も取得）
+    const monthlyCheck = await checkMonthlyLimit(userOrgId);
+    if (!monthlyCheck.allowed) {
+      res.status(429).json({
+        error: `今月のAI利用上限（${monthlyCheck.limit}回/月）に達しました。プランのアップグレードをご検討ください。`,
+        monthlyUsed: monthlyCheck.used,
+        monthlyLimit: monthlyCheck.limit,
+      });
+      return;
+    }
+    const rateCheck = await checkRateLimit(uid, userOrgId, monthlyCheck.dailyLimit);
     if (!rateCheck.allowed) {
-      res.status(429).json({ error: `本日の利用上限（${DAILY_PARSE_LIMIT}回/日）に達しました。明日またお試しください。` });
+      res.status(429).json({ error: `本日の利用上限（${rateCheck.dailyLimit}回/日）に達しました。明日またお試しください。` });
       return;
     }
 
@@ -178,7 +293,13 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
       }
       if (!Array.isArray(data.warnings)) data.warnings = [];
 
-      res.json({ items: data.items, warnings: data.warnings, remaining: rateCheck.remaining });
+      res.json({
+        items: data.items,
+        warnings: data.warnings,
+        remaining: rateCheck.remaining,
+        monthlyUsed: monthlyCheck.used,
+        monthlyLimit: monthlyCheck.limit,
+      });
       return;
     }
 
@@ -235,6 +356,8 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
       items: data.items,
       warnings: data.warnings,
       remaining: rateCheck.remaining,
+      monthlyUsed: monthlyCheck.used,
+      monthlyLimit: monthlyCheck.limit,
     });
   } catch (err: any) {
     if (err instanceof z.ZodError) {
@@ -242,6 +365,114 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
       return;
     }
     console.error('[bulk-import/parse] Error:', err);
+    res.status(500).json({ error: err.message || 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /bulk-import/generate-stages — AIでプロジェクト情報から工程を自動生成
+// ---------------------------------------------------------------------------
+
+router.post('/bulk-import/generate-stages', async (req: Request, res: Response) => {
+  try {
+    const parsed = generateSchema.parse(req.body);
+
+    const uid = (req as any).uid;
+    const user = await getUser(uid);
+    if (!user) {
+      res.status(401).json({ error: 'User not found' });
+      return;
+    }
+    const orgId = getEffectiveOrgId(user);
+
+    // 月間チェックを先に実行（ティア別日次上限も取得）
+    const monthlyCheck = await checkMonthlyLimit(orgId);
+    if (!monthlyCheck.allowed) {
+      res.status(429).json({
+        error: `今月のAI利用上限（${monthlyCheck.limit}回/月）に達しました。プランのアップグレードをご検討ください。`,
+        monthlyUsed: monthlyCheck.used,
+        monthlyLimit: monthlyCheck.limit,
+      });
+      return;
+    }
+    const rateCheck = await checkRateLimit(uid, orgId, monthlyCheck.dailyLimit);
+    if (!rateCheck.allowed) {
+      res.status(429).json({ error: `本日の利用上限（${rateCheck.dailyLimit}回/日）に達しました。` });
+      return;
+    }
+
+    const projectDoc = await db.collection('orgs').doc(orgId).collection('projects').doc(parsed.projectId).get();
+    if (!projectDoc.exists) {
+      res.status(404).json({ error: 'Project not found' });
+      return;
+    }
+
+    const project = projectDoc.data() || {};
+
+    const existingStagesSnap = await db
+      .collection('orgs')
+      .doc(orgId)
+      .collection('tasks')
+      .where('projectId', '==', parsed.projectId)
+      .where('type', '==', 'stage')
+      .get();
+
+    const existingStages = Array.from(new Set(existingStagesSnap.docs
+      .map((doc) => {
+        const data = doc.data();
+        return typeof data.タスク名 === 'string' ? data.タスク名.trim() : '';
+      })
+      .filter(Boolean)));
+
+    const prompt = buildGeneratePrompt(project, existingStages);
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ error: 'AI service is not configured' });
+      return;
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction: buildGenerateSystemPrompt(),
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.2,
+      },
+    });
+
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text();
+
+    let data: { items: any[]; warnings: string[] };
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      console.error('[bulk-import/generate-stages] Failed to parse Gemini response:', responseText);
+      res.status(500).json({ error: 'AI returned invalid JSON' });
+      return;
+    }
+
+    if (!Array.isArray(data.items)) data.items = [];
+    for (const item of data.items) {
+      if (!item.tempId) item.tempId = `tmp_${crypto.randomUUID()}`;
+    }
+    if (!Array.isArray(data.warnings)) data.warnings = [];
+
+    res.json({
+      items: data.items,
+      warnings: data.warnings,
+      remaining: rateCheck.remaining,
+      monthlyUsed: monthlyCheck.used,
+      monthlyLimit: monthlyCheck.limit,
+    });
+  } catch (err: any) {
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: 'Validation error', details: err.errors });
+      return;
+    }
+    console.error('[bulk-import/generate-stages] Error:', err);
     res.status(500).json({ error: err.message || 'Internal server error' });
   }
 });
@@ -376,9 +607,19 @@ router.post('/bulk-import/parse-file', upload.single('file'), async (req: Reques
     const fileUser = await getUser(fileUid);
     if (!fileUser) { res.status(401).json({ error: 'User not found' }); return; }
     const fileOrgId = getEffectiveOrgId(fileUser);
-    const fileRateCheck = await checkRateLimit(fileUid, fileOrgId);
+    // 月間チェックを先に実行（ティア別日次上限も取得）
+    const fileMonthlyCheck = await checkMonthlyLimit(fileOrgId);
+    if (!fileMonthlyCheck.allowed) {
+      res.status(429).json({
+        error: `今月のAI利用上限（${fileMonthlyCheck.limit}回/月）に達しました。プランのアップグレードをご検討ください。`,
+        monthlyUsed: fileMonthlyCheck.used,
+        monthlyLimit: fileMonthlyCheck.limit,
+      });
+      return;
+    }
+    const fileRateCheck = await checkRateLimit(fileUid, fileOrgId, fileMonthlyCheck.dailyLimit);
     if (!fileRateCheck.allowed) {
-      res.status(429).json({ error: `本日の利用上限（${DAILY_PARSE_LIMIT}回/日）に達しました。明日またお試しください。` });
+      res.status(429).json({ error: `本日の利用上限（${fileRateCheck.dailyLimit}回/日）に達しました。明日またお試しください。` });
       return;
     }
 
@@ -446,7 +687,13 @@ router.post('/bulk-import/parse-file', upload.single('file'), async (req: Reques
       }
       if (!Array.isArray(data.warnings)) data.warnings = [];
 
-      res.json({ items: data.items, warnings: data.warnings, remaining: fileRateCheck.remaining });
+      res.json({
+        items: data.items,
+        warnings: data.warnings,
+        remaining: fileRateCheck.remaining,
+        monthlyUsed: fileMonthlyCheck.used,
+        monthlyLimit: fileMonthlyCheck.limit,
+      });
       return;
     }
 
@@ -504,7 +751,13 @@ router.post('/bulk-import/parse-file', upload.single('file'), async (req: Reques
     }
     if (!Array.isArray(data.warnings)) data.warnings = [];
 
-    res.json({ items: data.items, warnings: data.warnings, remaining: fileRateCheck.remaining });
+    res.json({
+      items: data.items,
+      warnings: data.warnings,
+      remaining: fileRateCheck.remaining,
+      monthlyUsed: fileMonthlyCheck.used,
+      monthlyLimit: fileMonthlyCheck.limit,
+    });
   } catch (err: any) {
     console.error('[bulk-import/parse-file] Error:', err);
     res.status(500).json({ error: err.message || 'File parsing failed' });

@@ -15,7 +15,7 @@ import {
   db,
 } from '../lib/firestore';
 import { getUser } from '../lib/users';
-import { enqueueNotificationSeed } from '../lib/jobs';
+import { enqueueCalendarSync, enqueueNotificationSeed } from '../lib/jobs';
 import { listUserProjects } from '../lib/project-members';
 import { canDeleteTask } from '../lib/access-control';
 import { logActivity } from '../lib/activity-log';
@@ -176,10 +176,17 @@ const taskSchema = z.object({
   依頼元: z.string().optional().nullable(),
   '依存タスク': z.array(z.string()).optional().nullable(),
   'カレンダーイベントID': z.string().optional().nullable(),
+  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().nullable(),
+  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional().nullable(),
+  calendarSync: z.boolean().optional().nullable(),
   '通知設定': notificationSchema,
   マイルストーン: z.boolean().optional().nullable(),
   スプリント: z.string().optional().nullable(),
   フェーズ: z.string().optional().nullable(),
+  // ボール管理
+  ballHolder: z.string().optional().nullable(),
+  responseDeadline: z.string().optional().nullable(),
+  ballNote: z.string().optional().nullable(),
   // WorkItem 統合: 工程(stage)への紐づけ
   parentId: z.string().optional().nullable(),  // stageId として使用
   orderIndex: z.number().optional().nullable(),
@@ -238,6 +245,15 @@ router.post('/', async (req: any, res, next) => {
     // タスク作成者を記録
     await recordTaskCreator(id, user.id, projectOrgId);
 
+    if (payload.calendarSync) {
+      await enqueueCalendarSync({
+        taskId: id,
+        mode: 'sync',
+        userId: req.uid,
+        orgId: projectOrgId,
+      });
+    }
+
     res.status(201).json({ id });
   } catch (error) {
     console.error('[POST /tasks] Error:', error);
@@ -294,7 +310,25 @@ router.patch('/:id', async (req: any, res, next) => {
       }
     }
 
+    const nextCalendarSync = payload.calendarSync ?? task.calendarSync ?? false;
     await updateTask(req.params.id, payload, taskOrgId);
+
+    if (nextCalendarSync) {
+      await enqueueCalendarSync({
+        taskId: req.params.id,
+        mode: 'sync',
+        userId: req.uid,
+        orgId: taskOrgId,
+      });
+    } else if (payload.calendarSync === false && task['カレンダーイベントID']) {
+      await enqueueCalendarSync({
+        taskId: req.params.id,
+        mode: 'delete',
+        userId: req.uid,
+        orgId: taskOrgId,
+      });
+    }
+
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -400,6 +434,15 @@ router.delete('/:id', async (req: any, res, next) => {
 
     // タスクを削除
     await deleteTaskRepo(req.params.id, projectOrgId);
+
+    if (task['カレンダーイベントID']) {
+      await enqueueCalendarSync({
+        taskId: req.params.id,
+        mode: 'delete',
+        userId: req.uid,
+        orgId: taskOrgId,
+      });
+    }
 
     // アクティビティログを記録
     await logActivity({

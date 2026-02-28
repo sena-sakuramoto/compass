@@ -23,18 +23,26 @@ export const PLAN_LIMITS = {
   small: {
     price: 5000,        // ¥5,000/月（〜5名）
     members: 5,
+    aiMonthly: 30,
+    aiDaily: 10,
   },
   standard: {
     price: 15000,       // ¥15,000/月（〜15名）
     members: 15,
+    aiMonthly: 100,
+    aiDaily: 10,
   },
   business: {
     price: 35000,       // ¥35,000/月（〜40名）
     members: 40,
+    aiMonthly: 300,
+    aiDaily: 10,
   },
   enterprise: {
     price: null,        // カスタム料金
     members: 999999,    // 実質無制限
+    aiMonthly: 999999,
+    aiDaily: 10,
   },
 } as const;
 

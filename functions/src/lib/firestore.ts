@@ -796,10 +796,17 @@ export interface TaskInput {
   '依頼元'?: string | null;
   '依存タスク'?: string[] | null;
   'カレンダーイベントID'?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  calendarSync?: boolean | null;
   '通知設定'?: TaskNotificationSettings | null;
   マイルストーン?: boolean | null;
   スプリント?: string | null;
   フェーズ?: string | null;
+  // ボール管理
+  ballHolder?: string | null;
+  responseDeadline?: string | null;
+  ballNote?: string | null;
 }
 
 export interface PersonInput {

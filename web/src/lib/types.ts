@@ -109,9 +109,16 @@ export interface Task {
   '依頼元'?: string;
   '依存タスク'?: string[];
   'カレンダーイベントID'?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  calendarSync?: boolean | null;
   '通知設定'?: TaskNotificationSettings;
   スプリント?: string;
   フェーズ?: string;
+  // ボール管理
+  ballHolder?: string | null;
+  responseDeadline?: string | null;
+  ballNote?: string | null;
   start?: string;
   end?: string;
   duration_days?: number;
@@ -182,6 +189,8 @@ export interface BulkImportParseResponse {
   items: ParsedItem[];
   warnings: string[];
   remaining?: number;
+  monthlyUsed?: number;
+  monthlyLimit?: number;
 }
 
 export interface ConfirmedItem {

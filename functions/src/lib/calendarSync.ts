@@ -1,9 +1,9 @@
 import admin from 'firebase-admin';
 import { calendar_v3 } from 'googleapis';
-import { getCalendarClient } from './googleClients';
-import { db, ORG_ID, TaskDoc } from './firestore';
+import { getUserCalendarClient } from './perUserGoogleClient';
+import { db, TaskDoc } from './firestore';
 
-const tasksCollection = () => db.collection('orgs').doc(ORG_ID).collection('tasks');
+const tasksCollection = (orgId: string) => db.collection('orgs').doc(orgId).collection('tasks');
 
 function toAllDayEventDates(startIso: string, endIso?: string | null) {
   const start = new Date(startIso);
@@ -28,9 +28,11 @@ function buildEvent(task: TaskDoc) {
     `プロジェクト: ${task.projectId ?? ''}`,
     `担当者: ${task.assignee ?? task.担当者 ?? ''}`,
     `ステータス: ${task.ステータス ?? ''}`,
+    task.ballHolder ? `ボール: ${task.ballHolder}` : '',
+    task.ballNote ? `メモ: ${task.ballNote}` : '',
     '',
     'Project Compass から同期された予定です。',
-  ];
+  ].filter(Boolean);
   const description = descriptionLines.join('\n');
 
   const startDate = task.start ?? task.予定開始日 ?? task.実績開始日;
@@ -38,19 +40,87 @@ function buildEvent(task: TaskDoc) {
   if (!startDate) {
     throw new Error('タスクに開始日が設定されていません');
   }
+  const timezone = process.env.CALENDAR_TIMEZONE ?? 'Asia/Tokyo';
+  const hasTimeRange = Boolean(task.startTime && task.endTime);
+
+  if (hasTimeRange) {
+    return {
+      summary,
+      description,
+      start: { dateTime: `${startDate}T${task.startTime}:00`, timeZone: timezone },
+      end: { dateTime: `${endDate ?? startDate}T${task.endTime}:00`, timeZone: timezone },
+    } as calendar_v3.Schema$Event;
+  }
+
   const { start, end } = toAllDayEventDates(startDate, endDate);
 
   return {
     summary,
     description,
-    start: { date: start, timeZone: process.env.CALENDAR_TIMEZONE ?? 'Asia/Tokyo' },
-    end: { date: end, timeZone: process.env.CALENDAR_TIMEZONE ?? 'Asia/Tokyo' },
+    start: { date: start, timeZone: timezone },
+    end: { date: end, timeZone: timezone },
   } as calendar_v3.Schema$Event;
 }
 
-export async function syncTaskToCalendar(task: TaskDoc, _mode: 'push' | 'sync') {
+function isNotFoundError(error: any): boolean {
+  const status = error?.code ?? error?.status ?? error?.response?.status;
+  return status === 404;
+}
+
+async function clearTaskEventId(task: TaskDoc, orgId: string) {
+  await tasksCollection(orgId).doc(task.id).update({
+    'カレンダーイベントID': null,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+
+export async function syncTaskToCalendar(
+  task: TaskDoc,
+  mode: 'push' | 'sync' | 'delete',
+  userId?: string | null,
+  orgId?: string
+) {
+  if (!userId) {
+    console.warn('[calendarSync] userId is missing. Skip sync.', { taskId: task.id, mode });
+    return;
+  }
+
+  const targetOrgId = orgId ?? task.orgId;
+  if (!targetOrgId) {
+    console.warn('[calendarSync] orgId is missing. Skip sync.', { taskId: task.id, mode });
+    return;
+  }
+
   const calendarId = process.env.CALENDAR_ID || 'primary';
-  const calendar = await getCalendarClient();
+  let calendar: calendar_v3.Calendar;
+  try {
+    calendar = await getUserCalendarClient(userId);
+  } catch (error) {
+    console.warn('[calendarSync] Failed to get per-user calendar client. Skip sync.', {
+      taskId: task.id,
+      mode,
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  if (mode === 'delete') {
+    const existingEventId = task['カレンダーイベントID'];
+    if (!existingEventId) return;
+
+    try {
+      await calendar.events.delete({ calendarId, eventId: existingEventId });
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
+    }
+
+    await clearTaskEventId(task, targetOrgId);
+    return;
+  }
+
   const event = buildEvent(task);
 
   const existingId = task['カレンダーイベントID'];
@@ -64,7 +134,9 @@ export async function syncTaskToCalendar(task: TaskDoc, _mode: 'push' | 'sync') 
         requestBody: event,
       });
     } catch (error) {
-      console.warn('[calendar] 既存イベント更新に失敗したため、新規作成を試みます', error);
+      if (!isNotFoundError(error)) {
+        throw error;
+      }
       savedEventId = null;
     }
   }
@@ -78,7 +150,7 @@ export async function syncTaskToCalendar(task: TaskDoc, _mode: 'push' | 'sync') 
   }
 
   if (savedEventId && savedEventId !== existingId) {
-    await tasksCollection()
+    await tasksCollection(targetOrgId)
       .doc(task.id)
       .update({
         'カレンダーイベントID': savedEventId,

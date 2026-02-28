@@ -28,6 +28,7 @@ export interface TaskModalProps extends ModalProps {
   defaultStageId?: string;
   allowContinuousCreate?: boolean;
   preloadedProjectMembers?: ProjectMember[];
+  currentUserName?: string;
   lockProject?: boolean;
   onSubmit(payload: {
     projectId: string;
@@ -35,6 +36,9 @@ export interface TaskModalProps extends ModalProps {
     担当者?: string;
     予定開始日?: string;
     期限?: string;
+    startTime?: string | null;
+    endTime?: string | null;
+    calendarSync?: boolean | null;
     マイルストーン?: boolean;
     優先度: string;
     ステータス: string;
@@ -42,6 +46,9 @@ export interface TaskModalProps extends ModalProps {
     ['工数見積(h)']?: number;
     担当者メール?: string;
     parentId?: string | null;
+    ballHolder?: string | null;
+    responseDeadline?: string | null;
+    ballNote?: string | null;
     '通知設定'?: TaskNotificationSettings;
     type?: TaskType;
     participants?: string[];
@@ -65,6 +72,7 @@ export function TaskModal({
   defaultStageId,
   allowContinuousCreate,
   preloadedProjectMembers,
+  currentUserName,
   lockProject,
 }: TaskModalProps) {
   const [project, setProject] = useState('');
@@ -75,6 +83,9 @@ export function TaskModal({
   const [name, setName] = useState('');
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
+  const [startTime, setStartTime] = useState<string | null>(null);
+  const [endTime, setEndTime] = useState<string | null>(null);
+  const [calendarSync, setCalendarSync] = useState(false);
   const [durationDays, setDurationDays] = useState<number>(1);
   const [priority, setPriority] = useState('中');
   const [status, setStatus] = useState('未着手');
@@ -85,6 +96,9 @@ export function TaskModal({
   const [notifyDue, setNotifyDue] = useState(true);
   const [notifyOverdue, setNotifyOverdue] = useState(true);
   const [isMilestone, setIsMilestone] = useState(false);
+  const [ballHolder, setBallHolder] = useState<string | null>(null);
+  const [responseDeadline, setResponseDeadline] = useState<string | null>(null);
+  const [ballNote, setBallNote] = useState<string | null>(null);
   const [stageId, setStageId] = useState<string>('');
   const taskNameInputRef = useRef<HTMLInputElement | null>(null);
   const submitIntentRef = useRef<'close' | 'continue'>('close');
@@ -111,8 +125,14 @@ export function TaskModal({
     setName('');
     setStartDate(null);
     setEndDate(null);
+    setStartTime(null);
+    setEndTime(null);
+    setCalendarSync(false);
     setDurationDays(1);
     setIsMilestone(false);
+    setBallHolder(null);
+    setResponseDeadline(null);
+    setBallNote(null);
     setTaskType('task');
     setParticipants([]);
     if (keepContext) return;
@@ -146,6 +166,9 @@ export function TaskModal({
       const endDateValue = editingTask.期限 || editingTask.end;
       setStartDate(startDateValue ? new Date(startDateValue) : null);
       setEndDate(endDateValue ? new Date(endDateValue) : null);
+      setStartTime(editingTask.startTime ?? null);
+      setEndTime(editingTask.endTime ?? null);
+      setCalendarSync(editingTask.calendarSync ?? Boolean(editingTask['カレンダーイベントID']));
 
       if (startDateValue && endDateValue) {
         const start = new Date(startDateValue);
@@ -170,6 +193,9 @@ export function TaskModal({
 
       const milestoneValue = editingTask['マイルストーン'] === true || editingTask['milestone'] === true;
       setIsMilestone(milestoneValue);
+      setBallHolder(editingTask.ballHolder ?? null);
+      setResponseDeadline(editingTask.responseDeadline ?? null);
+      setBallNote(editingTask.ballNote ?? null);
     } else {
       resetFormFields(false);
       if (defaultProjectId) {
@@ -290,6 +316,9 @@ export function TaskModal({
         担当者: taskType === 'meeting' ? undefined : assignee,
         予定開始日: startDate ? format(startDate, 'yyyy-MM-dd') : undefined,
         期限: endDate ? format(endDate, 'yyyy-MM-dd') : undefined,
+        startTime: startTime || null,
+        endTime: endTime || null,
+        calendarSync,
         優先度: priority,
         ステータス: status,
         進捗率: progress / 100,
@@ -297,6 +326,9 @@ export function TaskModal({
         担当者メール: taskType === 'meeting' ? undefined : (assigneeEmail || undefined),
         マイルストーン: isMilestone,
         parentId: stageId || null,
+        ballHolder: ballHolder?.trim() ? ballHolder.trim() : null,
+        responseDeadline: responseDeadline || null,
+        ballNote: ballNote?.trim() ? ballNote.trim() : null,
         '通知設定': {
           開始日: notifyStart,
           期限前日: notifyDayBefore,
@@ -311,6 +343,9 @@ export function TaskModal({
         担当者?: string;
         予定開始日?: string;
         期限?: string;
+        startTime?: string | null;
+        endTime?: string | null;
+        calendarSync?: boolean | null;
         マイルストーン?: boolean;
         優先度: string;
         ステータス: string;
@@ -318,6 +353,9 @@ export function TaskModal({
         ['工数見積(h)']?: number;
         担当者メール?: string;
         parentId?: string | null;
+        ballHolder?: string | null;
+        responseDeadline?: string | null;
+        ballNote?: string | null;
         '通知設定'?: TaskNotificationSettings;
         type?: TaskType;
         participants?: string[];
@@ -336,6 +374,9 @@ export function TaskModal({
           担当者: editingTask.担当者 || editingTask.assignee || '',
           予定開始日: editingTask.予定開始日 || editingTask.start || undefined,
           期限: editingTask.期限 || editingTask.end || undefined,
+          startTime: editingTask.startTime || null,
+          endTime: editingTask.endTime || null,
+          calendarSync: editingTask.calendarSync ?? Boolean(editingTask['カレンダーイベントID']),
           優先度: editingTask.優先度 || '中',
           ステータス: editingTask.ステータス || '未着手',
           進捗率: (editingTask.progress ?? editingTask.進捗率 ?? 0) > 1
@@ -345,6 +386,9 @@ export function TaskModal({
           担当者メール: editingTask.担当者メール || '',
           マイルストーン: editingTask.マイルストーン === true || editingTask.milestone === true,
           parentId: editingTask.parentId || null,
+          ballHolder: editingTask.ballHolder || null,
+          responseDeadline: editingTask.responseDeadline || null,
+          ballNote: editingTask.ballNote || null,
           '通知設定': editingTask['通知設定'] ?? {
             開始日: true,
             期限前日: true,
@@ -567,6 +611,89 @@ export function TaskModal({
             )}
           </div>
         )}
+
+        <div className="space-y-3 border-t border-slate-200 pt-4 mt-2">
+          <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">ボール管理</h4>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">今のボール</label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                disabled={!currentUserName?.trim()}
+                onClick={() => setBallHolder((currentUserName || '').trim() || null)}
+                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
+                  ballHolder === (currentUserName || '').trim()
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                自分
+              </button>
+              <button
+                type="button"
+                onClick={() => setBallHolder('クライアント')}
+                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                  ballHolder === 'クライアント'
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                クライアント
+              </button>
+              <button
+                type="button"
+                onClick={() => setBallHolder('施工会社')}
+                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                  ballHolder === '施工会社'
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                施工会社
+              </button>
+            </div>
+            {assigneeOptions.length > 0 && (
+              <select
+                className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                value={ballHolder ?? ''}
+                onChange={(e) => setBallHolder(e.target.value || null)}
+              >
+                <option value="">メンバーから選択</option>
+                {assigneeOptions.map((option) => (
+                  <option key={`ball-${option.key}`} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            <input
+              type="text"
+              value={ballHolder ?? ''}
+              onChange={(e) => setBallHolder(e.target.value || null)}
+              placeholder="その他（自由入力）"
+              className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">返答期限</label>
+            <input
+              type="date"
+              value={responseDeadline ?? ''}
+              onChange={(e) => setResponseDeadline(e.target.value || null)}
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">メモ</label>
+            <input
+              type="text"
+              value={ballNote ?? ''}
+              onChange={(e) => setBallNote(e.target.value || null)}
+              placeholder="例: クライアントの承認待ち"
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
         <div>
           <label className="mb-1 block text-xs text-slate-500">工程</label>
           <select
@@ -675,6 +802,35 @@ export function TaskModal({
             </div>
           )}
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">開始時刻</label>
+            <input
+              type="time"
+              value={startTime ?? ''}
+              onChange={(e) => setStartTime(e.target.value || null)}
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">終了時刻</label>
+            <input
+              type="time"
+              value={endTime ?? ''}
+              onChange={(e) => setEndTime(e.target.value || null)}
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+        <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={calendarSync}
+            onChange={(e) => setCalendarSync(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300"
+          />
+          Googleカレンダーに同期
+        </label>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs text-slate-500">優先度</label>

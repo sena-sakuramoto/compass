@@ -25,6 +25,7 @@ export const syncStripeCustomers = onDocumentWritten(
   {
     region: REGION,
     document: 'stripe_customers/{customerId}',
+    secrets: ['COMPASS_PRICE_ID_SMALL', 'COMPASS_PRICE_ID_STANDARD', 'COMPASS_PRICE_ID_BUSINESS'],
   },
   async (event) => {
     const afterDoc = event.data?.after;

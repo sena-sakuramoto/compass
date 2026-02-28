@@ -69,6 +69,7 @@ import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { NotificationBell } from './components/NotificationBell';
 import { BulkImportModal } from './components/BulkImportModal';
 import { UserManagement } from './components/UserManagement';
+import { BallView } from './components/BallView';
 import { FeedbackButton } from './components/FeedbackButton';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
@@ -294,6 +295,7 @@ function AppLayout({
     { path: '/', label: '工程表' },
     { path: '/summary', label: 'プロジェクト' },
     { path: '/tasks', label: 'タスク' },
+    { path: '/ball', label: 'ボール' },
     { path: '/workload', label: '稼働状況' },
     { path: '/users', label: '人員管理' },
   ];
@@ -4864,6 +4866,9 @@ function App() {
     担当者メール?: string;
     '通知設定'?: TaskNotificationSettings;
     parentId?: string | null;
+    ballHolder?: string | null;
+    responseDeadline?: string | null;
+    ballNote?: string | null;
     assignee?: string;
     milestone?: boolean;
   }) => {
@@ -4874,12 +4879,17 @@ function App() {
 
     const normalizedAssignee = payload.assignee ?? payload.担当者 ?? undefined;
     const normalizedMilestone = payload.milestone === true || payload.マイルストーン === true;
+    const normalizedBallHolder = (payload.ballHolder || '').trim();
+    const normalizedBallNote = (payload.ballNote || '').trim();
     const payloadForApi: Partial<Task> = {
       ...payload,
       担当者: normalizedAssignee,
       assignee: normalizedAssignee,
       マイルストーン: normalizedMilestone,
       milestone: normalizedMilestone,
+      ballHolder: normalizedBallHolder || null,
+      responseDeadline: payload.responseDeadline || null,
+      ballNote: normalizedBallNote || null,
       進捗率: (payload as any).進捗率 ?? 0,
     };
 
@@ -4906,6 +4916,9 @@ function App() {
         ['工数見積(h)']: payload['工数見積(h)'],
         '通知設定': payload['通知設定'],
         parentId: payload.parentId,
+        ballHolder: normalizedBallHolder || null,
+        responseDeadline: payload.responseDeadline || null,
+        ballNote: normalizedBallNote || null,
         progress: normalizedProgress,
         進捗率: normalizedProgress,
         createdAt: now,
@@ -4938,6 +4951,9 @@ function App() {
         ['工数見積(h)']: payload['工数見積(h)'],
         '通知設定': payload['通知設定'],
         parentId: payload.parentId,
+        ballHolder: normalizedBallHolder || null,
+        responseDeadline: payload.responseDeadline || null,
+        ballNote: normalizedBallNote || null,
         マイルストーン: normalizedMilestone,
         milestone: normalizedMilestone,
         progress: normalizedProgress,
@@ -6233,6 +6249,20 @@ function App() {
             }
           />
           <Route
+            path="/ball"
+            element={
+              <BallView
+                tasks={state.tasks}
+                projects={state.projects}
+                currentUserName={(user?.displayName || user?.email || '').trim()}
+                onTaskClick={(task) => {
+                  const latest = state.tasks.find((entry) => entry.id === task.id) ?? task;
+                  setEditingTask(latest);
+                }}
+              />
+            }
+          />
+          <Route
             path="/gantt"
             element={
               <SchedulePage
@@ -6330,6 +6360,7 @@ function App() {
         defaultStageId={taskModalDefaults?.stageId}
         allowContinuousCreate
         preloadedProjectMembers={taskModalDefaults?.projectId ? allProjectMembers.get(taskModalDefaults.projectId) : undefined}
+        currentUserName={(user?.displayName || user?.email || '').trim()}
         lockProject={Boolean(taskModalDefaults?.projectId)}
       />
       <TaskModal
@@ -6342,6 +6373,7 @@ function App() {
         onUpdate={handleTaskUpdate}
         onDelete={handleDeleteTask}
         onNotify={pushToast}
+        currentUserName={(user?.displayName || user?.email || '').trim()}
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
       <BulkImportModal

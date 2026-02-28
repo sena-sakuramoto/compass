@@ -72,6 +72,14 @@ function normalizeTask(raw: any, index: number): Task {
   const calendarEventId = typeof calendarEventIdRaw === 'string'
     ? calendarEventIdRaw.trim() || null
     : calendarEventIdRaw ?? null;
+  const startTimeRaw = raw.startTime;
+  const endTimeRaw = raw.endTime;
+  const startTime = typeof startTimeRaw === 'string' ? (startTimeRaw.trim() || null) : null;
+  const endTime = typeof endTimeRaw === 'string' ? (endTimeRaw.trim() || null) : null;
+  const calendarSync =
+    typeof raw.calendarSync === 'boolean'
+      ? raw.calendarSync
+      : undefined;
 
   return {
     id: finalId,
@@ -96,6 +104,9 @@ function normalizeTask(raw: any, index: number): Task {
     '依頼元': raw['依頼元'] ?? raw['依頼元/連絡先'] ?? '',
     '依存タスク': dependencies,
     'カレンダーイベントID': calendarEventId,
+    startTime,
+    endTime,
+    calendarSync,
     '通知設定': notifications,
     マイルストーン: raw['マイルストーン'] ?? raw['milestone'],
     milestone: raw['マイルストーン'] ?? raw['milestone'],

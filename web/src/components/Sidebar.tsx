@@ -12,6 +12,7 @@ import {
   Settings,
   HelpCircle,
   LogOut,
+  CircleDot,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
@@ -41,6 +42,7 @@ const iconMap = {
   Users,
   Settings,
   HelpCircle,
+  CircleDot,
 };
 
 export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, loading = false, panel }: SidebarProps) {
@@ -98,9 +100,10 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, 
         { id: 'schedule', label: '工程表', path: '/', icon: 'CalendarDays', visible: true, order: 0 },
         { id: 'summary', label: 'プロジェクト', path: '/summary', icon: 'BarChart3', visible: true, order: 1 },
         { id: 'tasks', label: 'タスク', path: '/tasks', icon: 'ListChecks', visible: true, order: 2 },
-        { id: 'workload', label: 'リソース分析', path: '/workload', icon: 'Users', visible: true, order: 3 },
-        { id: 'users', label: '人員管理', path: '/users', icon: 'Users', visible: true, order: 4 },
-        { id: 'help', label: 'ヘルプ', path: '/help', icon: 'HelpCircle', visible: true, order: 5 },
+        { id: 'ball', label: 'ボール', path: '/ball', icon: 'CircleDot', visible: true, order: 3 },
+        { id: 'workload', label: 'リソース分析', path: '/workload', icon: 'Users', visible: true, order: 4 },
+        { id: 'users', label: '人員管理', path: '/users', icon: 'Users', visible: true, order: 5 },
+        { id: 'help', label: 'ヘルプ', path: '/help', icon: 'HelpCircle', visible: true, order: 6 },
       ],
     [navigationItems]
   );

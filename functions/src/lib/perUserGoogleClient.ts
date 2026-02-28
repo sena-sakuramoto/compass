@@ -102,6 +102,14 @@ export async function getUserDriveClient(uid: string) {
 }
 
 /**
+ * ユーザーのCalendarクライアントを取得
+ */
+export async function getUserCalendarClient(uid: string) {
+  const auth = await getAuthedOAuthClient(uid);
+  return google.calendar({ version: 'v3', auth });
+}
+
+/**
  * ユーザーのChatクライアントを取得
  */
 export async function getUserChatClient(uid: string) {

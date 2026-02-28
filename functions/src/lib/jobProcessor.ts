@@ -11,7 +11,7 @@ import { sendTaskNotification, sendTaskDigest } from './notifications';
 import { syncTaskToCalendar } from './calendarSync';
 
 const MAX_JOBS_PER_RUN = parseInt(process.env.JOB_RUNNER_BATCH ?? '10', 10);
-const tasksCollection = () => db.collection('orgs').doc(ORG_ID).collection('tasks');
+const tasksCollection = (orgId: string) => db.collection('orgs').doc(orgId).collection('tasks');
 
 interface NotificationSeedPayload extends Record<string, unknown> {
   taskId: string;
@@ -22,12 +22,13 @@ interface NotificationSeedPayload extends Record<string, unknown> {
 
 interface CalendarSyncPayload extends Record<string, unknown> {
   taskId: string;
-  mode: 'push' | 'sync';
+  mode: 'push' | 'sync' | 'delete';
   userId?: string | null;
+  orgId?: string | null;
 }
 
 async function handleNotificationSeed(job: JobDoc<NotificationSeedPayload>) {
-  const snapshot = await tasksCollection().doc(job.payload.taskId).get();
+  const snapshot = await tasksCollection(ORG_ID).doc(job.payload.taskId).get();
   if (!snapshot.exists) {
     throw new Error(`タスク ${job.payload.taskId} が見つかりません`);
   }
@@ -46,13 +47,14 @@ async function handleNotificationSeed(job: JobDoc<NotificationSeedPayload>) {
 }
 
 async function handleCalendarSync(job: JobDoc<CalendarSyncPayload>) {
-  const snapshot = await tasksCollection().doc(job.payload.taskId).get();
+  const orgId = job.payload.orgId ?? ORG_ID;
+  const snapshot = await tasksCollection(orgId).doc(job.payload.taskId).get();
   if (!snapshot.exists) {
     throw new Error(`タスク ${job.payload.taskId} が見つかりません`);
   }
   const task = snapshot.data() as TaskDoc;
   task.id = snapshot.id;
-  await syncTaskToCalendar(task, job.payload.mode);
+  await syncTaskToCalendar(task, job.payload.mode, job.payload.userId ?? null, orgId);
   console.info('[job] calendar sync completed', { taskId: task.id, mode: job.payload.mode });
 }
 

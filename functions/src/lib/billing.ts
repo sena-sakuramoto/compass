@@ -1,5 +1,5 @@
 import { db } from './firestore';
-import type { User } from './auth-types';
+import { PLAN_LIMITS, type User } from './auth-types';
 
 export type BillingPlanType = 'stripe' | 'enterprise_manual' | 'special_admin' | 'inactive';
 
@@ -466,6 +466,59 @@ export function getSeatLimit(billingDoc: OrgBillingDoc | null): number | null {
   }
 
   return null;
+}
+
+export interface AiUsageLimits {
+  monthly: number;
+  daily: number;
+  tier: 'trial' | 'circle' | 'small' | 'standard' | 'business' | 'enterprise';
+}
+
+export function getAiUsageLimits(billingDoc: OrgBillingDoc | null): AiUsageLimits {
+  // 未課金/停止中はトライアル扱い
+  if (!billingDoc || billingDoc.planType === 'inactive') {
+    return { monthly: 10, daily: 5, tier: 'trial' };
+  }
+
+  if (billingDoc.planType === 'special_admin' || billingDoc.planType === 'enterprise_manual') {
+    return {
+      monthly: PLAN_LIMITS.enterprise.aiMonthly,
+      daily: PLAN_LIMITS.enterprise.aiDaily,
+      tier: 'enterprise',
+    };
+  }
+
+  if (isCircleMember(billingDoc)) {
+    return { monthly: 30, daily: 10, tier: 'circle' };
+  }
+
+  const seatLimit = getSeatLimit(billingDoc) ?? PLAN_LIMITS.small.members;
+  if (seatLimit <= PLAN_LIMITS.small.members) {
+    return {
+      monthly: PLAN_LIMITS.small.aiMonthly,
+      daily: PLAN_LIMITS.small.aiDaily,
+      tier: 'small',
+    };
+  }
+  if (seatLimit <= PLAN_LIMITS.standard.members) {
+    return {
+      monthly: PLAN_LIMITS.standard.aiMonthly,
+      daily: PLAN_LIMITS.standard.aiDaily,
+      tier: 'standard',
+    };
+  }
+  if (seatLimit <= PLAN_LIMITS.business.members) {
+    return {
+      monthly: PLAN_LIMITS.business.aiMonthly,
+      daily: PLAN_LIMITS.business.aiDaily,
+      tier: 'business',
+    };
+  }
+  return {
+    monthly: PLAN_LIMITS.enterprise.aiMonthly,
+    daily: PLAN_LIMITS.enterprise.aiDaily,
+    tier: 'enterprise',
+  };
 }
 
 /**
