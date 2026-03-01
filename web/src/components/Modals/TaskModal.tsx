@@ -9,6 +9,7 @@ import type { Project, Task, Person, TaskNotificationSettings } from '../../lib/
 import type { ProjectMember } from '../../lib/auth-types';
 import { useProjectMembers } from '../../lib/hooks/useProjectMembers';
 import { useStages } from '../../lib/hooks/useStages';
+import { useGoogleConnect } from '../../hooks/useGoogleConnect';
 import type { ToastMessage } from '../ToastStack';
 
 type TaskType = 'task' | 'meeting';
@@ -120,6 +121,7 @@ export function TaskModal({
 
   const membersLoading = Boolean(project) && membersQueryLoading && projectMembers.length === 0;
   const { data: stages = [] } = useStages(project || undefined);
+  const { connected: googleConnected, loading: googleLoading } = useGoogleConnect();
 
   const resetFormFields = useCallback((keepContext: boolean) => {
     setName('');
@@ -822,15 +824,25 @@ export function TaskModal({
             />
           </div>
         </div>
-        <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            checked={calendarSync}
-            onChange={(e) => setCalendarSync(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300"
-          />
-          Googleカレンダーに同期
-        </label>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={calendarSync}
+              onChange={(e) => setCalendarSync(e.target.checked)}
+              disabled={!googleConnected || googleLoading}
+              className="h-4 w-4 rounded border-slate-300 disabled:opacity-50"
+            />
+            <span className={!googleConnected && !googleLoading ? 'text-slate-400' : ''}>
+              Googleカレンダーに同期
+            </span>
+          </label>
+          {!googleConnected && !googleLoading && (
+            <p className="mt-1 text-xs text-amber-600">
+              設定画面でGoogleアカウントを連携してください
+            </p>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs text-slate-500">優先度</label>
