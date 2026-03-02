@@ -70,7 +70,6 @@ import { NotificationBell } from './components/NotificationBell';
 import { BulkImportModal } from './components/BulkImportModal';
 import { UserManagement } from './components/UserManagement';
 import { BallView } from './components/BallView';
-import { FeedbackButton } from './components/FeedbackButton';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { CommercialTransactionPage } from './pages/CommercialTransactionPage';
@@ -6464,7 +6463,6 @@ function App() {
       {showTrialExpiredModal && (
         <TrialExpiredModal onClose={() => setShowTrialExpiredModal(false)} />
       )}
-      <FeedbackButton />
       {/* デモモード: トライアル開始CTA */}
       {DEMO_MODE && (
         <a

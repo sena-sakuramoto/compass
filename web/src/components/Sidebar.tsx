@@ -13,7 +13,9 @@ import {
   HelpCircle,
   LogOut,
   CircleDot,
+  MessageSquare,
 } from 'lucide-react';
+import { submitFeedback } from '../lib/api';
 import type { User } from 'firebase/auth';
 
 export interface NavigationItem {
@@ -48,6 +50,23 @@ const iconMap = {
 export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, loading = false, panel }: SidebarProps) {
   const location = useLocation();
   const [isConfigMode, setIsConfigMode] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackType, setFeedbackType] = useState<'bug' | 'feature' | 'other'>('bug');
+  const [feedbackMsg, setFeedbackMsg] = useState('');
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
+
+  const handleFeedbackSubmit = async () => {
+    if (!feedbackMsg.trim()) return;
+    setFeedbackSending(true);
+    try {
+      await submitFeedback({ type: feedbackType, message: feedbackMsg, url: window.location.href, userAgent: navigator.userAgent });
+      setFeedbackSent(true);
+      setFeedbackMsg('');
+      window.setTimeout(() => { setFeedbackOpen(false); setFeedbackSent(false); }, 2000);
+    } catch { alert('送信に失敗しました'); }
+    setFeedbackSending(false);
+  };
   const [isDesktop, setIsDesktop] = useState(() => {
     if (typeof window === 'undefined') return true;
     return window.matchMedia('(min-width: 1024px)').matches;
@@ -244,7 +263,32 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, 
               <Link to="/terms" className="hover:text-slate-600 hover:underline">利用規約</Link>
               <Link to="/privacy" className="hover:text-slate-600 hover:underline">プライバシー</Link>
               <Link to="/legal" className="hover:text-slate-600 hover:underline">特商法</Link>
+              <button onClick={() => setFeedbackOpen((v) => !v)} className="hover:text-slate-600 hover:underline">ご意見</button>
             </div>
+            {feedbackOpen && (
+              <div className="mt-2 space-y-2">
+                {feedbackSent ? (
+                  <p className="text-[11px] text-slate-500">送信しました</p>
+                ) : (
+                  <>
+                    <div className="flex gap-1">
+                      {(['bug', 'feature', 'other'] as const).map((t) => (
+                        <button key={t} onClick={() => setFeedbackType(t)}
+                          className={`px-2 py-0.5 text-[10px] rounded ${feedbackType === t ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}
+                        >{t === 'bug' ? '不具合' : t === 'feature' ? '要望' : 'その他'}</button>
+                      ))}
+                    </div>
+                    <textarea value={feedbackMsg} onChange={(e) => setFeedbackMsg(e.target.value)}
+                      placeholder="内容を入力" rows={3}
+                      className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] resize-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400"
+                    />
+                    <button onClick={handleFeedbackSubmit} disabled={!feedbackMsg.trim() || feedbackSending}
+                      className="w-full bg-slate-900 text-white rounded py-1 text-[11px] hover:bg-slate-800 disabled:opacity-50"
+                    >{feedbackSending ? '送信中...' : '送信'}</button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </aside>
