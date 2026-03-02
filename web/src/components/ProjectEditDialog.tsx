@@ -1161,6 +1161,14 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
     setSaving(true);
 
     const updatedProject = formData as Project;
+    const isManualStatus = updatedProject.ステータス === '保留' || updatedProject.ステータス === '失注';
+    const normalizedProject = isManualStatus
+      ? updatedProject
+      : {
+          ...updatedProject,
+          // 自動ステータスを選択した場合は空文字ではなく計算結果を保存する
+          ステータス: calculateProjectStatus({ ...(updatedProject as Project), ステータス: '' }),
+        };
     const prevProject = project; // 元のプロジェクトを保存（ロールバック用）
     let opId: string | null = null; // pendingOverlay用のオペレーションID
 
@@ -1168,8 +1176,8 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       // 楽観的更新: 先にローカルstateを更新
       if (onSaveLocal && project?.id) {
         // pendingOverlayに変更を登録（サーバーリロードで上書きされないように保護）
-        opId = addPendingProject(project.id, updatedProject);
-        onSaveLocal(updatedProject);
+        opId = addPendingProject(project.id, normalizedProject);
+        onSaveLocal(normalizedProject);
       }
 
       const effectiveProjectId = project?.id || formData.id;
@@ -1184,7 +1192,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
       if (project?.id) {
         // 編集モード: 差分更新パターン
         // 変更されたフィールドのみを抽出して送信
-        const diff = computeDiff(project as unknown as Record<string, unknown>, updatedProject as unknown as Record<string, unknown>, {
+        const diff = computeDiff(project as unknown as Record<string, unknown>, normalizedProject as unknown as Record<string, unknown>, {
           // id, ProjectID は変更不可なので除外
           excludeFields: ['id', 'ProjectID', 'createdAt', 'createdBy', 'updatedAt'],
         });
@@ -1227,7 +1235,7 @@ const [logsLoadedProjectId, setLogsLoadedProjectId] = useState<string | null>(nu
         }
       } else {
         // 新規作成モード: 従来通りの処理
-        const createdProjectId = await onSave(updatedProject);
+        const createdProjectId = await onSave(normalizedProject);
         toast.success('プロジェクトを作成しました');
 
         // 初期メンバー一括追加

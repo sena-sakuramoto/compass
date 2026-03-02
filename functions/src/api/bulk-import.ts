@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import Anthropic from '@anthropic-ai/sdk';
 import multer from 'multer';
 import { authMiddleware } from '../lib/auth';
 import { getUser } from '../lib/users';
@@ -263,6 +262,7 @@ router.post('/bulk-import/parse', async (req: Request, res: Response) => {
         return;
       }
 
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
       const anthropic = new Anthropic({ apiKey: anthropicKey });
       const message = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',

@@ -3265,9 +3265,16 @@ function App() {
   const [dimOthersEnabled, setDimOthersEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
     try {
-      return localStorage.getItem('dimOthersEnabled') === 'true';
+      const stored = localStorage.getItem('dimOthersEnabled');
+      if (stored === null) {
+        // 初期設定はON
+        localStorage.setItem('dimOthersEnabled', 'true');
+        return true;
+      }
+      return stored === 'true';
     } catch {
-      return false;
+      // 取得に失敗した場合も初期設定はON扱い
+      return true;
     }
   });
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
@@ -4389,12 +4396,13 @@ function App() {
     const tasksWithPending = applyPendingToTasks(state.tasks, pending);
     const now = Date.now();
     const query = search.trim().toLowerCase();
-    return tasksWithPending.filter((task) => {
+    const hasTaskFilters = assigneeFilter.length > 0 || statusFilter.length > 0 || Boolean(query);
+
+    const baseTasks = tasksWithPending.filter((task) => {
       // 削除済みタスクを除外
       const deletion = deletedTasks[task.id];
       if (deletion && now < deletion.lockUntil) return false;
 
-      // ガントチャートでは工程（stage）も表示する（タスク一覧とは異なる）
       if (!showArchivedProjects) {
         const project = projectMap[task.projectId];
         if (project && isArchivedProjectStatus(calculateProjectStatus(project))) return false;
@@ -4403,30 +4411,52 @@ function App() {
       const projectMatch = myProjectsFilterActive
         ? effectiveProjectFilter.includes(task.projectId)
         : effectiveProjectFilter.length === 0 || effectiveProjectFilter.includes(task.projectId);
+      return projectMatch;
+    });
 
-      // 工程(stage)・マイルストーンは担当者/ステータスフィルターの対象外
-      // フィルターすると子タスクの階層表示やマイルストーン表示が壊れる
-      const isStageOrMilestone = task.type === 'stage' || task.マイルストーン;
-      const assigneeMatch = isStageOrMilestone || assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
+    const buildHaystack = (task: Task) => [
+      task.id,
+      task.タスク名,
+      task.タスク種別,
+      task.assignee,
+      task.担当者,
+      task.ステータス,
+      projectMap[task.projectId]?.物件名,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    const matchesTaskFilters = (task: Task) => {
+      const assigneeMatch = assigneeFilter.length === 0 || assigneeFilter.includes(task.assignee ?? task.担当者 ?? '');
       // タスクのステータスは「完了/未完了」でフィルター
       const isCompleted = task.ステータス === '完了';
-      const statusMatch = isStageOrMilestone || statusFilter.length === 0 ||
+      const statusMatch = statusFilter.length === 0 ||
         (statusFilter.includes('完了') && isCompleted) ||
         (statusFilter.includes('未完了') && !isCompleted);
-      const haystack = [
-        task.id,
-        task.タスク名,
-        task.タスク種別,
-        task.assignee,
-        task.担当者,
-        task.ステータス,
-        projectMap[task.projectId]?.物件名,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
+      const haystack = buildHaystack(task);
       const queryMatch = !query || haystack.includes(query);
-      return projectMatch && assigneeMatch && statusMatch && queryMatch;
+      return assigneeMatch && statusMatch && queryMatch;
+    };
+
+    const matchingLeafTasks = baseTasks
+      .filter((task) => task.type !== 'stage')
+      .filter(matchesTaskFilters);
+    const matchingLeafIds = new Set(matchingLeafTasks.map((task) => task.id));
+    const stageIdsWithMatches = new Set(
+      matchingLeafTasks.map((task) => task.parentId).filter(Boolean) as string[]
+    );
+
+    return baseTasks.filter((task) => {
+      if (task.type !== 'stage') {
+        return matchingLeafIds.has(task.id);
+      }
+
+      if (!hasTaskFilters) return true;
+
+      const haystack = buildHaystack(task);
+      const queryMatch = !query || haystack.includes(query);
+      return stageIdsWithMatches.has(task.id) || (query.length > 0 && queryMatch);
     });
   }, [state.tasks, pending, deletedTasks, effectiveProjectFilter, myProjectsFilterActive, assigneeFilter, statusFilter, search, projectMap, showArchivedProjects]);
 
