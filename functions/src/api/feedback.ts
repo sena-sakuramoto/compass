@@ -17,7 +17,7 @@ router.post('/', authMiddleware(), async (req, res) => {
     return res.status(500).json({ error: 'メール送信設定が未構成です' });
   }
 
-  const { type, message, url, userAgent } = req.body;
+  const { type, message, url, userAgent, screenshotUrl } = req.body;
   const user = (req as any).user;
 
   if (!message || typeof message !== 'string' || !message.trim()) {
@@ -38,10 +38,28 @@ router.post('/', authMiddleware(), async (req, res) => {
     `組織: ${user.orgId}`,
     `画面URL: ${url || '不明'}`,
     `ブラウザ: ${userAgent || '不明'}`,
+    screenshotUrl ? `スクリーンショット: ${screenshotUrl}` : null,
     '',
     '--- メッセージ ---',
     message,
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const htmlBody = [
+    `<p><strong>種別:</strong> ${typeLabel}</p>`,
+    `<p><strong>ユーザー:</strong> ${user.displayName || user.email} (${user.email})</p>`,
+    `<p><strong>組織:</strong> ${user.orgId}</p>`,
+    `<p><strong>画面URL:</strong> ${url || '不明'}</p>`,
+    `<p><strong>ブラウザ:</strong> ${userAgent || '不明'}</p>`,
+    '<hr/>',
+    `<p>${String(message).replace(/\n/g, '<br/>')}</p>`,
+    screenshotUrl
+      ? `<p><strong>スクリーンショット:</strong><br/><img src="${screenshotUrl}" style="max-width:600px;border:1px solid #ddd;border-radius:8px;" /></p>`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   try {
     const transporter = nodemailer.createTransport({
@@ -58,6 +76,7 @@ router.post('/', authMiddleware(), async (req, res) => {
       replyTo: user.email,
       subject,
       text: body,
+      html: htmlBody,
     });
 
     console.log('[feedback] Mail sent:', {

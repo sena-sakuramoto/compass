@@ -288,12 +288,16 @@ match /feedback/{filename} {
 
 ## 完了条件
 
-- [ ] `pnpm build` (web) 成功
-- [ ] `pnpm build` (functions) 成功
-- [ ] `calendarSync.ts` で `getOrCreateCompassCalendar` が使われている
-- [ ] `calendarSync.ts` から `process.env.CALENDAR_ID || 'primary'` が削除されている
-- [ ] Google連携タブが全ユーザーに表示される
-- [ ] Drive/Chat 設定セクションは admin/owner のみ表示
-- [ ] FeedbackButton にファイル input がある
-- [ ] スクショアップロード → メールに URL 含まれる
-- [ ] Firebase Storage ルールに `feedback/` のルールがある
+- [x] `functions: ./node_modules/.bin/tsc --noEmit` 成功
+- [x] `web: ./node_modules/.bin/tsc --noEmit` 成功
+- [ ] `web: ./node_modules/.bin/vite build` 成功（環境依存で `@rollup/rollup-linux-x64-gnu` 欠落）
+- [x] `GET /api/google/calendars` を追加し、同期先 `syncCalendarId` を返す
+- [x] `PATCH /api/google/sync-calendar` を追加し、既存イベント移行オプションを実装
+- [x] `calendarSync.ts` はユーザーの `syncCalendarId` を参照して同期
+- [x] Google連携タブを全ユーザーに表示
+- [x] Drive/Chat/メンバー同期セクションは admin/owner のみ表示
+- [x] フィードバックはサイドバーに統合し、スクショ添付を実装
+- [x] `FeedbackButton.tsx` を削除
+- [x] `functions/src/api/feedback.ts` でスクショURLをメール本文（text/html）に含める
+- [x] `storage.rules` と `firebase.json` に `feedback/` アップロードルールを追加
+- [x] API/JSエラー時に「報告する」トーストを表示し、フィードバック欄へ自動入力

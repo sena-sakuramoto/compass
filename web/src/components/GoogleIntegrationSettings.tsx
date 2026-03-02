@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   getGoogleIntegrationSettings,
-  updateGoogleIntegrationSettings
+  listGoogleCalendars,
+  updateGoogleIntegrationSettings,
+  updateSyncCalendar,
 } from '../lib/api';
 import type { GoogleIntegrationSettings as GoogleIntegrationSettingsType } from '../lib/types';
 import {
@@ -15,6 +17,7 @@ import {
   ArrowUp,
   ArrowDown,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { GoogleConnectButton } from './GoogleConnectButton';
 
 // フォルダ名の構成要素
@@ -88,6 +91,7 @@ function buildPreview(enabledParts: FolderPart[], separator: string, numberStart
 
 interface GoogleIntegrationSettingsProps {
   className?: string;
+  currentUserRole?: string;
 }
 
 const DEFAULT_SETTINGS: Omit<GoogleIntegrationSettingsType, 'updatedAt' | 'updatedBy'> = {
@@ -107,7 +111,7 @@ const DEFAULT_SETTINGS: Omit<GoogleIntegrationSettingsType, 'updatedAt' | 'updat
   memberSyncMode: 'none',
 };
 
-export function GoogleIntegrationSettings({ className = '' }: GoogleIntegrationSettingsProps) {
+export function GoogleIntegrationSettings({ className = '', currentUserRole }: GoogleIntegrationSettingsProps) {
   const [settings, setSettings] = useState<Omit<GoogleIntegrationSettingsType, 'updatedAt' | 'updatedBy'>>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -146,6 +150,7 @@ export function GoogleIntegrationSettings({ className = '' }: GoogleIntegrationS
     () => buildPreview(folderParts, separator, settings.drive.numberStart ?? 1, settings.drive.numberDigits ?? 3),
     [folderParts, separator, settings.drive.numberStart, settings.drive.numberDigits]
   );
+  const isAdminUser = currentUserRole === 'super_admin' || currentUserRole === 'admin' || currentUserRole === 'owner';
 
   useEffect(() => {
     loadSettings();
@@ -239,82 +244,87 @@ export function GoogleIntegrationSettings({ className = '' }: GoogleIntegrationS
           <GoogleConnectButton />
         </section>
 
-        {/* Google Drive 設定 */}
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <FolderOpen className="w-5 h-5 text-yellow-600" />
-            <h3 className="font-medium text-gray-900">Google Drive</h3>
-            {savedOnce && settings.drive.enabled && (
-              <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">ON</span>
-            )}
-          </div>
+        {/* カレンダー同期設定（全ユーザー） */}
+        <CalendarSyncSection />
 
-          <div className="space-y-4 pl-7">
-            {/* 有効/無効 */}
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.drive.enabled}
-                onChange={(e) => setSettings({
-                  ...settings,
-                  drive: { ...settings.drive, enabled: e.target.checked }
-                })}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700">
-                プロジェクト作成時にフォルダを自動作成
-              </span>
-            </label>
+        {isAdminUser && (
+          <>
+            {/* Google Drive 設定 */}
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <FolderOpen className="w-5 h-5 text-yellow-600" />
+                <h3 className="font-medium text-gray-900">Google Drive</h3>
+                {savedOnce && settings.drive.enabled && (
+                  <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">ON</span>
+                )}
+              </div>
 
-            {settings.drive.enabled && (
-              <>
-                {/* 親フォルダURL */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    親フォルダURL
-                    <button
-                      type="button"
-                      className="ml-1 text-gray-400 hover:text-gray-600"
-                      title="フォルダをこの親フォルダ内に作成します"
-                    >
-                      <HelpCircle className="w-4 h-4 inline" />
-                    </button>
-                  </label>
+              <div className="space-y-4 pl-7">
+                {/* 有効/無効 */}
+                <label className="flex items-center gap-3 cursor-pointer">
                   <input
-                    type="url"
-                    value={settings.drive.parentFolderUrl || ''}
-                    onChange={(e) => {
-                      const url = e.target.value;
-                      // URLからフォルダIDを抽出
-                      let folderId: string | null = null;
-                      if (url) {
-                        const match = url.match(/folders\/([a-zA-Z0-9_-]+)/);
-                        if (match) {
-                          folderId = match[1];
-                        }
-                      }
-                      setSettings({
-                        ...settings,
-                        drive: {
-                          ...settings.drive,
-                          parentFolderUrl: url || null,
-                          parentFolderId: folderId
-                        }
-                      });
-                    }}
-                    placeholder="https://drive.google.com/drive/folders/..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    type="checkbox"
+                    checked={settings.drive.enabled}
+                    onChange={(e) => setSettings({
+                      ...settings,
+                      drive: { ...settings.drive, enabled: e.target.checked }
+                    })}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
-                    Google DriveのフォルダURLを貼り付けてください
-                  </p>
-                </div>
+                  <span className="text-sm text-gray-700">
+                    プロジェクト作成時にフォルダを自動作成
+                  </span>
+                </label>
 
-                {/* フォルダ名の構成 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    フォルダ名の構成
-                  </label>
+                {settings.drive.enabled && (
+                  <>
+                    {/* 親フォルダURL */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        親フォルダURL
+                        <button
+                          type="button"
+                          className="ml-1 text-gray-400 hover:text-gray-600"
+                          title="フォルダをこの親フォルダ内に作成します"
+                        >
+                          <HelpCircle className="w-4 h-4 inline" />
+                        </button>
+                      </label>
+                      <input
+                        type="url"
+                        value={settings.drive.parentFolderUrl || ''}
+                        onChange={(e) => {
+                          const url = e.target.value;
+                          // URLからフォルダIDを抽出
+                          let folderId: string | null = null;
+                          if (url) {
+                            const match = url.match(/folders\/([a-zA-Z0-9_-]+)/);
+                            if (match) {
+                              folderId = match[1];
+                            }
+                          }
+                          setSettings({
+                            ...settings,
+                            drive: {
+                              ...settings.drive,
+                              parentFolderUrl: url || null,
+                              parentFolderId: folderId
+                            }
+                          });
+                        }}
+                        placeholder="https://drive.google.com/drive/folders/..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        Google DriveのフォルダURLを貼り付けてください
+                      </p>
+                    </div>
+
+                    {/* フォルダ名の構成 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        フォルダ名の構成
+                      </label>
 
                   {/* パーツ選択 */}
                   <div className="space-y-2 mb-3">
@@ -438,115 +448,117 @@ export function GoogleIntegrationSettings({ className = '' }: GoogleIntegrationS
                       <p className="text-sm font-medium text-blue-900">{folderPreview}</p>
                     </div>
                   )}
-                </div>
-              </>
-            )}
-          </div>
-        </section>
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
 
-        {/* Google Chat 設定 */}
-        <section>
-          <div className="flex items-center gap-2 mb-4">
-            <MessageSquare className="w-5 h-5 text-green-600" />
-            <h3 className="font-medium text-gray-900">Google Chat</h3>
-            {savedOnce && settings.chat.enabled && (
-              <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">ON</span>
-            )}
-          </div>
+            {/* Google Chat 設定 */}
+            <section>
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquare className="w-5 h-5 text-green-600" />
+                <h3 className="font-medium text-gray-900">Google Chat</h3>
+                {savedOnce && settings.chat.enabled && (
+                  <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">ON</span>
+                )}
+              </div>
 
-          <div className="space-y-4 pl-7">
-            {/* 有効/無効 */}
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.chat.enabled}
-                onChange={(e) => setSettings({
-                  ...settings,
-                  chat: { ...settings.chat, enabled: e.target.checked }
-                })}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700">
-                プロジェクト作成時にスペースを自動作成
-              </span>
-            </label>
-
-            {settings.chat.enabled && (
-              <>
-                {/* スペース名テンプレート */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    スペース名テンプレート
-                  </label>
+              <div className="space-y-4 pl-7">
+                {/* 有効/無効 */}
+                <label className="flex items-center gap-3 cursor-pointer">
                   <input
-                    type="text"
-                    value={settings.chat.spaceNameTemplate}
+                    type="checkbox"
+                    checked={settings.chat.enabled}
                     onChange={(e) => setSettings({
                       ...settings,
-                      chat: { ...settings.chat, spaceNameTemplate: e.target.value }
+                      chat: { ...settings.chat, enabled: e.target.checked }
                     })}
-                    placeholder="【COMPASS】{projectName}"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
-                    使用可能な変数: {'{projectName}'}, {'{projectId}'}, {'{client}'}
-                  </p>
-                </div>
+                  <span className="text-sm text-gray-700">
+                    プロジェクト作成時にスペースを自動作成
+                  </span>
+                </label>
 
-                {/* デフォルト説明 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    デフォルト説明文（オプション）
+                {settings.chat.enabled && (
+                  <>
+                    {/* スペース名テンプレート */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        スペース名テンプレート
+                      </label>
+                      <input
+                        type="text"
+                        value={settings.chat.spaceNameTemplate}
+                        onChange={(e) => setSettings({
+                          ...settings,
+                          chat: { ...settings.chat, spaceNameTemplate: e.target.value }
+                        })}
+                        placeholder="【COMPASS】{projectName}"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      />
+                      <p className="mt-1 text-xs text-gray-500">
+                        使用可能な変数: {'{projectName}'}, {'{projectId}'}, {'{client}'}
+                      </p>
+                    </div>
+
+                    {/* デフォルト説明 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        デフォルト説明文（オプション）
+                      </label>
+                      <textarea
+                        value={settings.chat.defaultDescription || ''}
+                        onChange={(e) => setSettings({
+                          ...settings,
+                          chat: { ...settings.chat, defaultDescription: e.target.value || null }
+                        })}
+                        placeholder="COMPASSプロジェクト連携スペースです"
+                        rows={2}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+
+            {/* メンバー同期設定 */}
+            {(settings.drive.enabled || settings.chat.enabled) && (
+              <section>
+                <h3 className="font-medium text-gray-900 mb-4">メンバー同期</h3>
+                <div className="space-y-2 pl-0">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="memberSyncMode"
+                      value="none"
+                      checked={settings.memberSyncMode === 'none'}
+                      onChange={() => setSettings({ ...settings, memberSyncMode: 'none' })}
+                      className="w-4 h-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">
+                      自動同期しない（手動で招待）
+                    </span>
                   </label>
-                  <textarea
-                    value={settings.chat.defaultDescription || ''}
-                    onChange={(e) => setSettings({
-                      ...settings,
-                      chat: { ...settings.chat, defaultDescription: e.target.value || null }
-                    })}
-                    placeholder="COMPASSプロジェクト連携スペースです"
-                    rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  />
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="memberSyncMode"
+                      value="addOnly"
+                      checked={settings.memberSyncMode === 'addOnly'}
+                      onChange={() => setSettings({ ...settings, memberSyncMode: 'addOnly' })}
+                      className="w-4 h-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-700">
+                      メンバー追加時に自動招待
+                    </span>
+                  </label>
                 </div>
-              </>
+              </section>
             )}
-          </div>
-        </section>
-
-        {/* メンバー同期設定 */}
-        {(settings.drive.enabled || settings.chat.enabled) && (
-          <section>
-            <h3 className="font-medium text-gray-900 mb-4">メンバー同期</h3>
-            <div className="space-y-2 pl-0">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="memberSyncMode"
-                  value="none"
-                  checked={settings.memberSyncMode === 'none'}
-                  onChange={() => setSettings({ ...settings, memberSyncMode: 'none' })}
-                  className="w-4 h-4 border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700">
-                  自動同期しない（手動で招待）
-                </span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="radio"
-                  name="memberSyncMode"
-                  value="addOnly"
-                  checked={settings.memberSyncMode === 'addOnly'}
-                  onChange={() => setSettings({ ...settings, memberSyncMode: 'addOnly' })}
-                  className="w-4 h-4 border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700">
-                  メンバー追加時に自動招待
-                </span>
-              </label>
-            </div>
-          </section>
+          </>
         )}
 
         {/* 注意事項 */}
@@ -581,5 +593,144 @@ export function GoogleIntegrationSettings({ className = '' }: GoogleIntegrationS
         </button>
       </div>
     </div>
+  );
+}
+
+type CalendarOption = {
+  id: string;
+  summary: string;
+  primary: boolean;
+  backgroundColor?: string;
+};
+
+function CalendarSyncSection() {
+  const [calendars, setCalendars] = useState<CalendarOption[]>([]);
+  const [syncCalendarId, setSyncCalendarId] = useState<string>('primary');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [showMigrateDialog, setShowMigrateDialog] = useState(false);
+  const [pendingCalendarId, setPendingCalendarId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    listGoogleCalendars()
+      .then((res) => {
+        if (!mounted) return;
+        const nextCalendars = res.calendars || [];
+        setCalendars(nextCalendars);
+        const fallbackId = nextCalendars.find((cal) => cal.primary)?.id || nextCalendars[0]?.id || 'primary';
+        setSyncCalendarId(res.syncCalendarId || fallbackId);
+        setFetchError(null);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setFetchError('Googleアカウント接続後に選択できます');
+      })
+      .finally(() => {
+        if (!mounted) return;
+        setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleChange = (newId: string) => {
+    if (newId === syncCalendarId) return;
+    setPendingCalendarId(newId);
+    setShowMigrateDialog(true);
+  };
+
+  const handleConfirm = async (migrateExisting: boolean) => {
+    if (!pendingCalendarId) return;
+    setSaving(true);
+    setShowMigrateDialog(false);
+    try {
+      const result = await updateSyncCalendar({
+        syncCalendarId: pendingCalendarId,
+        migrateExisting,
+      });
+      setSyncCalendarId(result.syncCalendarId);
+      toast.success(
+        migrateExisting
+          ? `同期先を変更し、${result.migratedCount}件の既存イベントを移動しました`
+          : '同期先を変更しました'
+      );
+    } catch (error) {
+      console.error('Failed to update sync calendar:', error);
+      toast.error('同期先の変更に失敗しました');
+    } finally {
+      setSaving(false);
+      setPendingCalendarId(null);
+    }
+  };
+
+  return (
+    <section className="space-y-2">
+      <h3 className="font-medium text-gray-900">カレンダー同期設定</h3>
+      {loading ? (
+        <p className="text-sm text-slate-400">読み込み中...</p>
+      ) : fetchError ? (
+        <p className="text-sm text-slate-500">{fetchError}</p>
+      ) : calendars.length === 0 ? (
+        <p className="text-sm text-slate-500">同期可能なカレンダーが見つかりません</p>
+      ) : (
+        <label className="block text-sm text-slate-600">
+          同期先カレンダー
+          <select
+            value={syncCalendarId}
+            onChange={(event) => handleChange(event.target.value)}
+            disabled={saving}
+            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            {calendars.map((calendar) => (
+              <option key={calendar.id} value={calendar.id}>
+                {calendar.summary}
+                {calendar.primary ? ' (メイン)' : ''}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {showMigrateDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="mx-4 w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
+            <h4 className="mb-2 font-medium text-gray-900">同期先カレンダーを変更</h4>
+            <p className="mb-4 text-sm text-slate-600">
+              既存のイベントも新しいカレンダーに移動しますか？
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => handleConfirm(true)}
+                className="flex-1 rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
+              >
+                移動する
+              </button>
+              <button
+                type="button"
+                onClick={() => handleConfirm(false)}
+                className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
+              >
+                新規タスクから適用
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowMigrateDialog(false);
+                setPendingCalendarId(null);
+              }}
+              className="mt-2 w-full text-sm text-slate-400 hover:text-slate-600"
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

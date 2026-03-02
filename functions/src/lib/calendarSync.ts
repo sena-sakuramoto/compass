@@ -91,7 +91,8 @@ export async function syncTaskToCalendar(
     return;
   }
 
-  const calendarId = process.env.CALENDAR_ID || 'primary';
+  const tokenDoc = await db.collection('users').doc(userId).collection('private').doc('googleTokens').get();
+  const calendarId = tokenDoc.data()?.syncCalendarId || 'primary';
   let calendar: calendar_v3.Calendar;
   try {
     calendar = await getUserCalendarClient(userId);

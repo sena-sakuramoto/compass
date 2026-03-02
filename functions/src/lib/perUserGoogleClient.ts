@@ -16,6 +16,7 @@ export interface GoogleTokens {
   connectedEmail: string;
   connectedAt: admin.firestore.Timestamp;
   updatedAt: admin.firestore.Timestamp;
+  syncCalendarId?: string | null;
 }
 
 function getOAuthClient() {

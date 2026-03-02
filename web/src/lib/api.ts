@@ -14,6 +14,19 @@ export class ApiError extends Error {
   }
 }
 
+export type ApiErrorInfo = {
+  method: string;
+  url: string;
+  status: number;
+  message: string;
+};
+
+let onApiErrorCallback: ((info: ApiErrorInfo) => void) | null = null;
+
+export function setApiErrorHandler(handler: ((info: ApiErrorInfo) => void) | null) {
+  onApiErrorCallback = handler;
+}
+
 export function buildAuthHeaders(token?: string): Record<string, string> {
   if (!token) return {};
   const value = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
@@ -116,6 +129,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         statusText: res.statusText,
         response: parsed ?? text,
         hasAuthHeader: !!token,
+      });
+    }
+
+    if (res.status !== 404 && onApiErrorCallback) {
+      onApiErrorCallback({
+        method: options.method || 'GET',
+        url: path,
+        status: res.status,
+        message: String(message).slice(0, 200),
       });
     }
 
@@ -1175,9 +1197,45 @@ export async function submitFeedback(payload: {
   message: string;
   url: string;
   userAgent: string;
+  screenshotUrl?: string | null;
 }) {
   return request<{ ok: true }>('/feedback', {
     method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadFeedbackScreenshot(file: File): Promise<string> {
+  const { getFirebaseApp } = await import('./firebaseClient');
+  const app = getFirebaseApp();
+  if (!app) {
+    throw new Error('Firebase not initialized');
+  }
+
+  const { getStorage, ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+  const storage = getStorage();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const filename = `feedback/${Date.now()}_${safeName}`;
+  const storageRef = ref(storage, filename);
+  await uploadBytes(storageRef, file);
+  return getDownloadURL(storageRef);
+}
+
+// ==================== Google Calendar API ====================
+
+export async function listGoogleCalendars() {
+  return request<{
+    calendars: Array<{ id: string; summary: string; primary: boolean; backgroundColor?: string }>;
+    syncCalendarId: string | null;
+  }>('/google/calendars');
+}
+
+export async function updateSyncCalendar(payload: {
+  syncCalendarId: string;
+  migrateExisting: boolean;
+}) {
+  return request<{ ok: true; syncCalendarId: string; migratedCount: number }>('/google/sync-calendar', {
+    method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }

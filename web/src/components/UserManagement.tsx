@@ -464,25 +464,23 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
             <Users className="w-4 h-4" />
             人員管理
           </button>
-          {(currentUserRole === 'super_admin' || currentUserRole === 'admin' || currentUserRole === 'owner') && (
-            <button
-              onClick={() => setActiveTab('google')}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === 'google'
-                  ? 'border-teal-600 text-teal-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-              Google連携
-            </button>
-          )}
+          <button
+            onClick={() => setActiveTab('google')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'google'
+                ? 'border-teal-600 text-teal-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            Google連携
+          </button>
         </nav>
       </div>
 
       {/* Google連携タブ */}
       {activeTab === 'google' && (
-        <GoogleIntegrationSettings />
+        <GoogleIntegrationSettings currentUserRole={currentUserRole ?? undefined} />
       )}
 
       {/* 人員管理タブ */}

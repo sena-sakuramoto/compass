@@ -51,6 +51,7 @@ import {
   createOrgForStripeSubscriber,
   checkOrgSetupEligibility,
   checkOrgIdAvailability,
+  setApiErrorHandler,
 } from './lib/api';
 import type { BillingAccessInfo } from './lib/api';
 import { Filters } from './components/Filters';
@@ -266,6 +267,8 @@ function AppLayout({
   onPrivateSettingsChange,
   personalHolidayCount,
   onResetPersonalHolidays,
+  errorReport,
+  onErrorReportHandled,
 }: {
   children: React.ReactNode;
   onOpenTask(): void;
@@ -289,6 +292,8 @@ function AppLayout({
   onPrivateSettingsChange: React.Dispatch<React.SetStateAction<PrivateSettings>>;
   personalHolidayCount: number;
   onResetPersonalHolidays(): void;
+  errorReport: { type: string; message: string } | null;
+  onErrorReportHandled(): void;
 }) {
   const navLinks = [
     { path: '/', label: '工程表' },
@@ -307,6 +312,8 @@ function AppLayout({
           user={user}
           onSignOut={onSignOut}
           loading={loading}
+          errorReport={errorReport}
+          onErrorReportHandled={onErrorReportHandled}
           panel={
             <>
               {actionPanel}
@@ -3301,6 +3308,8 @@ function App() {
   const [currentUserRole, setCurrentUserRole] = useState<string | undefined>(undefined);
   const [roleChecking, setRoleChecking] = useState(false);
   const toastTimers = useRef<Map<string, number>>(new Map());
+  const [pendingErrorReport, setPendingErrorReport] = useState<{ type: string; message: string } | null>(null);
+  const lastErrorTimeRef = useRef<Record<string, number>>({});
   const billingErrorNotifiedRef = useRef(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [billingAccess, setBillingAccess] = useState<BillingAccessInfo | null>(null);
@@ -3353,6 +3362,81 @@ function App() {
   const { addPending, ackPending, rollbackPending, pending, deletedTasks, addPendingProject, ackPendingProject, rollbackPendingProject, pendingProjects } = usePendingOverlay();
 
   const canSync = !DEMO_MODE && authSupported && Boolean(user);
+
+  const showErrorReportPrompt = useCallback(
+    (info: { method?: string; url?: string; status?: number; message: string; source?: string }) => {
+      const key = `${info.source || info.url || 'unknown'}:${info.status || 'js'}`;
+      const now = Date.now();
+      if (lastErrorTimeRef.current[key] && now - lastErrorTimeRef.current[key] < 30000) {
+        return;
+      }
+      lastErrorTimeRef.current[key] = now;
+
+      const errorMsg = info.url
+        ? `APIエラー: ${info.method || 'GET'} ${info.url} ${info.status ?? ''}\n${info.message}`
+        : `JSエラー: ${info.message}`;
+
+      toast(
+        (t) => (
+          <div className="flex items-center gap-3">
+            <span className="text-sm">エラーが発生しました</span>
+            <button
+              onClick={() => {
+                setPendingErrorReport({ type: 'bug', message: errorMsg });
+                toast.dismiss(t.id);
+              }}
+              className="rounded bg-slate-900 px-3 py-1 text-sm text-white hover:bg-slate-800"
+            >
+              報告する
+            </button>
+            <button
+              onClick={() => toast.dismiss(t.id)}
+              className="text-sm text-slate-400 hover:text-slate-600"
+            >
+              閉じる
+            </button>
+          </div>
+        ),
+        { duration: Infinity, position: 'top-center' }
+      );
+    },
+    []
+  );
+
+  useEffect(() => {
+    setApiErrorHandler((info) => {
+      showErrorReportPrompt(info);
+    });
+    return () => setApiErrorHandler(null);
+  }, [showErrorReportPrompt]);
+
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      showErrorReportPrompt({
+        message: event.message || '不明なエラー',
+        source: event.filename || 'window.onerror',
+      });
+    };
+
+    const handleRejection = (event: PromiseRejectionEvent) => {
+      const message = event.reason?.message || String(event.reason);
+      showErrorReportPrompt({
+        message,
+        source: 'unhandledrejection',
+      });
+    };
+
+    window.addEventListener('error', handleError);
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => {
+      window.removeEventListener('error', handleError);
+      window.removeEventListener('unhandledrejection', handleRejection);
+    };
+  }, [showErrorReportPrompt]);
+
+  const handleErrorReportHandled = useCallback(() => {
+    setPendingErrorReport(null);
+  }, []);
 
   // 起動時にIndexedDBキャッシュからProject Membersを読み込む
   useEffect(() => {
@@ -6140,6 +6224,8 @@ function App() {
         onPrivateSettingsChange={setPrivateSettings}
         personalHolidayCount={personalHolidaySet.size}
         onResetPersonalHolidays={resetPersonalHolidays}
+        errorReport={pendingErrorReport}
+        onErrorReportHandled={handleErrorReportHandled}
       >
         <Routes>
           <Route

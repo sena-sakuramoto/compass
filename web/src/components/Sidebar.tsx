@@ -15,7 +15,7 @@ import {
   CircleDot,
   MessageSquare,
 } from 'lucide-react';
-import { submitFeedback } from '../lib/api';
+import { submitFeedback, uploadFeedbackScreenshot } from '../lib/api';
 import type { User } from 'firebase/auth';
 
 export interface NavigationItem {
@@ -34,6 +34,8 @@ interface SidebarProps {
   onSignOut?: () => void;
   loading?: boolean;
   panel?: React.ReactNode;
+  errorReport?: { type: string; message: string } | null;
+  onErrorReportHandled?: () => void;
 }
 
 const iconMap = {
@@ -47,7 +49,16 @@ const iconMap = {
   CircleDot,
 };
 
-export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, loading = false, panel }: SidebarProps) {
+export function Sidebar({
+  navigationItems,
+  onNavigationChange,
+  user,
+  onSignOut,
+  loading = false,
+  panel,
+  errorReport,
+  onErrorReportHandled,
+}: SidebarProps) {
   const location = useLocation();
   const [isConfigMode, setIsConfigMode] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -55,14 +66,47 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, 
   const [feedbackMsg, setFeedbackMsg] = useState('');
   const [feedbackSending, setFeedbackSending] = useState(false);
   const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackScreenshot, setFeedbackScreenshot] = useState<File | null>(null);
+  const [feedbackPreviewUrl, setFeedbackPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!errorReport) return;
+    setFeedbackOpen(true);
+    setFeedbackType('bug');
+    setFeedbackMsg(errorReport.message);
+    onErrorReportHandled?.();
+  }, [errorReport, onErrorReportHandled]);
+
+  useEffect(() => {
+    return () => {
+      if (feedbackPreviewUrl) {
+        URL.revokeObjectURL(feedbackPreviewUrl);
+      }
+    };
+  }, [feedbackPreviewUrl]);
 
   const handleFeedbackSubmit = async () => {
     if (!feedbackMsg.trim()) return;
     setFeedbackSending(true);
     try {
-      await submitFeedback({ type: feedbackType, message: feedbackMsg, url: window.location.href, userAgent: navigator.userAgent });
+      let screenshotUrl: string | null = null;
+      if (feedbackScreenshot) {
+        screenshotUrl = await uploadFeedbackScreenshot(feedbackScreenshot);
+      }
+      await submitFeedback({
+        type: feedbackType,
+        message: feedbackMsg,
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        screenshotUrl,
+      });
       setFeedbackSent(true);
       setFeedbackMsg('');
+      if (feedbackPreviewUrl) {
+        URL.revokeObjectURL(feedbackPreviewUrl);
+      }
+      setFeedbackScreenshot(null);
+      setFeedbackPreviewUrl(null);
       window.setTimeout(() => { setFeedbackOpen(false); setFeedbackSent(false); }, 2000);
     } catch { alert('送信に失敗しました'); }
     setFeedbackSending(false);
@@ -282,6 +326,43 @@ export function Sidebar({ navigationItems, onNavigationChange, user, onSignOut, 
                       placeholder="内容を入力" rows={3}
                       className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] resize-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400"
                     />
+                    <label className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer hover:text-slate-600">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.414 6.586a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                      スクショ添付
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] ?? null;
+                          if (feedbackPreviewUrl) {
+                            URL.revokeObjectURL(feedbackPreviewUrl);
+                          }
+                          setFeedbackScreenshot(file);
+                          setFeedbackPreviewUrl(file ? URL.createObjectURL(file) : null);
+                        }}
+                      />
+                    </label>
+                    {feedbackPreviewUrl && (
+                      <div className="relative">
+                        <img src={feedbackPreviewUrl} alt="プレビュー" className="w-full rounded border border-slate-200" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (feedbackPreviewUrl) {
+                              URL.revokeObjectURL(feedbackPreviewUrl);
+                            }
+                            setFeedbackScreenshot(null);
+                            setFeedbackPreviewUrl(null);
+                          }}
+                          className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/50 text-[8px] text-white"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                     <button onClick={handleFeedbackSubmit} disabled={!feedbackMsg.trim() || feedbackSending}
                       className="w-full bg-slate-900 text-white rounded py-1 text-[11px] hover:bg-slate-800 disabled:opacity-50"
                     >{feedbackSending ? '送信中...' : '送信'}</button>
