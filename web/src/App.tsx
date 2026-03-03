@@ -72,6 +72,7 @@ import { BulkImportModal } from './components/BulkImportModal';
 import { UserManagement } from './components/UserManagement';
 import { BottomNavBar } from './components/BottomNavBar';
 import { SettingsMenuPage } from './components/SettingsMenuPage';
+import { SwipeBallCard } from './components/SwipeBallCard';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { CommercialTransactionPage } from './pages/CommercialTransactionPage';
@@ -1427,7 +1428,21 @@ function TasksPage({
     return sorted;
   }, [rows, sortKey, sortDirection]);
 
-  const renderBallSection = (title: string, tasks: Task[]) => {
+  const handleBallThrow = useCallback((task: Task) => {
+    // Throw ball to the other person (assignee)
+    const assignee = (task.assignee || task.担当者 || '').trim();
+    const newHolder = assignee && assignee.toLowerCase() !== normalizedCurrentUser ? assignee : '';
+    if (newHolder) {
+      updateTask(task.id, { ballHolder: newHolder });
+    }
+  }, [normalizedCurrentUser, updateTask]);
+
+  const handleBallPullBack = useCallback((task: Task) => {
+    // Pull ball back to myself
+    updateTask(task.id, { ballHolder: currentUserName });
+  }, [currentUserName, updateTask]);
+
+  const renderBallSection = (title: string, tasks: Task[], mode: 'mine' | 'waiting') => {
     if (tasks.length === 0) return null;
     return (
       <div className="space-y-2">
@@ -1436,33 +1451,38 @@ function TasksPage({
           <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal text-slate-500">{tasks.length}</span>
         </h3>
         {tasks.map((task) => (
-          <button
+          <SwipeBallCard
             key={task.id}
-            onClick={() => onEditTask(task)}
-            className="w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-slate-300"
+            onThrow={mode === 'mine' ? () => handleBallThrow(task) : undefined}
+            onPullBack={mode === 'waiting' ? () => handleBallPullBack(task) : undefined}
           >
-            <p className="mb-1 text-xs text-slate-400">{getBallProjectName(task.projectId)}</p>
-            <p className="mb-2 text-sm font-medium text-slate-900">{task.タスク名}</p>
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                    getBallHolderLabel(task) === '自分'
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-slate-200 text-slate-700'
-                  }`}
-                >
-                  {getBallHolderLabel(task)}
+            <button
+              onClick={() => onEditTask(task)}
+              className="w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-slate-300"
+            >
+              <p className="mb-1 text-xs text-slate-400">{getBallProjectName(task.projectId)}</p>
+              <p className="mb-2 text-sm font-medium text-slate-900">{task.タスク名}</p>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+                      getBallHolderLabel(task) === '自分'
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {getBallHolderLabel(task)}
+                  </span>
+                  {task.ballNote && (
+                    <span className="truncate text-xs text-slate-400">{task.ballNote}</span>
+                  )}
+                </div>
+                <span className={`text-xs ${getBallDeadlineColor(task.responseDeadline || task.期限)}`}>
+                  {task.responseDeadline || task.期限 || '期限なし'}
                 </span>
-                {task.ballNote && (
-                  <span className="truncate text-xs text-slate-400">{task.ballNote}</span>
-                )}
               </div>
-              <span className={`text-xs ${getBallDeadlineColor(task.responseDeadline || task.期限)}`}>
-                {task.responseDeadline || task.期限 || '期限なし'}
-              </span>
-            </div>
-          </button>
+            </button>
+          </SwipeBallCard>
         ))}
       </div>
     );
@@ -1549,8 +1569,8 @@ function TasksPage({
       {/* Ball sections (scroll to see) */}
       {(ballCategorized.mine.length > 0 || ballCategorized.waiting.length > 0) && (
         <div className="space-y-6 border-t border-slate-200 pt-6">
-          {renderBallSection('自分ボール', ballCategorized.mine)}
-          {renderBallSection('相手ボール', ballCategorized.waiting)}
+          {renderBallSection('自分ボール', ballCategorized.mine, 'mine')}
+          {renderBallSection('相手ボール', ballCategorized.waiting, 'waiting')}
         </div>
       )}
     </div>
