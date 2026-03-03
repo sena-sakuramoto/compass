@@ -70,7 +70,6 @@ import ProjectMembersDialog from './components/ProjectMembersDialog';
 import { NotificationBell } from './components/NotificationBell';
 import { BulkImportModal } from './components/BulkImportModal';
 import { UserManagement } from './components/UserManagement';
-import { BallView } from './components/BallView';
 import { BottomNavBar } from './components/BottomNavBar';
 import { SettingsMenuPage } from './components/SettingsMenuPage';
 import { HelpPage } from './pages/HelpPage';
