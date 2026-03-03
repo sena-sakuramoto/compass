@@ -12,7 +12,6 @@ import {
   Settings,
   HelpCircle,
   LogOut,
-  CircleDot,
   MessageSquare,
 } from 'lucide-react';
 import { submitFeedback, uploadFeedbackScreenshot } from '../lib/api';
@@ -46,7 +45,6 @@ const iconMap = {
   Users,
   Settings,
   HelpCircle,
-  CircleDot,
 };
 
 export function Sidebar({
@@ -163,10 +161,9 @@ export function Sidebar({
         { id: 'schedule', label: '工程表', path: '/', icon: 'CalendarDays', visible: true, order: 0 },
         { id: 'summary', label: 'プロジェクト', path: '/summary', icon: 'BarChart3', visible: true, order: 1 },
         { id: 'tasks', label: 'タスク', path: '/tasks', icon: 'ListChecks', visible: true, order: 2 },
-        { id: 'ball', label: 'ボール', path: '/ball', icon: 'CircleDot', visible: true, order: 3 },
-        { id: 'workload', label: 'リソース分析', path: '/workload', icon: 'Users', visible: true, order: 4 },
-        { id: 'users', label: '人員管理', path: '/users', icon: 'Users', visible: true, order: 5 },
-        { id: 'help', label: 'ヘルプ', path: '/help', icon: 'HelpCircle', visible: true, order: 6 },
+        { id: 'workload', label: 'リソース分析', path: '/workload', icon: 'Users', visible: true, order: 3 },
+        { id: 'users', label: '人員管理', path: '/users', icon: 'Users', visible: true, order: 4 },
+        { id: 'help', label: 'ヘルプ', path: '/help', icon: 'HelpCircle', visible: true, order: 5 },
       ],
     [navigationItems]
   );
@@ -195,7 +192,7 @@ export function Sidebar({
     <>
       <button
         onClick={() => setIsOpen((prev) => !prev)}
-        className="fixed top-4 left-4 z-50 rounded-lg bg-white p-2 shadow-lg transition hover:bg-slate-50 lg:hidden"
+        className="fixed top-4 left-4 z-50 hidden rounded-lg bg-white p-2 shadow-lg transition hover:bg-slate-50 md:block lg:hidden"
         aria-label="メニュー"
       >
         {isOpen ? <X size={24} /> : <Menu size={24} />}
