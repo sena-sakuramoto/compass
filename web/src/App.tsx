@@ -1201,8 +1201,6 @@ interface ProjectWithDerived extends Project {
   nearestDue?: string | null;
 }
 
-type TaskViewMode = 'tasks' | 'myBall' | 'waitingBall' | 'allBall';
-
 function TasksPage({
   filteredTasks,
   projectMap,
@@ -1244,7 +1242,6 @@ function TasksPage({
   const [calendarBusyIds, setCalendarBusyIds] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<TaskTableSortKey>('status');
   const [sortDirection, setSortDirection] = useState<TaskTableSortDirection>('asc');
-  const [viewMode, setViewMode] = useState<TaskViewMode>('tasks');
 
   // Ball categorization (ported from BallView)
   const normalizedCurrentUser = (currentUserName ?? '').trim().toLowerCase();
@@ -1277,8 +1274,6 @@ function TasksPage({
     all.sort(sortByDeadline);
     return { mine, waiting, all };
   }, [normalizedCurrentUser, allTasks]);
-
-  const ballTasks = viewMode === 'myBall' ? ballCategorized.mine : viewMode === 'waitingBall' ? ballCategorized.waiting : ballCategorized.all;
 
   const getBallProjectName = (projectId: string) => projects.find((p) => p.id === projectId)?.物件名 || '';
 
@@ -1432,12 +1427,46 @@ function TasksPage({
     return sorted;
   }, [rows, sortKey, sortDirection]);
 
-  const viewPills: { key: TaskViewMode; label: string; count?: number }[] = [
-    { key: 'tasks', label: 'タスク一覧' },
-    { key: 'myBall', label: '自分ボール', count: ballCategorized.mine.length },
-    { key: 'waitingBall', label: '相手ボール', count: ballCategorized.waiting.length },
-    { key: 'allBall', label: 'すべて', count: ballCategorized.all.length },
-  ];
+  const renderBallSection = (title: string, tasks: Task[]) => {
+    if (tasks.length === 0) return null;
+    return (
+      <div className="space-y-2">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          {title}
+          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal text-slate-500">{tasks.length}</span>
+        </h3>
+        {tasks.map((task) => (
+          <button
+            key={task.id}
+            onClick={() => onEditTask(task)}
+            className="w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-slate-300"
+          >
+            <p className="mb-1 text-xs text-slate-400">{getBallProjectName(task.projectId)}</p>
+            <p className="mb-2 text-sm font-medium text-slate-900">{task.タスク名}</p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+                    getBallHolderLabel(task) === '自分'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {getBallHolderLabel(task)}
+                </span>
+                {task.ballNote && (
+                  <span className="truncate text-xs text-slate-400">{task.ballNote}</span>
+                )}
+              </div>
+              <span className={`text-xs ${getBallDeadlineColor(task.responseDeadline || task.期限)}`}>
+                {task.responseDeadline || task.期限 || '期限なし'}
+              </span>
+            </div>
+          </button>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -1448,131 +1477,80 @@ function TasksPage({
         </div>
       ) : null}
 
-      {/* View mode pills */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {viewPills.map((pill) => (
-          <button
-            key={pill.key}
-            onClick={() => setViewMode(pill.key)}
-            className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-              viewMode === pill.key
-                ? 'bg-slate-900 text-white'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
+      {/* Task list */}
+      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
+        <div className="flex items-center gap-2">
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as TaskTableSortKey)}
+            className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700"
           >
-            {pill.label}
-            {pill.count != null && (
-              <span className="ml-1 opacity-70">({pill.count})</span>
-            )}
-          </button>
-        ))}
+            <option value="status">並替: ステータス</option>
+            <option value="name">並替: タスク名</option>
+            <option value="project">並替: プロジェクト</option>
+            <option value="assignee">並替: 担当者</option>
+            <option value="schedule">並替: 期限</option>
+            <option value="effort">並替: 工数</option>
+            <option value="progress">並替: 進捗</option>
+            <option value="priority">並替: 優先度</option>
+            <option value="completed">並替: 完了</option>
+          </select>
+          <div className="hidden md:block" />
+        </div>
+      </div>
+      <div className="grid gap-3 md:hidden">
+        {sortedRows.map((row) => {
+          const task = filteredTasks.find(t => t.id === row.id)!;
+          return (
+            <TaskCard
+              key={row.id}
+              id={row.id}
+              name={row.name}
+              projectLabel={row.projectLabel}
+              assignee={row.assignee}
+              schedule={row.schedule}
+              scheduleStart={row.scheduleStart}
+              scheduleEnd={row.scheduleEnd}
+              status={row.status}
+              progress={row.progress}
+              onComplete={() => onComplete(task, true)}
+              onSeedReminders={onSeedReminders ? () => handleSeedReminders(row.id) : undefined}
+              onCalendarSync={onCalendarSync ? () => handleCalendarSync(row.id) : undefined}
+              seedBusy={seedBusyIds.has(row.id)}
+              calendarBusy={calendarBusyIds.has(row.id)}
+            />
+          );
+        })}
+      </div>
+      <div className="hidden md:block">
+        <TaskTable
+          rows={sortedRows}
+          sortKey={sortKey}
+          sortDirection={sortDirection}
+          onSortChange={(key, direction) => {
+            setSortKey(key);
+            setSortDirection(direction);
+          }}
+          onToggle={(id, checked) => {
+            const task = filteredTasks.find((t) => t.id === id);
+            if (task) onComplete(task, checked);
+          }}
+          onRowClick={(id) => {
+            const task = filteredTasks.find((t) => t.id === id);
+            if (task) onEditTask(task);
+          }}
+          onSeedReminders={onSeedReminders ? (id) => handleSeedReminders(id) : undefined}
+          onCalendarSync={onCalendarSync ? (id) => handleCalendarSync(id) : undefined}
+          seedBusyIds={seedBusyIds}
+          calendarBusyIds={calendarBusyIds}
+        />
       </div>
 
-      {viewMode === 'tasks' ? (
-        <>
-          <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
-            <div className="flex items-center gap-2">
-              <select
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as TaskTableSortKey)}
-                className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700"
-              >
-                <option value="status">並替: ステータス</option>
-                <option value="name">並替: タスク名</option>
-                <option value="project">並替: プロジェクト</option>
-                <option value="assignee">並替: 担当者</option>
-                <option value="schedule">並替: 期限</option>
-                <option value="effort">並替: 工数</option>
-                <option value="progress">並替: 進捗</option>
-                <option value="priority">並替: 優先度</option>
-                <option value="completed">並替: 完了</option>
-              </select>
-              <div className="hidden md:block" />
-            </div>
-          </div>
-          <div className="grid gap-3 md:hidden">
-            {sortedRows.map((row) => {
-              const task = filteredTasks.find(t => t.id === row.id)!;
-              return (
-                <TaskCard
-                  key={row.id}
-                  id={row.id}
-                  name={row.name}
-                  projectLabel={row.projectLabel}
-                  assignee={row.assignee}
-                  schedule={row.schedule}
-                  scheduleStart={row.scheduleStart}
-                  scheduleEnd={row.scheduleEnd}
-                  status={row.status}
-                  progress={row.progress}
-                  onComplete={() => onComplete(task, true)}
-                  onSeedReminders={onSeedReminders ? () => handleSeedReminders(row.id) : undefined}
-                  onCalendarSync={onCalendarSync ? () => handleCalendarSync(row.id) : undefined}
-                  seedBusy={seedBusyIds.has(row.id)}
-                  calendarBusy={calendarBusyIds.has(row.id)}
-                />
-              );
-            })}
-          </div>
-          <div className="hidden md:block">
-            <TaskTable
-              rows={sortedRows}
-              sortKey={sortKey}
-              sortDirection={sortDirection}
-              onSortChange={(key, direction) => {
-                setSortKey(key);
-                setSortDirection(direction);
-              }}
-              onToggle={(id, checked) => {
-                const task = filteredTasks.find((t) => t.id === id);
-                if (task) onComplete(task, checked);
-              }}
-              onRowClick={(id) => {
-                const task = filteredTasks.find((t) => t.id === id);
-                if (task) onEditTask(task);
-              }}
-              onSeedReminders={onSeedReminders ? (id) => handleSeedReminders(id) : undefined}
-              onCalendarSync={onCalendarSync ? (id) => handleCalendarSync(id) : undefined}
-              seedBusyIds={seedBusyIds}
-              calendarBusyIds={calendarBusyIds}
-            />
-          </div>
-        </>
-      ) : (
-        /* Ball view cards */
-        <div className="mx-auto max-w-lg space-y-2">
-          {ballTasks.length === 0 && (
-            <p className="py-8 text-center text-sm text-slate-400">該当するタスクはありません</p>
-          )}
-          {ballTasks.map((task) => (
-            <button
-              key={task.id}
-              onClick={() => onEditTask(task)}
-              className="w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-slate-300"
-            >
-              <p className="mb-1 text-xs text-slate-400">{getBallProjectName(task.projectId)}</p>
-              <p className="mb-2 text-sm font-medium text-slate-900">{task.タスク名}</p>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                      getBallHolderLabel(task) === '自分'
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {getBallHolderLabel(task)}
-                  </span>
-                  {task.ballNote && (
-                    <span className="truncate text-xs text-slate-400">{task.ballNote}</span>
-                  )}
-                </div>
-                <span className={`text-xs ${getBallDeadlineColor(task.responseDeadline || task.期限)}`}>
-                  {task.responseDeadline || task.期限 || '期限なし'}
-                </span>
-              </div>
-            </button>
-          ))}
+      {/* Ball sections (scroll to see) */}
+      {(ballCategorized.mine.length > 0 || ballCategorized.waiting.length > 0) && (
+        <div className="space-y-6 border-t border-slate-200 pt-6">
+          {renderBallSection('自分ボール', ballCategorized.mine)}
+          {renderBallSection('相手ボール', ballCategorized.waiting)}
         </div>
       )}
     </div>
