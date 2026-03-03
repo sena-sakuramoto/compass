@@ -71,6 +71,8 @@ import { NotificationBell } from './components/NotificationBell';
 import { BulkImportModal } from './components/BulkImportModal';
 import { UserManagement } from './components/UserManagement';
 import { BallView } from './components/BallView';
+import { BottomNavBar } from './components/BottomNavBar';
+import { SettingsMenuPage } from './components/SettingsMenuPage';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { CommercialTransactionPage } from './pages/CommercialTransactionPage';
@@ -299,7 +301,6 @@ function AppLayout({
     { path: '/', label: '工程表' },
     { path: '/summary', label: 'プロジェクト' },
     { path: '/tasks', label: 'タスク' },
-    { path: '/ball', label: 'ボール' },
     { path: '/workload', label: '稼働状況' },
     { path: '/users', label: '人員管理' },
   ];
@@ -390,7 +391,7 @@ function AppLayout({
             </div>
           </div>
         ) : null}
-        <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 lg:px-8">
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-20 md:pb-4 lg:px-8">
           {children}
         </main>
         <BottomBar
@@ -405,7 +406,7 @@ function AppLayout({
           authError={authError}
           canEdit={canEdit}
         />
-
+        <BottomNavBar />
       </div>
     </div>
   );
@@ -805,7 +806,7 @@ function BottomBar({
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="fixed bottom-6 right-6 z-40 flex items-center justify-center w-16 h-16 rounded-full bg-slate-900 text-white shadow-2xl hover:bg-slate-800 transition-all hover:scale-110"
+          className="fixed bottom-[76px] right-6 z-40 flex items-center justify-center w-16 h-16 rounded-full bg-slate-900 text-white shadow-2xl hover:bg-slate-800 transition-all hover:scale-110 md:bottom-6"
         >
           {isOpen ? (
             <X className="h-7 w-7" />
@@ -6502,16 +6503,11 @@ function App() {
             }
           />
           <Route
-            path="/ball"
+            path="/settings"
             element={
-              <BallView
-                tasks={state.tasks}
-                projects={state.projects}
-                currentUserName={(user?.displayName || user?.email || '').trim()}
-                onTaskClick={(task) => {
-                  const latest = state.tasks.find((entry) => entry.id === task.id) ?? task;
-                  setEditingTask(latest);
-                }}
+              <SettingsMenuPage
+                user={user}
+                onSignOut={signOut}
               />
             }
           />
