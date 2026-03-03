@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
   CalendarDays,
@@ -13,7 +13,9 @@ import {
   HelpCircle,
   LogOut,
   MessageSquare,
+  Camera,
 } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import { submitFeedback, uploadFeedbackScreenshot } from '../lib/api';
 import type { User } from 'firebase/auth';
 
@@ -66,6 +68,29 @@ export function Sidebar({
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [feedbackScreenshot, setFeedbackScreenshot] = useState<File | null>(null);
   const [feedbackPreviewUrl, setFeedbackPreviewUrl] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
+
+  const captureScreenshot = useCallback(async () => {
+    setCapturing(true);
+    try {
+      const target = document.querySelector('.app-content') as HTMLElement | null;
+      const canvas = await html2canvas(target || document.body, {
+        useCORS: true,
+        scale: window.devicePixelRatio > 1 ? 2 : 1,
+        ignoreElements: (el) => el.closest('aside') !== null || el.classList.contains('no-print'),
+      });
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const file = new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' });
+        if (feedbackPreviewUrl) URL.revokeObjectURL(feedbackPreviewUrl);
+        setFeedbackScreenshot(file);
+        setFeedbackPreviewUrl(URL.createObjectURL(file));
+      }, 'image/png');
+    } catch {
+      // fallback: ignore silently
+    }
+    setCapturing(false);
+  }, [feedbackPreviewUrl]);
 
   useEffect(() => {
     if (!errorReport) return;
@@ -323,25 +348,15 @@ export function Sidebar({
                       placeholder="内容を入力" rows={3}
                       className="w-full border border-slate-200 rounded px-2 py-1 text-[11px] resize-none focus:ring-1 focus:ring-slate-400 focus:border-slate-400"
                     />
-                    <label className="flex items-center gap-1 text-[10px] text-slate-400 cursor-pointer hover:text-slate-600">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.414 6.586a6 6 0 108.486 8.486L20.5 13" />
-                      </svg>
-                      スクショ添付
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] ?? null;
-                          if (feedbackPreviewUrl) {
-                            URL.revokeObjectURL(feedbackPreviewUrl);
-                          }
-                          setFeedbackScreenshot(file);
-                          setFeedbackPreviewUrl(file ? URL.createObjectURL(file) : null);
-                        }}
-                      />
-                    </label>
+                    <button
+                      type="button"
+                      onClick={captureScreenshot}
+                      disabled={capturing}
+                      className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                    >
+                      <Camera className="h-3 w-3" />
+                      {capturing ? '撮影中...' : 'スクショ撮影'}
+                    </button>
                     {feedbackPreviewUrl && (
                       <div className="relative">
                         <img src={feedbackPreviewUrl} alt="プレビュー" className="w-full rounded border border-slate-200" />
