@@ -6702,7 +6702,7 @@ function App() {
             path="/workload"
             element={<WorkloadPage tasks={filteredTasks} projects={state.projects} people={state.people} />}
           />
-          <Route path="/users" element={<UserManagement projects={state.projects} />} />
+          <Route path="/users" element={<UserManagement projects={state.projects} currentUserId={user?.uid ?? null} />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/help" element={<HelpPage />} />
           <Route path="/admin" element={<AdminPage user={user} currentUserRole={currentUserRole} />} />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { listUsers, listUsersWithCollaborators, updateUser, deactivateUser, activateUser, deleteUser, type User, type GroupedUsers, listClients, createClient, updateClient, deleteClient, type Client, listCollaborators, createCollaborator, updateCollaborator, deleteCollaborator, type Collaborator, getSeatUsage, createBillingPortalSession, type SeatUsageInfo } from '../lib/api';
 import { ROLE_LABELS } from '../lib/auth-types';
 import { OrgMemberInvitationModal } from './OrgMemberInvitationModal';
@@ -10,9 +10,54 @@ import { GoogleIntegrationSettings } from './GoogleIntegrationSettings';
 
 interface UserManagementProps {
   projects?: Project[];
+  currentUserId?: string | null;
 }
 
-export function UserManagement({ projects = [] }: UserManagementProps) {
+const USER_MANAGEMENT_CACHE_TTL_MS = 5 * 60 * 1000;
+const USER_MANAGEMENT_CACHE_PREFIX = 'compass_user_management_cache_v1';
+
+interface UserManagementCachePayload {
+  fetchedAt: number;
+  users: User[];
+  groupedUsers: GroupedUsers | null;
+  clients: Client[];
+  collaborators: Collaborator[];
+  currentUserRole: string | null;
+  seatUsage: SeatUsageInfo | null;
+}
+
+function readUserManagementCache(cacheKey: string): UserManagementCachePayload | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(cacheKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<UserManagementCachePayload>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (typeof parsed.fetchedAt !== 'number') return null;
+    return {
+      fetchedAt: parsed.fetchedAt,
+      users: Array.isArray(parsed.users) ? parsed.users : [],
+      groupedUsers: (parsed.groupedUsers as GroupedUsers | null) ?? null,
+      clients: Array.isArray(parsed.clients) ? parsed.clients : [],
+      collaborators: Array.isArray(parsed.collaborators) ? parsed.collaborators : [],
+      currentUserRole: typeof parsed.currentUserRole === 'string' ? parsed.currentUserRole : null,
+      seatUsage: (parsed.seatUsage as SeatUsageInfo | null) ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeUserManagementCache(cacheKey: string, payload: UserManagementCachePayload) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify(payload));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function UserManagement({ projects = [], currentUserId = null }: UserManagementProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [groupedUsers, setGroupedUsers] = useState<GroupedUsers | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
@@ -39,6 +84,10 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [expandedOrgs, setExpandedOrgs] = useState<Set<string>>(new Set(['own']));
   const [activeTab, setActiveTab] = useState<'members' | 'google'>('members');
+  const cacheKey = useMemo(
+    () => `${USER_MANAGEMENT_CACHE_PREFIX}_${currentUserId ?? 'guest'}`,
+    [currentUserId]
+  );
 
   // 席数関連
   const [seatUsage, setSeatUsage] = useState<SeatUsageInfo | null>(null);
@@ -46,12 +95,50 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   const [portalLoading, setPortalLoading] = useState(false);
 
   useEffect(() => {
+    const cached = readUserManagementCache(cacheKey);
+    if (cached) {
+      setUsers(cached.users);
+      setGroupedUsers(cached.groupedUsers);
+      setClients(cached.clients);
+      setCollaborators(cached.collaborators);
+      setCurrentUserRole(cached.currentUserRole);
+      setSeatUsage(cached.seatUsage);
+      setLoading(false);
+      setClientsLoading(false);
+      setCollaboratorsLoading(false);
+      setSeatLoading(false);
+      if (Date.now() - cached.fetchedAt <= USER_MANAGEMENT_CACHE_TTL_MS) {
+        return;
+      }
+    }
+
     loadUsers();
     loadClients();
     loadCollaborators();
     loadCurrentUser();
     loadSeatUsage();
-  }, []);
+  }, [cacheKey]);
+
+  useEffect(() => {
+    const hasData =
+      Boolean(groupedUsers) ||
+      users.length > 0 ||
+      clients.length > 0 ||
+      collaborators.length > 0 ||
+      Boolean(seatUsage) ||
+      currentUserRole !== null;
+    if (!hasData) return;
+
+    writeUserManagementCache(cacheKey, {
+      fetchedAt: Date.now(),
+      users,
+      groupedUsers,
+      clients,
+      collaborators,
+      currentUserRole,
+      seatUsage,
+    });
+  }, [cacheKey, users, groupedUsers, clients, collaborators, currentUserRole, seatUsage]);
 
   useEffect(() => {
     console.log('[DEBUG] editingCollaboratorId changed:', editingCollaboratorId);
@@ -183,16 +270,10 @@ export function UserManagement({ projects = [] }: UserManagementProps) {
   }
 
   async function loadCollaborators() {
-    console.log('[DEBUG] loadCollaborators called', new Error().stack);
     try {
       setCollaboratorsLoading(true);
       setCollaboratorError(null);
       const data = await listCollaborators();
-      console.log('[DEBUG] loadCollaborators response:', data);
-      console.log('[DEBUG] collaborators array:', data.collaborators);
-      if (data.collaborators && data.collaborators.length > 0) {
-        console.log('[DEBUG] First collaborator sample:', data.collaborators[0]);
-      }
       setCollaborators(data.collaborators || []);
     } catch (err) {
       setCollaboratorError(err instanceof Error ? err.message : '協力者の読み込みに失敗しました');
