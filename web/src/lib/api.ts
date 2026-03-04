@@ -1318,7 +1318,11 @@ export async function updateCalendarSyncSettings(settings: Omit<CalendarSyncSett
  * Google Calendar -> Compass のインバウンド同期を手動実行
  */
 export async function triggerInboundCalendarSync() {
-  return request<{ ok: true; message?: string }>('/calendar/inbound-sync', {
+  return request<{
+    ok: true;
+    message?: string;
+    result?: { created: number; updated: number; deleted: number; errors: string[] };
+  }>('/calendar/inbound-sync', {
     method: 'POST',
     body: JSON.stringify({}),
   });

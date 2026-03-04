@@ -263,7 +263,14 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
     try {
       setSyncing(true);
       const response = await triggerInboundCalendarSync();
-      toast.success(response.message ?? 'Inbound同期ジョブをキューに追加しました');
+      toast.success(response.message ?? 'Inbound同期が完了しました');
+      if (response.result?.errors?.length) {
+        setError(`同期時にエラーが発生しました（${response.result.errors.length}件）: ${response.result.errors[0]}`);
+      }
+
+      // 手動同期後は設定を再取得して最終同期日時を即時反映する
+      const refreshed = await getCalendarSyncSettings();
+      setSettings(normalizeSettings(refreshed.settings));
     } catch (syncError) {
       const message = syncError instanceof Error ? syncError.message : '手動同期の実行に失敗しました';
       setError(message);
