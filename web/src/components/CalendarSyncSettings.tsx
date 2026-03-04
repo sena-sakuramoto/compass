@@ -65,6 +65,42 @@ function formatDateTime(value: string | null): string {
   return parsed.toLocaleString('ja-JP');
 }
 
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeCalendarIdInput(value: string | null | undefined): string | null {
+  const raw = (value ?? '').trim();
+  if (!raw) return null;
+
+  if (!/^https?:\/\//i.test(raw)) {
+    return safeDecode(raw);
+  }
+
+  try {
+    const url = new URL(raw);
+    const cid = url.searchParams.get('cid');
+    if (cid) return safeDecode(cid);
+
+    const src = url.searchParams.get('src');
+    if (src) return safeDecode(src);
+
+    const settingsMatch = url.pathname.match(/\/settings\/([^/?#]+)/);
+    if (settingsMatch?.[1]) return safeDecode(settingsMatch[1]);
+
+    const encodedIdMatch = url.pathname.match(/([^/]*%40[^/]+)/);
+    if (encodedIdMatch?.[1]) return safeDecode(encodedIdMatch[1]);
+  } catch {
+    // URLとして解釈できない場合はそのままID入力として扱う
+  }
+
+  return safeDecode(raw);
+}
+
 export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsProps) {
   const [settings, setSettings] = useState<Omit<CalendarSyncSettingsType, 'updatedAt'>>(DEFAULT_SETTINGS);
   const [calendars, setCalendars] = useState<CalendarOption[]>([]);
@@ -143,28 +179,40 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
   }, []);
 
   const setOutboundCalendar = (calendarId: string | null) => {
-    const name = calendarId ? calendarNameMap.get(calendarId) ?? null : null;
+    const normalizedCalendarId = normalizeCalendarIdInput(calendarId);
+    const name = normalizedCalendarId ? calendarNameMap.get(normalizedCalendarId) ?? null : null;
     setSettings((prev) => ({
       ...prev,
       outbound: {
         ...prev.outbound,
-        calendarId,
+        calendarId: normalizedCalendarId,
         calendarName: name,
       },
     }));
   };
 
   const setInboundCalendar = (calendarId: string | null) => {
-    const name = calendarId ? calendarNameMap.get(calendarId) ?? null : null;
+    const normalizedCalendarId = normalizeCalendarIdInput(calendarId);
+    const name = normalizedCalendarId ? calendarNameMap.get(normalizedCalendarId) ?? null : null;
     setSettings((prev) => ({
       ...prev,
       inbound: {
         ...prev.inbound,
-        calendarId,
+        calendarId: normalizedCalendarId,
         calendarName: name,
       },
     }));
   };
+
+  const handleOutboundRawInput = (value: string) => {
+    setOutboundCalendar(value);
+  };
+
+  const handleInboundRawInput = (value: string) => {
+    setInboundCalendar(value);
+  };
+
+  const openCalendarSettingsUrl = 'https://calendar.google.com/calendar/u/0/r/settings';
 
   const handleSave = async () => {
     setError(null);
@@ -290,15 +338,27 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-slate-700">カレンダーID直接入力</label>
+            <label className="mb-1 block text-sm text-slate-700">カレンダーURL または ID</label>
             <input
               type="text"
               value={settings.outbound.calendarId ?? ''}
-              onChange={(event) => setOutboundCalendar(event.target.value.trim() || null)}
+              onChange={(event) => handleOutboundRawInput(event.target.value)}
+              onBlur={(event) => handleOutboundRawInput(event.target.value)}
               placeholder="例: abc123@group.calendar.google.com"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               disabled={!settings.outbound.enabled}
             />
+            <p className="mt-1 text-xs text-slate-500">
+              設定画面URL（`.../settings/xxx%40group.calendar.google.com`）を貼ると ID を自動抽出します。
+            </p>
+            <a
+              href={openCalendarSettingsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-block text-xs text-blue-600 hover:text-blue-700 hover:underline"
+            >
+              Googleカレンダー設定を開く
+            </a>
           </div>
 
           <p className="text-xs text-slate-500">最終同期: {formatDateTime(settings.outbound.lastSyncAt)}</p>
@@ -343,6 +403,22 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm text-slate-700">カレンダーURL または ID</label>
+            <input
+              type="text"
+              value={settings.inbound.calendarId ?? ''}
+              onChange={(event) => handleInboundRawInput(event.target.value)}
+              onBlur={(event) => handleInboundRawInput(event.target.value)}
+              placeholder="例: abc123@group.calendar.google.com"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              disabled={!settings.inbound.enabled}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              カレンダーURLを貼り付けても、保存時は自動的にカレンダーIDへ変換されます。
+            </p>
           </div>
 
           <div>
