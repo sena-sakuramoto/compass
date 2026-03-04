@@ -228,10 +228,6 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
       setError('Inbound同期を有効にする場合は取り込み元カレンダーを指定してください');
       return;
     }
-    if (settings.inbound.enabled && !settings.inbound.defaultProjectId) {
-      setError('Inbound同期を有効にする場合はデフォルトプロジェクトを指定してください');
-      return;
-    }
     if (
       settings.outbound.enabled &&
       settings.inbound.enabled &&
@@ -259,8 +255,8 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
   };
 
   const handleManualInboundSync = async () => {
-    if (!settings.inbound.enabled || !settings.inbound.calendarId || !settings.inbound.defaultProjectId) {
-      setError('Inbound同期を有効化し、カレンダーとデフォルトプロジェクトを設定してください');
+    if (!settings.inbound.enabled || !settings.inbound.calendarId) {
+      setError('Inbound同期を有効化し、取り込み元カレンダーを設定してください');
       return;
     }
     setError(null);
@@ -504,7 +500,7 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-slate-700">デフォルトプロジェクト</label>
+            <label className="mb-1 block text-sm text-slate-700">デフォルトプロジェクト（任意）</label>
             <select
               value={settings.inbound.defaultProjectId ?? ''}
               onChange={(event) =>
@@ -519,13 +515,16 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               disabled={!settings.inbound.enabled}
             >
-              <option value="">選択してください</option>
+              <option value="">未設定（自動で未分類プロジェクトへ取り込み）</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.物件名}
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-slate-500">
+              未設定の場合は「未分類（カレンダー取込）」プロジェクトを自動作成して取り込みます。
+            </p>
           </div>
 
           <div className="flex items-center gap-2">

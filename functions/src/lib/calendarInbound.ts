@@ -1,10 +1,15 @@
 import admin from 'firebase-admin';
 import { calendar_v3 } from 'googleapis';
 import { getUserCalendarClient } from './perUserGoogleClient';
-import { db } from './firestore';
+import { createProject, db } from './firestore';
 
 const importedEventsCollection = (orgId: string) =>
   db.collection('orgs').doc(orgId).collection('importedEvents');
+
+const FALLBACK_PROJECT_SYSTEM_TYPE = 'calendarInboundInbox';
+const FALLBACK_PROJECT_NAME = '未分類（カレンダー取込）';
+const FALLBACK_PROJECT_NOTE =
+  'Google Calendar Inbound同期で、プロジェクト未設定イベントの取り込み先として自動作成されました。';
 
 export interface InboundSyncResult {
   created: number;
@@ -35,12 +40,8 @@ export async function syncInboundCalendar(userId: string, orgId: string): Promis
   const calendarId = String(inbound.calendarId);
   const syncToken = (inbound.syncToken as string | null | undefined) ?? null;
   const importAsType: 'task' | 'meeting' = inbound.importAsType === 'meeting' ? 'meeting' : 'task';
-  const defaultProjectId = (inbound.defaultProjectId as string | null | undefined) ?? null;
-
-  if (!defaultProjectId) {
-    result.errors.push('デフォルトプロジェクトが設定されていません');
-    return result;
-  }
+  const configuredDefaultProjectId = (inbound.defaultProjectId as string | null | undefined) ?? null;
+  let defaultProjectId: string;
 
   let calendar: calendar_v3.Calendar;
   try {
@@ -50,6 +51,24 @@ export async function syncInboundCalendar(userId: string, orgId: string): Promis
       `Google Calendar クライアントの取得に失敗: ${
         error instanceof Error ? error.message : String(error)
       }`
+    );
+    return result;
+  }
+
+  try {
+    const resolvedProjectId = await resolveInboundProjectId({
+      orgId,
+      userId,
+      preferredProjectId: configuredDefaultProjectId,
+    });
+    if (!resolvedProjectId) {
+      result.errors.push('取り込み先プロジェクトを解決できませんでした');
+      return result;
+    }
+    defaultProjectId = resolvedProjectId;
+  } catch (error) {
+    result.errors.push(
+      `取り込み先プロジェクトの解決に失敗: ${error instanceof Error ? error.message : String(error)}`
     );
     return result;
   }
@@ -201,6 +220,9 @@ export async function syncInboundCalendar(userId: string, orgId: string): Promis
     'inbound.lastSyncAt': admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
+  if (configuredDefaultProjectId !== defaultProjectId) {
+    updatePayload['inbound.defaultProjectId'] = defaultProjectId;
+  }
   if (nextSyncToken !== null) {
     updatePayload['inbound.syncToken'] = nextSyncToken;
   } else if (shouldResetSyncToken) {
@@ -209,6 +231,76 @@ export async function syncInboundCalendar(userId: string, orgId: string): Promis
   await settingsRef.set(updatePayload, { merge: true });
 
   return result;
+}
+
+async function resolveInboundProjectId(params: {
+  orgId: string;
+  userId: string;
+  preferredProjectId: string | null;
+}): Promise<string | null> {
+  const { orgId, userId, preferredProjectId } = params;
+
+  if (preferredProjectId) {
+    const preferredProject = await db
+      .collection('orgs')
+      .doc(orgId)
+      .collection('projects')
+      .doc(preferredProjectId)
+      .get();
+    if (preferredProject.exists && !preferredProject.data()?.deletedAt) {
+      return preferredProjectId;
+    }
+    console.warn('[calendarInbound] configured default project is missing or deleted', {
+      orgId,
+      userId,
+      projectId: preferredProjectId,
+    });
+  }
+
+  const fallbackQuery = await db
+    .collection('orgs')
+    .doc(orgId)
+    .collection('projects')
+    .where('calendarInboundInboxUserId', '==', userId)
+    .limit(10)
+    .get();
+
+  const existingFallback = fallbackQuery.docs.find((doc) => {
+    const data = doc.data();
+    if (data?.deletedAt) return false;
+    return data?.systemType === FALLBACK_PROJECT_SYSTEM_TYPE;
+  });
+  if (existingFallback) {
+    return existingFallback.id;
+  }
+
+  const createdProjectId = await createProject(
+    {
+      物件名: FALLBACK_PROJECT_NAME,
+      ステータス: '進行中',
+      優先度: '中',
+      備考: FALLBACK_PROJECT_NOTE,
+    },
+    orgId,
+    userId
+  );
+
+  await db
+    .collection('orgs')
+    .doc(orgId)
+    .collection('projects')
+    .doc(createdProjectId)
+    .set(
+      {
+        systemType: FALLBACK_PROJECT_SYSTEM_TYPE,
+        calendarInboundInboxUserId: userId,
+        isSystemGenerated: true,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+  return createdProjectId;
 }
 
 function eventToTaskUpdate(event: calendar_v3.Schema$Event): Record<string, any> {
