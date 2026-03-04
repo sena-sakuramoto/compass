@@ -3,10 +3,12 @@ import { db } from './lib/firestore';
 import { serializeStripeCustomer } from './lib/billing';
 import { sendEmail } from './lib/gmail';
 import { PLAN_LIMITS } from './lib/auth-types';
+import { buildOrganizationSetupWelcomeMail } from './lib/mail-templates';
 
 const REGION = process.env.COMPASS_FUNCTION_REGION ?? 'asia-northeast1';
 const APP_URL = process.env.ORG_SETUP_URL || process.env.APP_URL || 'https://compass-31e9e.web.app';
 const DEFAULT_SENDER = process.env.NOTIFICATION_SENDER || 'no-reply@archi-prisma.co.jp';
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL || 'support@archi-prisma.co.jp';
 
 function isEligibleForWelcome(data?: Record<string, any> | null): boolean {
   if (!data) return false;
@@ -143,20 +145,11 @@ export const syncStripeCustomers = onDocumentWritten(
           return;
         }
 
-        const subject = '[Compass] ご契約ありがとうございます - 組織作成のご案内';
-        const body = `
-Stripeでのご契約ありがとうございます。
-
-コンパスの組織を作成し、利用を開始するには以下のURLからサインインしてください。
-${APP_URL}
-
-このメールが届いているアドレスでログインすると、管理者画面から組織を作成できます。
-Stripe Customer ID: ${customer.id}
-
-すでに組織がある場合は、管理者ツール > 課金で上記Customer IDを登録してください。
-ご不明点は support@archi-prisma.co.jp までご連絡ください。
-
-※このメールは自動送信されています。`;
+        const { subject, body } = buildOrganizationSetupWelcomeMail({
+          appUrl: APP_URL,
+          customerId: customer.id,
+          supportEmail: SUPPORT_EMAIL,
+        });
 
         await Promise.all(
           recipients.map((to) =>

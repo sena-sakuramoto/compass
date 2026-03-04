@@ -16,6 +16,10 @@ import {
   listStripeLiveSubscriptions,
   listUsers,
   updateUser,
+  getAdminUsageSummary,
+  trackAdminUsageEvent,
+  type AdminUsageSummary,
+  type AdminUsageEventType,
 } from '../lib/api';
 import { ROLE_LABELS, type Role } from '../lib/auth-types';
 import { resolveApiBase } from '../lib/apiBase';
@@ -79,6 +83,8 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const [selectedOrgId, setSelectedOrgId] = useState<string>('');
   const [orgUsers, setOrgUsers] = useState<any[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [usageSummary, setUsageSummary] = useState<AdminUsageSummary | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
 
   // 招待フォームの状態
   const [inviteForm, setInviteForm] = useState({
@@ -99,6 +105,28 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
   const isSuperAdmin = currentUserRole === 'super_admin';
   const canManage = isSuperAdmin;
 
+  const recordAdminUsageEvent = async (eventType: AdminUsageEventType) => {
+    if (!isSuperAdmin) return;
+    try {
+      await trackAdminUsageEvent(eventType);
+    } catch (error) {
+      console.warn('[AdminPage] Failed to track admin usage event:', eventType, error);
+    }
+  };
+
+  const loadUsageSummary = async (refresh = false) => {
+    if (!isSuperAdmin) return;
+    try {
+      setUsageLoading(true);
+      const { summary } = await getAdminUsageSummary(refresh);
+      setUsageSummary(summary);
+    } catch (error) {
+      console.error('[AdminPage] 利用サマリーの取得に失敗しました:', error);
+    } finally {
+      setUsageLoading(false);
+    }
+  };
+
   // デバッグログ
   console.log('========== AdminPage デバッグ情報 ==========');
   console.log('currentUserRole:', currentUserRole);
@@ -114,6 +142,8 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
       // 組織リストは招待フォームで使用するため、常に読み込む
       console.log('[AdminPage] 組織リストを読み込み中...');
       loadOrganizations();
+      loadUsageSummary(false);
+      recordAdminUsageEvent('admin_page_view');
     } else {
       console.warn('[AdminPage] canManage=false のため、データを読み込みません');
     }
@@ -203,6 +233,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
         notes: form.notes?.trim() || null,
       });
       await loadBillingRecords();
+      void recordAdminUsageEvent('billing_update');
       alert('課金情報を更新しました');
     } catch (error) {
       console.error('[AdminPage] 課金情報の更新に失敗しました:', error);
@@ -305,6 +336,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     try {
       await updateUser(userId, { role: newRole as Role });
       await loadOrgUsers(selectedOrgId);
+      void recordAdminUsageEvent('member_role_update');
       alert('ロールを更新しました');
     } catch (error) {
       console.error('[AdminPage] ロール変更エラー:', error);
@@ -317,6 +349,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
       const result = await syncOrgBilling(orgId);
       alert(result.message || 'Stripe情報を同期しました');
       await loadBillingRecords();
+      void recordAdminUsageEvent('stripe_sync');
     } catch (error) {
       console.error('[AdminPage] Stripe同期エラー:', error);
       if (error instanceof ApiError) {
@@ -432,6 +465,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
           message: '',
           expiresInDays: 7,
         });
+        void recordAdminUsageEvent('org_invitation_create');
         alert('招待リンクを作成しました！');
       } else {
         const error = await response.json();
@@ -467,6 +501,7 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
         const newOrg = await response.json();
         setOrganizations([...organizations, newOrg]);
         setOrgForm({ id: '', name: '' });
+        void recordAdminUsageEvent('organization_create');
         alert('組織を作成しました！');
       } else {
         const error = await response.json();
@@ -642,6 +677,13 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
     }
   };
 
+  const formatIsoDate = (value?: string | null) => {
+    if (!value) return '-';
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) return value;
+    return new Date(ms).toLocaleString('ja-JP');
+  };
+
   const filteredBillingRecords = useMemo(() => {
     const keyword = billingSearch.trim().toLowerCase();
     if (!keyword) {
@@ -726,6 +768,69 @@ export function AdminPage({ user, currentUserRole }: AdminPageProps) {
           {isSuperAdmin ? 'スーパー管理者として全ての管理機能にアクセスできます' : '組織管理者として招待リンクを作成できます'}
         </p>
       </div>
+
+      {isSuperAdmin && (
+        <div className="bg-slate-50 border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h2 className="text-sm font-semibold text-slate-800">Compass 利用サマリー（Super Admin）</h2>
+            <button
+              type="button"
+              onClick={() => loadUsageSummary(true)}
+              disabled={usageLoading}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+            >
+              {usageLoading ? '更新中...' : '再集計'}
+            </button>
+          </div>
+          {usageSummary ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">組織数</p>
+                  <p className="text-lg font-semibold text-slate-900">{usageSummary.organizationsTotal}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">アクティブユーザー</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {usageSummary.activeUsers} / {usageSummary.usersTotal}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">ログイン (7日 / 30日)</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {usageSummary.usersLoggedIn7d} / {usageSummary.usersLoggedIn30d}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">タスク更新 (7日 / 30日)</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {usageSummary.tasksUpdated7d} / {usageSummary.tasksUpdated30d}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs text-slate-500">管理操作 (今日 / 7日)</p>
+                  <p className="text-lg font-semibold text-slate-900">
+                    {usageSummary.adminEventsToday} / {usageSummary.adminEvents7d}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600">
+                <span>最終集計: {formatIsoDate(usageSummary.computedAt)}</span>
+                <span>
+                  今日の内訳:{' '}
+                  {Object.entries(usageSummary.adminEventBreakdownToday || {}).length > 0
+                    ? Object.entries(usageSummary.adminEventBreakdownToday)
+                        .map(([key, count]) => `${key}:${count}`)
+                        .join(' / ')
+                    : 'なし'}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">{usageLoading ? '利用サマリーを読み込み中...' : '利用サマリーは未取得です。'}</p>
+          )}
+        </div>
+      )}
 
       {/* タブ */}
       <div className="bg-white border-b border-slate-200 px-6">

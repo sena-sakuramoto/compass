@@ -91,8 +91,22 @@ export async function syncTaskToCalendar(
     return;
   }
 
-  const tokenDoc = await db.collection('users').doc(userId).collection('private').doc('googleTokens').get();
-  const calendarId = tokenDoc.data()?.syncCalendarId || 'primary';
+  let calendarId = 'primary';
+  const syncSettingsDoc = await db
+    .collection('users')
+    .doc(userId)
+    .collection('private')
+    .doc('calendarSyncSettings')
+    .get();
+  const syncSettings = syncSettingsDoc.data();
+
+  if (syncSettings?.outbound?.enabled && syncSettings?.outbound?.calendarId) {
+    calendarId = syncSettings.outbound.calendarId;
+  } else {
+    // Backward compatibility for existing users.
+    const tokenDoc = await db.collection('users').doc(userId).collection('private').doc('googleTokens').get();
+    calendarId = tokenDoc.data()?.syncCalendarId || 'primary';
+  }
   let calendar: calendar_v3.Calendar;
   try {
     calendar = await getUserCalendarClient(userId);

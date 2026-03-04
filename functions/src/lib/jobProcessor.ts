@@ -9,6 +9,7 @@ import {
 } from './jobs';
 import { sendTaskNotification, sendTaskDigest } from './notifications';
 import { syncTaskToCalendar } from './calendarSync';
+import { syncInboundCalendar } from './calendarInbound';
 
 const MAX_JOBS_PER_RUN = parseInt(process.env.JOB_RUNNER_BATCH ?? '10', 10);
 const tasksCollection = (orgId: string) => db.collection('orgs').doc(orgId).collection('tasks');
@@ -25,6 +26,11 @@ interface CalendarSyncPayload extends Record<string, unknown> {
   mode: 'push' | 'sync' | 'delete';
   userId?: string | null;
   orgId?: string | null;
+}
+
+interface InboundCalendarSyncPayload extends Record<string, unknown> {
+  userId: string;
+  orgId: string;
 }
 
 async function handleNotificationSeed(job: JobDoc<NotificationSeedPayload>) {
@@ -56,6 +62,22 @@ async function handleCalendarSync(job: JobDoc<CalendarSyncPayload>) {
   task.id = snapshot.id;
   await syncTaskToCalendar(task, job.payload.mode, job.payload.userId ?? null, orgId);
   console.info('[job] calendar sync completed', { taskId: task.id, mode: job.payload.mode });
+}
+
+async function handleInboundCalendarSync(job: JobDoc<InboundCalendarSyncPayload>) {
+  const { userId, orgId } = job.payload;
+  const result = await syncInboundCalendar(userId, orgId);
+  console.info('[job] inbound calendar sync completed', {
+    userId,
+    orgId,
+    created: result.created,
+    updated: result.updated,
+    deleted: result.deleted,
+    errorCount: result.errors.length,
+  });
+  if (result.errors.length > 0) {
+    console.warn('[job] inbound sync errors:', result.errors);
+  }
 }
 
 async function handleDigest(job: JobDoc<DigestJobPayload>) {
@@ -91,6 +113,10 @@ function isDigestJob(job: JobDoc): job is JobDoc<DigestJobPayload> {
   return job.type === 'task.notification.digest';
 }
 
+function isInboundCalendarJob(job: JobDoc): job is JobDoc<InboundCalendarSyncPayload> {
+  return job.type === 'calendar.inbound.sync';
+}
+
 async function runJob(job: JobDoc) {
   await markJobInProgress(job.id);
   try {
@@ -98,6 +124,8 @@ async function runJob(job: JobDoc) {
       await handleNotificationSeed(job);
     } else if (isCalendarJob(job)) {
       await handleCalendarSync(job);
+    } else if (isInboundCalendarJob(job)) {
+      await handleInboundCalendarSync(job);
     } else if (isDigestJob(job)) {
       await handleDigest(job);
     } else {

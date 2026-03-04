@@ -156,6 +156,18 @@ export async function enqueueCalendarSync(input: { taskId: string; mode: 'push' 
   });
 }
 
+export async function enqueueInboundCalendarSync(input: { userId: string; orgId: string }) {
+  const dueAt = new Date();
+  await enqueueJob({
+    type: 'calendar.inbound.sync',
+    dueAt,
+    payload: {
+      userId: input.userId,
+      orgId: input.orgId,
+    },
+  });
+}
+
 export async function fetchPendingJobs(limit = 10): Promise<JobDoc[]> {
   const now = admin.firestore.Timestamp.now();
   const snapshot = await jobsCollection()

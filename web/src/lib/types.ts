@@ -210,3 +210,29 @@ export interface BulkImportSaveResponse {
   created: { stages: number; tasks: number; meetings: number; milestones: number };
   stageIdMap: Record<string, string>;
 }
+
+// ── Calendar Sync Settings ──
+
+export interface OutboundCalendarSettings {
+  enabled: boolean;
+  calendarId: string | null;
+  calendarName: string | null;
+  lastSyncAt: string | null;
+}
+
+export interface InboundCalendarSettings {
+  enabled: boolean;
+  calendarId: string | null;
+  calendarName: string | null;
+  syncMode: 'all' | 'accepted';
+  importAsType: 'task' | 'meeting';
+  defaultProjectId: string | null;
+  syncToken: string | null;
+  lastSyncAt: string | null;
+}
+
+export interface CalendarSyncSettings {
+  outbound: OutboundCalendarSettings;
+  inbound: InboundCalendarSettings;
+  updatedAt?: string;
+}

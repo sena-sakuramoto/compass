@@ -69,6 +69,19 @@ export async function sendEmail(params: {
   console.log(`[Gmail] Sent email to ${to}: ${subject}`);
 }
 
+function buildPlainBody(lines: Array<string | null | undefined>): string {
+  return lines
+    .map((line) => (typeof line === 'string' ? line.trimEnd() : ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function getRecipientName(email: string): string {
+  const localPart = email.split('@')[0]?.trim();
+  return localPart || email;
+}
+
 /**
  * タスク通知メールを送信
  */
@@ -183,69 +196,55 @@ export async function sendInvitationEmail(params: {
 
   const sender = process.env.NOTIFICATION_SENDER || 'no-reply@archi-prisma.co.jp';
   const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+  const destinationUrl = inviteUrl || appUrl;
+  const recipientName = getRecipientName(to);
+  const normalizedMessage = message?.trim();
 
   const roleNames: Record<string, string> = {
-    'admin': '管理者',
-    'project_manager': 'プロジェクトマネージャー',
-    'viewer': '閲覧者',
-    'owner': 'オーナー',
-    'manager': 'マネージャー',
-    'member': 'メンバー',
+    admin: '組織管理者',
+    project_manager: 'プロジェクトマネージャー',
+    sales: '営業',
+    designer: '設計',
+    site_manager: '施工管理',
+    worker: '職人',
+    viewer: '閲覧者',
+    super_admin: 'スーパー管理者',
+    owner: 'オーナー',
+    manager: 'マネージャー',
+    member: 'メンバー',
   };
 
   const roleName = roleNames[role] || role;
 
-  let subject = '';
-  let body = '';
+  const subject = projectName
+    ? `[Compass] プロジェクト「${projectName}」への招待`
+    : `[Compass] ${organizationName || '組織'}への招待`;
 
-  if (projectName) {
-    // プロジェクト招待
-    subject = `[Compass] プロジェクト「${projectName}」への招待`;
-    body = `
-${to} さま
-
-${inviterName} さんから、プロジェクト「${projectName}」に招待されました。
-
-【招待内容】
-プロジェクト: ${projectName}
-${organizationName ? `組織: ${organizationName}` : ''}
-ロール: ${roleName}
-
-${message ? `メッセージ:\n${message}\n` : ''}
-以下のリンクからログインして、プロジェクトにアクセスできます。
-
-${inviteUrl || appUrl}
-
-※このメールは自動送信されています。
-
----
-Compass - プロジェクト管理システム
-${appUrl}
-`;
-  } else {
-    // 組織招待
-    subject = `[Compass] ${organizationName || '組織'}への招待`;
-    body = `
-${to} さま
-
-${inviterName} さんから、${organizationName || '組織'}に招待されました。
-
-【招待内容】
-${organizationName ? `組織: ${organizationName}` : ''}
-ロール: ${roleName}
-
-${message ? `メッセージ:\n${message}\n` : ''}
-以下のリンクからログインして、組織にアクセスできます。
-
-${inviteUrl || appUrl}
-
-※このメールは自動送信されています。
-
----
-Compass - プロジェクト管理システム
-${appUrl}
-`;
-  }
+  const body = buildPlainBody([
+    `${recipientName} 様`,
+    '',
+    projectName
+      ? `${inviterName} さんから、プロジェクト「${projectName}」への招待が届いています。`
+      : `${inviterName} さんから、${organizationName || '組織'}への招待が届いています。`,
+    '',
+    '【招待内容】',
+    projectName ? `プロジェクト: ${projectName}` : null,
+    organizationName ? `組織: ${organizationName}` : null,
+    `権限: ${roleName}`,
+    '',
+    normalizedMessage ? '【メッセージ】' : null,
+    normalizedMessage || null,
+    normalizedMessage ? '' : null,
+    '【参加手順】',
+    '1. 下記URLを開く',
+    '2. 招待を受け取ったメールアドレスでログイン',
+    '3. 画面の案内に沿って参加を完了',
+    '',
+    destinationUrl,
+    '',
+    '※本メールは自動送信です。心当たりがない場合は破棄してください。',
+    `Compass: ${appUrl}`,
+  ]);
 
   try {
     await sendEmail({
@@ -274,28 +273,23 @@ export async function sendPasswordSetupEmail(params: {
 
   const sender = process.env.NOTIFICATION_SENDER || 'no-reply@archi-prisma.co.jp';
   const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+  const recipientName = displayName?.trim() || getRecipientName(to);
 
-  const subject = `[Compass] パスワード設定のご案内`;
-  const body = `
-${displayName || to} さま
-
-${organizationName || 'Compass'}へのアカウントが作成されました。
-以下のリンクからパスワードを設定してください。
-
-【パスワード設定】
-${resetLink}
-
-パスワード設定後、以下のURLからログインできます。
-
-${appUrl}
-
-※このリンクは24時間有効です。
-※このメールは自動送信されています。
-
----
-Compass - プロジェクト管理システム
-${appUrl}
-`;
+  const subject = '[Compass] パスワード設定のご案内';
+  const body = buildPlainBody([
+    `${recipientName} 様`,
+    '',
+    `${organizationName || 'Compass'} で利用するアカウントを作成しました。`,
+    '下記URLからパスワード設定を完了してください。',
+    '',
+    resetLink,
+    '',
+    '設定完了後は以下からログインできます。',
+    appUrl,
+    '',
+    '※本メールは自動送信です。心当たりがない場合は破棄してください。',
+    `Compass: ${appUrl}`,
+  ]);
 
   try {
     await sendEmail({

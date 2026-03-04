@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
-import { enqueueCalendarSync } from '../lib/jobs';
+import { enqueueCalendarSync, enqueueInboundCalendarSync } from '../lib/jobs';
 import { getUser } from '../lib/users';
 import { getEffectiveOrgId } from '../lib/access-helpers';
 
@@ -43,6 +43,24 @@ router.post('/delete', async (req: any, res, next) => {
     const orgId = getEffectiveOrgId(user);
     await enqueueCalendarSync({ taskId, mode: 'delete', userId: req.uid, orgId });
     res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/calendar/inbound-sync
+ * Google Calendar -> Compass のインバウンド同期を手動トリガー
+ */
+router.post('/inbound-sync', async (req: any, res, next) => {
+  try {
+    const user = await getUser(req.uid);
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    const orgId = getEffectiveOrgId(user);
+    await enqueueInboundCalendarSync({ userId: req.uid, orgId });
+    res.json({ ok: true, message: 'Inbound sync job enqueued' });
   } catch (error) {
     next(error);
   }

@@ -1,4 +1,13 @@
-import type { Project, Task, Person, ManageableUserSummary, BulkImportParseResponse, ConfirmedItem, BulkImportSaveResponse } from './types';
+import type {
+  Project,
+  Task,
+  Person,
+  ManageableUserSummary,
+  BulkImportParseResponse,
+  ConfirmedItem,
+  BulkImportSaveResponse,
+  CalendarSyncSettings,
+} from './types';
 import type { ProjectMember } from './auth-types';
 import { getCachedIdToken } from './authToken';
 
@@ -494,6 +503,40 @@ export interface GroupedUsers {
 
 export async function listUsersWithCollaborators() {
   return request<GroupedUsers>('/users/with-collaborators');
+}
+
+export type AdminUsageEventType =
+  | 'admin_page_view'
+  | 'billing_update'
+  | 'org_invitation_create'
+  | 'organization_create'
+  | 'member_role_update'
+  | 'stripe_sync';
+
+export interface AdminUsageSummary {
+  computedAt: string;
+  organizationsTotal: number;
+  usersTotal: number;
+  activeUsers: number;
+  usersLoggedIn7d: number;
+  usersLoggedIn30d: number;
+  tasksUpdated7d: number;
+  tasksUpdated30d: number;
+  adminEventsToday: number;
+  adminEvents7d: number;
+  adminEventBreakdownToday: Record<string, number>;
+}
+
+export async function getAdminUsageSummary(refresh = false) {
+  const suffix = refresh ? '?refresh=true' : '';
+  return request<{ summary: AdminUsageSummary; refreshed: boolean }>(`/admin/usage-summary${suffix}`);
+}
+
+export async function trackAdminUsageEvent(eventType: AdminUsageEventType) {
+  return request<{ ok: true }>('/admin/usage-events', {
+    method: 'POST',
+    body: JSON.stringify({ eventType }),
+  });
 }
 
 export async function getUser(userId: string) {
@@ -1237,5 +1280,32 @@ export async function updateSyncCalendar(payload: {
   return request<{ ok: true; syncCalendarId: string; migratedCount: number }>('/google/sync-calendar', {
     method: 'PATCH',
     body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * ユーザーのカレンダー双方向同期設定を取得
+ */
+export async function getCalendarSyncSettings() {
+  return request<{ settings: CalendarSyncSettings }>('/google/calendar-sync-settings');
+}
+
+/**
+ * ユーザーのカレンダー双方向同期設定を保存
+ */
+export async function updateCalendarSyncSettings(settings: Omit<CalendarSyncSettings, 'updatedAt'>) {
+  return request<{ ok: true }>('/google/calendar-sync-settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+}
+
+/**
+ * Google Calendar -> Compass のインバウンド同期を手動実行
+ */
+export async function triggerInboundCalendarSync() {
+  return request<{ ok: true; message?: string }>('/calendar/inbound-sync', {
+    method: 'POST',
+    body: JSON.stringify({}),
   });
 }

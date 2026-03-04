@@ -9,12 +9,12 @@ function buildSubject(task: TaskDoc, reason: NotificationReason) {
   const base = task.タスク名 ?? '(無題タスク)';
   switch (reason) {
     case 'creation':
-      return `[Project Compass] タスク登録: ${base}`;
+      return `[Compass] タスクが登録されました: ${base}`;
     case 'due_date':
-      return `[Project Compass] タスク期限通知: ${base}`;
+      return `[Compass] 本日期限のタスク: ${base}`;
     case 'manual':
     default:
-      return `[Project Compass] タスク通知: ${base}`;
+      return `[Compass] タスク通知: ${base}`;
   }
 }
 
@@ -23,21 +23,35 @@ function formatDateLabel(value?: string | null) {
   return value;
 }
 
+function buildPlainBody(lines: Array<string | null | undefined>) {
+  return lines
+    .map((line) => (typeof line === 'string' ? line.trimEnd() : ''))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function buildBody(task: TaskDoc, reason: NotificationReason, sendDate?: string | null) {
-  const lines = [
-    `タスク名: ${task.タスク名 ?? '(無題タスク)'}`,
-    `プロジェクト: ${task.projectId ?? ''}`,
-    `ステータス: ${task.ステータス ?? ''}`,
-    `予定: ${formatDateLabel(task.start)} → ${formatDateLabel(task.end ?? task.期限 ?? null)}`,
+  const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
+  const intro =
+    reason === 'creation'
+      ? '新しいタスクが登録されました。'
+      : reason === 'due_date'
+        ? `${sendDate ?? '本日'} が期限のタスクです。`
+        : 'タスク通知です。';
+
+  return buildPlainBody([
+    intro,
     '',
-    'Project Compass からの自動通知です。',
-  ];
-  if (reason === 'creation') {
-    lines.push('※このタスクは新しく登録されました。');
-  } else if (reason === 'due_date') {
-    lines.push(`※本日(${sendDate ?? '本日'})が期限日のタスクです。`);
-  }
-  return lines.join('\n');
+    `タスク: ${task.タスク名 ?? '(無題タスク)'}`,
+    `プロジェクトID: ${task.projectId ?? '未設定'}`,
+    `ステータス: ${task.ステータス ?? '未設定'}`,
+    `開始予定: ${formatDateLabel(task.start ?? task.予定開始日 ?? null)}`,
+    `期限: ${formatDateLabel(task.end ?? task.期限 ?? null)}`,
+    '',
+    `Compass: ${appUrl}`,
+    '※ このメールは自動送信です。',
+  ]);
 }
 
 function encodeMessage(message: string) {
@@ -98,10 +112,11 @@ function groupTasksByProject(tasks: DigestTaskSummary[]): ProjectGroup[] {
 
   for (const task of tasks) {
     const projectId = task.projectId || '(未設定)';
+    const projectName = task.projectName?.trim() || projectId;
     if (!groups.has(projectId)) {
       groups.set(projectId, {
         projectId,
-        projectName: projectId,
+        projectName,
         tasks: []
       });
     }
@@ -115,24 +130,25 @@ function buildDigestSection(title: string, tasks: DigestTaskSummary[]): string {
   if (!tasks.length) return '';
 
   const projectGroups = groupTasksByProject(tasks);
-  const lines = [title];
+  const lines = [`【${title}】${tasks.length}件`, ''];
 
   for (const group of projectGroups) {
-    // Use projectName from task data instead of projectId
-    const displayName = group.tasks[0]?.projectName || group.projectId;
-    lines.push(`  【${displayName}】`);
+    lines.push(`■ ${group.projectName} (${group.tasks.length}件)`);
     for (const task of group.tasks) {
       const start = task.startDate ? `開始: ${task.startDate}` : null;
       const due = task.dueDate ? `期限: ${task.dueDate}` : null;
       const info = [start, due].filter(Boolean).join(' / ');
-      const status = task.status ? `ステータス: ${task.status}` : null;
-      const suffix = [info, status].filter(Boolean).join(' | ');
-      lines.push(`    - ${task.taskName}${suffix ? ` (${suffix})` : ''}`);
+      const status = task.status ? `状態: ${task.status}` : null;
+      const meta = [info, status].filter(Boolean).join(' / ');
+      lines.push(`- ${task.taskName}`);
+      if (meta) {
+        lines.push(`  ${meta}`);
+      }
     }
+    lines.push('');
   }
 
-  lines.push('');
-  return lines.join('\n');
+  return lines.join('\n').trimEnd();
 }
 
 export async function sendTaskDigest(input: {
@@ -151,14 +167,15 @@ export async function sendTaskDigest(input: {
   }
 
   const gmail = await getGmailClient();
+  const appUrl = process.env.APP_URL || 'https://compass-31e9e.web.app';
 
-  const subject = `[Project Compass] 本日のタスク (${input.date})`;
+  const subject = `[Compass] 本日のタスク通知 (${input.date})`;
 
   const sections = [
-    buildDigestSection('■■■【要対応】本日が期限のタスク■■■', input.dueToday),
-    buildDigestSection('◆ 明日が期限のタスク', input.dueTomorrow),
-    buildDigestSection('◆ 本日開始のタスク', input.startingToday),
-    buildDigestSection('◆ 未完了の期限超過タスク', input.overdue),
+    buildDigestSection('本日期限', input.dueToday),
+    buildDigestSection('明日期限', input.dueTomorrow),
+    buildDigestSection('本日開始', input.startingToday),
+    buildDigestSection('期限超過（未完了）', input.overdue),
   ].filter(Boolean);
 
   if (!sections.length) {
@@ -169,14 +186,19 @@ export async function sendTaskDigest(input: {
   const greeting = input.orgName
     ? `${input.orgName} ${displayName} 様`
     : `${displayName} 様`;
+  const total =
+    input.dueToday.length + input.dueTomorrow.length + input.startingToday.length + input.overdue.length;
 
   const bodyLines = [
     greeting,
     '',
-    '本日のタスク状況をお知らせします。',
+    `${input.date} 時点のタスク通知です。`,
+    `対象タスク合計: ${total}件`,
+    `本日期限: ${input.dueToday.length}件 / 明日期限: ${input.dueTomorrow.length}件 / 本日開始: ${input.startingToday.length}件 / 期限超過: ${input.overdue.length}件`,
     '',
     ...sections,
-    '※ このメールは Project Compass から自動送信されています。',
+    `Compass: ${appUrl}`,
+    '※ このメールは自動送信です。',
   ];
 
   const message = [

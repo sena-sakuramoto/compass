@@ -22,6 +22,7 @@ import {
 import { getSeatUsage } from '../lib/member-limits';
 import { db } from '../lib/firestore';
 import { sendEmail } from '../lib/gmail';
+import { buildOrganizationSetupWelcomeMail } from '../lib/mail-templates';
 
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripe = stripeSecretKey ? new Stripe(stripeSecretKey, { apiVersion: '2025-12-15.clover' }) : null;
@@ -421,6 +422,7 @@ router.post('/billing/stripe-customers/send-welcome', async (req: any, res) => {
   const { resend = false, limit = 50 } = sendWelcomeSchema.parse(req.body ?? {});
   const appUrl = process.env.ORG_SETUP_URL || process.env.APP_URL || 'https://compass-31e9e.web.app';
   const sender = process.env.NOTIFICATION_SENDER || 'no-reply@archi-prisma.co.jp';
+  const supportEmail = process.env.SUPPORT_EMAIL || 'support@archi-prisma.co.jp';
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecret) {
     return res.status(500).json({ error: 'STRIPE_SECRET_KEY is not configured' });
@@ -551,23 +553,11 @@ router.post('/billing/stripe-customers/send-welcome', async (req: any, res) => {
       continue;
     }
 
-    const subject = '[Compass] ご招待 - 初期設定のご案内';
-    const body = `
-ご担当者様
-
-平素よりお世話になっております。AI×建築サークル 代表の櫻本聖成です。
-このたびはCompassにご入会いただき、誠にありがとうございます。本メールはご入会後の初期設定のご案内としてお送りしています。
-
-コンパスの組織を作成し、利用を開始するには、以下のURLからサインインし管理者画面（管理ツール）で組織を作成してください。
-${appUrl}
-
-サインインは本メールの宛先アドレスでお願いします。Stripe Customer ID は下記です。
- Stripe Customer ID: ${customer.customerId}
-
-すでに組織がある場合は、管理者ツール > 課金で上記Customer IDを登録してください。
-ご不明点は compass@archi-prisma.co.jp までご連絡ください。
-
-※このメールは自動送信されています。`;
+    const { subject, body } = buildOrganizationSetupWelcomeMail({
+      appUrl,
+      customerId: customer.customerId,
+      supportEmail,
+    });
 
     try {
       results.attempted += 1;

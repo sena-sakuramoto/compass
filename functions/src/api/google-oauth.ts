@@ -4,6 +4,7 @@
  */
 
 import { Router } from 'express';
+import admin from 'firebase-admin';
 import { authMiddleware } from '../lib/auth';
 import {
   exchangeCodeForTokens,
@@ -153,6 +154,161 @@ router.patch('/sync-calendar', async (req: any, res, next) => {
     }
 
     return res.json({ ok: true, syncCalendarId, migratedCount });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/**
+ * GET /api/google/calendar-sync-settings
+ * ユーザーのカレンダー双方向同期設定を取得
+ */
+router.get('/calendar-sync-settings', async (req: any, res, next) => {
+  try {
+    const uid = req.uid as string;
+    const settingsDoc = await db
+      .collection('users')
+      .doc(uid)
+      .collection('private')
+      .doc('calendarSyncSettings')
+      .get();
+
+    if (!settingsDoc.exists) {
+      return res.json({
+        settings: {
+          outbound: {
+            enabled: false,
+            calendarId: null,
+            calendarName: null,
+            lastSyncAt: null,
+          },
+          inbound: {
+            enabled: false,
+            calendarId: null,
+            calendarName: null,
+            syncMode: 'all',
+            importAsType: 'task',
+            defaultProjectId: null,
+            syncToken: null,
+            lastSyncAt: null,
+          },
+        },
+      });
+    }
+
+    const data = settingsDoc.data();
+    const outboundLastSync = data?.outbound?.lastSyncAt;
+    const inboundLastSync = data?.inbound?.lastSyncAt;
+
+    return res.json({
+      settings: {
+        outbound: {
+          ...data?.outbound,
+          lastSyncAt: outboundLastSync?.toDate?.()?.toISOString?.() ?? outboundLastSync ?? null,
+        },
+        inbound: {
+          ...data?.inbound,
+          lastSyncAt: inboundLastSync?.toDate?.()?.toISOString?.() ?? inboundLastSync ?? null,
+        },
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/**
+ * PUT /api/google/calendar-sync-settings
+ * ユーザーのカレンダー双方向同期設定を保存
+ */
+router.put('/calendar-sync-settings', async (req: any, res, next) => {
+  try {
+    const uid = req.uid as string;
+    const { outbound, inbound } = req.body ?? {};
+
+    if (!outbound || !inbound) {
+      return res.status(400).json({ error: 'outbound and inbound settings are required' });
+    }
+
+    let calendar: any;
+    try {
+      calendar = await getUserCalendarClient(uid);
+    } catch {
+      return res.status(400).json({ error: 'Googleアカウントが接続されていません' });
+    }
+
+    if (outbound.enabled && outbound.calendarId) {
+      try {
+        await calendar.calendarList.get({ calendarId: outbound.calendarId });
+      } catch {
+        return res.status(400).json({
+          error: `Outbound カレンダー（${outbound.calendarId}）にアクセスできません。カレンダーIDを確認してください。`,
+        });
+      }
+    }
+
+    if (inbound.enabled && inbound.calendarId) {
+      try {
+        await calendar.calendarList.get({ calendarId: inbound.calendarId });
+      } catch {
+        return res.status(400).json({
+          error: `Inbound カレンダー（${inbound.calendarId}）にアクセスできません。カレンダーIDを確認してください。`,
+        });
+      }
+    }
+
+    if (
+      outbound.enabled &&
+      inbound.enabled &&
+      outbound.calendarId &&
+      inbound.calendarId &&
+      outbound.calendarId === inbound.calendarId
+    ) {
+      return res.status(400).json({
+        error: 'Outbound と Inbound に同じカレンダーは設定できません（ループが発生します）',
+      });
+    }
+
+    const settingsRef = db
+      .collection('users')
+      .doc(uid)
+      .collection('private')
+      .doc('calendarSyncSettings');
+    const existingDoc = await settingsRef.get();
+    const existing = existingDoc.data();
+    const inboundCalendarChanged = existing?.inbound?.calendarId !== inbound.calendarId;
+
+    const settingsData = {
+      outbound: {
+        enabled: Boolean(outbound.enabled),
+        calendarId: outbound.calendarId || null,
+        calendarName: outbound.calendarName || null,
+        lastSyncAt: existing?.outbound?.lastSyncAt ?? null,
+      },
+      inbound: {
+        enabled: Boolean(inbound.enabled),
+        calendarId: inbound.calendarId || null,
+        calendarName: inbound.calendarName || null,
+        syncMode: inbound.syncMode === 'accepted' ? 'accepted' : 'all',
+        importAsType: inbound.importAsType === 'meeting' ? 'meeting' : 'task',
+        defaultProjectId: inbound.defaultProjectId || null,
+        syncToken: inboundCalendarChanged ? null : (existing?.inbound?.syncToken ?? null),
+        lastSyncAt: inboundCalendarChanged ? null : (existing?.inbound?.lastSyncAt ?? null),
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    await settingsRef.set(settingsData, { merge: false });
+
+    if (outbound.enabled && outbound.calendarId) {
+      const tokenRef = db.collection('users').doc(uid).collection('private').doc('googleTokens');
+      const tokenDoc = await tokenRef.get();
+      if (tokenDoc.exists) {
+        await tokenRef.update({ syncCalendarId: outbound.calendarId });
+      }
+    }
+
+    return res.json({ ok: true });
   } catch (error) {
     return next(error);
   }

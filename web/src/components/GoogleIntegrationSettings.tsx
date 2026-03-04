@@ -1,14 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   getGoogleIntegrationSettings,
-  listGoogleCalendars,
   updateGoogleIntegrationSettings,
-  updateSyncCalendar,
 } from '../lib/api';
 import type { GoogleIntegrationSettings as GoogleIntegrationSettingsType } from '../lib/types';
 import {
   FolderOpen,
   MessageSquare,
+  ArrowRightLeft,
   Save,
   Loader2,
   AlertCircle,
@@ -17,8 +16,8 @@ import {
   ArrowUp,
   ArrowDown,
 } from 'lucide-react';
-import toast from 'react-hot-toast';
 import { GoogleConnectButton } from './GoogleConnectButton';
+import { CalendarSyncSettings } from './CalendarSyncSettings';
 
 // フォルダ名の構成要素
 type FolderPart = 'number' | 'projectName' | 'client' | 'projectId';
@@ -244,8 +243,14 @@ export function GoogleIntegrationSettings({ className = '', currentUserRole }: G
           <GoogleConnectButton />
         </section>
 
-        {/* カレンダー同期設定（全ユーザー） */}
-        <CalendarSyncSection />
+        {/* カレンダー双方向同期設定（全ユーザー） */}
+        <section>
+          <div className="mb-4 flex items-center gap-2">
+            <ArrowRightLeft className="h-5 w-5 text-blue-600" />
+            <h3 className="font-medium text-gray-900">カレンダー同期</h3>
+          </div>
+          <CalendarSyncSettings />
+        </section>
 
         {isAdminUser && (
           <>
@@ -593,144 +598,5 @@ export function GoogleIntegrationSettings({ className = '', currentUserRole }: G
         </button>
       </div>
     </div>
-  );
-}
-
-type CalendarOption = {
-  id: string;
-  summary: string;
-  primary: boolean;
-  backgroundColor?: string;
-};
-
-function CalendarSyncSection() {
-  const [calendars, setCalendars] = useState<CalendarOption[]>([]);
-  const [syncCalendarId, setSyncCalendarId] = useState<string>('primary');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [showMigrateDialog, setShowMigrateDialog] = useState(false);
-  const [pendingCalendarId, setPendingCalendarId] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    listGoogleCalendars()
-      .then((res) => {
-        if (!mounted) return;
-        const nextCalendars = res.calendars || [];
-        setCalendars(nextCalendars);
-        const fallbackId = nextCalendars.find((cal) => cal.primary)?.id || nextCalendars[0]?.id || 'primary';
-        setSyncCalendarId(res.syncCalendarId || fallbackId);
-        setFetchError(null);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setFetchError('Googleアカウント接続後に選択できます');
-      })
-      .finally(() => {
-        if (!mounted) return;
-        setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const handleChange = (newId: string) => {
-    if (newId === syncCalendarId) return;
-    setPendingCalendarId(newId);
-    setShowMigrateDialog(true);
-  };
-
-  const handleConfirm = async (migrateExisting: boolean) => {
-    if (!pendingCalendarId) return;
-    setSaving(true);
-    setShowMigrateDialog(false);
-    try {
-      const result = await updateSyncCalendar({
-        syncCalendarId: pendingCalendarId,
-        migrateExisting,
-      });
-      setSyncCalendarId(result.syncCalendarId);
-      toast.success(
-        migrateExisting
-          ? `同期先を変更し、${result.migratedCount}件の既存イベントを移動しました`
-          : '同期先を変更しました'
-      );
-    } catch (error) {
-      console.error('Failed to update sync calendar:', error);
-      toast.error('同期先の変更に失敗しました');
-    } finally {
-      setSaving(false);
-      setPendingCalendarId(null);
-    }
-  };
-
-  return (
-    <section className="space-y-2">
-      <h3 className="font-medium text-gray-900">カレンダー同期設定</h3>
-      {loading ? (
-        <p className="text-sm text-slate-400">読み込み中...</p>
-      ) : fetchError ? (
-        <p className="text-sm text-slate-500">{fetchError}</p>
-      ) : calendars.length === 0 ? (
-        <p className="text-sm text-slate-500">同期可能なカレンダーが見つかりません</p>
-      ) : (
-        <label className="block text-sm text-slate-600">
-          同期先カレンダー
-          <select
-            value={syncCalendarId}
-            onChange={(event) => handleChange(event.target.value)}
-            disabled={saving}
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-          >
-            {calendars.map((calendar) => (
-              <option key={calendar.id} value={calendar.id}>
-                {calendar.summary}
-                {calendar.primary ? ' (メイン)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {showMigrateDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="mx-4 w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
-            <h4 className="mb-2 font-medium text-gray-900">同期先カレンダーを変更</h4>
-            <p className="mb-4 text-sm text-slate-600">
-              既存のイベントも新しいカレンダーに移動しますか？
-            </p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => handleConfirm(true)}
-                className="flex-1 rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
-              >
-                移動する
-              </button>
-              <button
-                type="button"
-                onClick={() => handleConfirm(false)}
-                className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm hover:bg-slate-50"
-              >
-                新規タスクから適用
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setShowMigrateDialog(false);
-                setPendingCalendarId(null);
-              }}
-              className="mt-2 w-full text-sm text-slate-400 hover:text-slate-600"
-            >
-              キャンセル
-            </button>
-          </div>
-        </div>
-      )}
-    </section>
   );
 }

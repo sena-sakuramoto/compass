@@ -110,6 +110,14 @@
         { "fieldPath": "orderIndex", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "importedEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "googleEventId", "order": "ASCENDING" },
+        { "fieldPath": "googleCalendarId", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

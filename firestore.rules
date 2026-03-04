@@ -41,6 +41,11 @@ service cloud.firestore {
       allow read, update: if isAdmin();
       allow delete: if false;
 
+      // Calendar sync settings (non-sensitive)
+      match /private/calendarSyncSettings {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      }
+
       // Private subcollection (OAuth tokens etc.) - Cloud Functions only
       match /private/{document=**} {
         allow read, write: if false;
@@ -114,6 +119,17 @@ service cloud.firestore {
       allow create: if canCreateTask() && isOrgMember();
       allow update: if (canAccessTask() || isAdmin()) && isOrgMember();
       allow delete: if (isAdmin() || isProjectManager()) && isOrgMember();
+    }
+
+    // ===== インポートイベントマッピング =====
+
+    match /orgs/{orgId}/importedEvents/{docId} {
+      function isOrgMember() {
+        let user = getUserData();
+        return user != null && user.orgId == orgId;
+      }
+
+      allow read, write: if isAuthenticated() && (isOrgMember() || isAdmin());
     }
 
     // ===== 担当者コレクション =====

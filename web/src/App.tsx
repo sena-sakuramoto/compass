@@ -1215,11 +1215,13 @@ function TasksPage({
   onEditTask,
   onSeedReminders,
   onCalendarSync,
+  pushToast,
   canEdit,
   canSync,
   allTasks,
   projects,
   currentUserName,
+  currentUserEmail,
 }: {
   filteredTasks: Task[];
   projectMap: Record<string, Project>;
@@ -1233,11 +1235,13 @@ function TasksPage({
   onEditTask(task: Task): void;
   onSeedReminders?(taskId: string): Promise<void>;
   onCalendarSync?(taskId: string): Promise<void>;
+  pushToast: (toast: ToastInput) => void;
   canEdit: boolean;
   canSync: boolean;
   allTasks: Task[];
   projects: Project[];
   currentUserName: string;
+  currentUserEmail?: string | null;
 }) {
   const [seedBusyIds, setSeedBusyIds] = useState<Set<string>>(new Set());
   const [calendarBusyIds, setCalendarBusyIds] = useState<Set<string>>(new Set());
@@ -1246,9 +1250,16 @@ function TasksPage({
 
   // Ball categorization (ported from BallView)
   const normalizedCurrentUser = (currentUserName ?? '').trim().toLowerCase();
+  const normalizedCurrentUserEmail = (currentUserEmail ?? '').trim().toLowerCase();
+  const currentUserAliases = useMemo(() => {
+    const aliases = new Set<string>();
+    if (normalizedCurrentUser) aliases.add(normalizedCurrentUser);
+    if (normalizedCurrentUserEmail) aliases.add(normalizedCurrentUserEmail);
+    return aliases;
+  }, [normalizedCurrentUser, normalizedCurrentUserEmail]);
   const ballCategorized = useMemo(() => {
     const normalizeText = (v: string | null | undefined) => (v ?? '').trim();
-    const isCurrentUser = (name: string) => normalizeText(name).toLowerCase() === normalizedCurrentUser;
+    const isCurrentUser = (name: string) => currentUserAliases.has(normalizeText(name).toLowerCase());
     const activeTasks = allTasks.filter((t) => t.ステータス !== '完了' && t.type !== 'stage');
     const mine: Task[] = [];
     const waiting: Task[] = [];
@@ -1262,7 +1273,7 @@ function TasksPage({
 
     for (const task of activeTasks) {
       const holder = normalizeText(task.ballHolder);
-      const assignee = normalizeText(task.assignee || task.担当者);
+      const assignee = normalizeText(task.assignee || task.担当者 || task.担当者メール);
       const effectiveHolder = holder || assignee;
       if (effectiveHolder && isCurrentUser(effectiveHolder)) {
         mine.push(task);
@@ -1274,7 +1285,7 @@ function TasksPage({
     waiting.sort(sortByDeadline);
     all.sort(sortByDeadline);
     return { mine, waiting, all };
-  }, [normalizedCurrentUser, allTasks]);
+  }, [allTasks, currentUserAliases]);
 
   const getBallProjectName = (projectId: string) => projects.find((p) => p.id === projectId)?.物件名 || '';
 
@@ -1293,10 +1304,10 @@ function TasksPage({
   const getBallHolderLabel = (task: Task) => {
     const normalizeText = (v: string | null | undefined) => (v ?? '').trim();
     const holder = normalizeText(task.ballHolder);
-    const assignee = normalizeText(task.assignee || task.担当者);
+    const assignee = normalizeText(task.assignee || task.担当者 || task.担当者メール);
     const effectiveHolder = holder || assignee;
     if (!effectiveHolder) return '未設定';
-    if (normalizedCurrentUser && effectiveHolder.toLowerCase() === normalizedCurrentUser) return '自分';
+    if (currentUserAliases.has(effectiveHolder.toLowerCase())) return '自分';
     return effectiveHolder;
   };
 
@@ -1428,19 +1439,81 @@ function TasksPage({
     return sorted;
   }, [rows, sortKey, sortDirection]);
 
-  const handleBallThrow = useCallback((task: Task) => {
-    // Throw ball to the other person (assignee)
-    const assignee = (task.assignee || task.担当者 || '').trim();
-    const newHolder = assignee && assignee.toLowerCase() !== normalizedCurrentUser ? assignee : '';
-    if (newHolder) {
-      updateTask(task.id, { ballHolder: newHolder });
-    }
-  }, [normalizedCurrentUser, updateTask]);
+  const showBallUndoToast = useCallback(
+    (task: Task, previousHolder: string | null, actionTitle: string) => {
+      toast(
+        (t) => (
+          <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-lg">
+            <span className="text-xs text-slate-700">{actionTitle}</span>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                updateTask(task.id, { ballHolder: previousHolder });
+                toast.dismiss(t.id);
+                pushToast({ tone: 'info', title: 'ボール操作を元に戻しました' });
+              }}
+              className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-800"
+            >
+              元に戻す
+            </button>
+            <button
+              type="button"
+              onClick={() => toast.dismiss(t.id)}
+              className="text-xs text-slate-500 hover:text-slate-700"
+            >
+              閉じる
+            </button>
+          </div>
+        ),
+        { duration: 5000, position: 'bottom-center' }
+      );
+    },
+    [pushToast, updateTask]
+  );
 
-  const handleBallPullBack = useCallback((task: Task) => {
-    // Pull ball back to myself
-    updateTask(task.id, { ballHolder: currentUserName });
-  }, [currentUserName, updateTask]);
+  const applyBallHolderWithUndo = useCallback(
+    (task: Task, nextHolder: string | null, actionTitle: string) => {
+      const previousHolder = (task.ballHolder || '').trim() || null;
+      const normalizedNext = (nextHolder || '').trim() || null;
+      if (previousHolder === normalizedNext) {
+        return;
+      }
+      updateTask(task.id, { ballHolder: normalizedNext });
+      pushToast({ tone: 'success', title: actionTitle });
+      showBallUndoToast(task, previousHolder, `${actionTitle}（5秒以内なら取り消せます）`);
+    },
+    [pushToast, showBallUndoToast, updateTask]
+  );
+
+  const handleBallThrow = useCallback(
+    (task: Task) => {
+      const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
+      if (!assignee) {
+        pushToast({ tone: 'info', title: '担当者が未設定のため、ボールを渡せません' });
+        return;
+      }
+      if (currentUserAliases.has(assignee.toLowerCase())) {
+        pushToast({ tone: 'info', title: '自分宛てのため、ボールを渡せません' });
+        return;
+      }
+      applyBallHolderWithUndo(task, assignee, 'ボールを相手に渡しました');
+    },
+    [applyBallHolderWithUndo, currentUserAliases, pushToast]
+  );
+
+  const handleBallPullBack = useCallback(
+    (task: Task) => {
+      const myHolder = (currentUserName || currentUserEmail || '').trim();
+      if (!myHolder) {
+        pushToast({ tone: 'info', title: 'ユーザー情報が未取得のため、ボールを戻せません' });
+        return;
+      }
+      applyBallHolderWithUndo(task, myHolder, 'ボールを自分に戻しました');
+    },
+    [applyBallHolderWithUndo, currentUserEmail, currentUserName, pushToast]
+  );
 
   const renderBallSection = (title: string, tasks: Task[], mode: 'mine' | 'waiting') => {
     if (tasks.length === 0) return null;
@@ -1450,40 +1523,80 @@ function TasksPage({
           {title}
           <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal text-slate-500">{tasks.length}</span>
         </h3>
-        {tasks.map((task) => (
-          <SwipeBallCard
-            key={task.id}
-            onThrow={mode === 'mine' ? () => handleBallThrow(task) : undefined}
-            onPullBack={mode === 'waiting' ? () => handleBallPullBack(task) : undefined}
-          >
-            <button
-              onClick={() => onEditTask(task)}
-              className="w-full rounded-xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-slate-300"
+        {tasks.map((task) => {
+          const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
+          const canThrow = Boolean(assignee) && !currentUserAliases.has(assignee.toLowerCase());
+          const canPullBack = Boolean((currentUserName || currentUserEmail || '').trim());
+          return (
+            <SwipeBallCard
+              key={task.id}
+              ariaLabel={`${task.タスク名} のボールカード`}
+              onThrow={mode === 'mine' ? () => handleBallThrow(task) : undefined}
+              onPullBack={mode === 'waiting' ? () => handleBallPullBack(task) : undefined}
             >
-              <p className="mb-1 text-xs text-slate-400">{getBallProjectName(task.projectId)}</p>
-              <p className="mb-2 text-sm font-medium text-slate-900">{task.タスク名}</p>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                      getBallHolderLabel(task) === '自分'
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {getBallHolderLabel(task)}
-                  </span>
-                  {task.ballNote && (
-                    <span className="truncate text-xs text-slate-400">{task.ballNote}</span>
+              <div className="w-full rounded-xl border border-slate-200 bg-white transition-colors hover:border-slate-300">
+                <button
+                  type="button"
+                  onClick={() => onEditTask(task)}
+                  className="w-full p-4 text-left"
+                >
+                  <p className="mb-1 text-xs text-slate-400">{getBallProjectName(task.projectId)}</p>
+                  <p className="mb-2 text-sm font-medium text-slate-900">{task.タスク名}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
+                          getBallHolderLabel(task) === '自分'
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {getBallHolderLabel(task)}
+                      </span>
+                      {task.ballNote && (
+                        <span className="truncate text-xs text-slate-400">{task.ballNote}</span>
+                      )}
+                    </div>
+                    <span className={`text-xs ${getBallDeadlineColor(task.responseDeadline || task.期限)}`}>
+                      {task.responseDeadline || task.期限 || '期限なし'}
+                    </span>
+                  </div>
+                </button>
+                <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-3 py-2">
+                  {mode === 'mine' ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleBallThrow(task);
+                      }}
+                      disabled={!canThrow}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="ボールを相手に渡す"
+                    >
+                      相手に渡す
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleBallPullBack(task);
+                      }}
+                      disabled={!canPullBack}
+                      className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="ボールを自分に戻す"
+                    >
+                      自分に戻す
+                    </button>
                   )}
                 </div>
-                <span className={`text-xs ${getBallDeadlineColor(task.responseDeadline || task.期限)}`}>
-                  {task.responseDeadline || task.期限 || '期限なし'}
-                </span>
               </div>
-            </button>
-          </SwipeBallCard>
-        ))}
+            </SwipeBallCard>
+          );
+        })}
       </div>
     );
   };
@@ -6491,11 +6604,13 @@ function App() {
                 onEditTask={(task) => setEditingTask(task)}
                 onSeedReminders={canSync ? handleSeedReminders : undefined}
                 onCalendarSync={canSync ? handleCalendarSync : undefined}
+                pushToast={pushToast}
                 canEdit={canEdit}
                 canSync={canSync}
                 allTasks={state.tasks}
                 projects={state.projects}
                 currentUserName={(user?.displayName || user?.email || '').trim()}
+                currentUserEmail={(user?.email || '').trim()}
               />
             }
           />

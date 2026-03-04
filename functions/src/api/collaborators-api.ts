@@ -26,15 +26,14 @@ router.get('/', async (req: any, res, next) => {
     const accessibleOrgIds = new Set<string>();
     accessibleOrgIds.add(user.orgId); // 自組織
 
-    // ユーザーが参加しているプロジェクトを取得してプロジェクト所有組織を特定
+    // ユーザーが参加しているプロジェクトを取得してアクセス可能組織を特定
     const { listUserProjects } = await import('../lib/project-members');
-    const userProjectMemberships = await listUserProjects(null, req.uid);
+    const userProjectMemberships = await listUserProjects(null, req.uid, { includeProject: false });
 
-    // プロジェクトの所有組織IDを収集
+    // projectOrgId を優先して収集（project doc の個別取得は行わない）
     for (const membership of userProjectMemberships) {
-      if (membership.project?.ownerOrgId) {
-        accessibleOrgIds.add(membership.project.ownerOrgId);
-      }
+      const ownerOrgId = membership.member?.projectOrgId || null;
+      if (ownerOrgId) accessibleOrgIds.add(ownerOrgId);
     }
 
     // 各組織の協力者を取得
