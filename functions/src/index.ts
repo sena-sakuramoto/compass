@@ -147,6 +147,7 @@ const REGION = process.env.COMPASS_FUNCTION_REGION ?? 'asia-northeast1';
 const REMINDER_CRON = process.env.TASK_REMINDER_CRON ?? '0 9 * * *';
 const REMINDER_TIMEZONE = process.env.TASK_REMINDER_TIMEZONE ?? 'Asia/Tokyo';
 const REMINDER_ENABLED = process.env.TASK_REMINDER_ENABLED ?? 'true';
+const JOB_RUNNER_CRON = process.env.JOB_RUNNER_CRON ?? 'every 1 minutes';
 
 export const api = onRequest({
   region: REGION,
@@ -174,6 +175,15 @@ export const jobRunner = onRequest({
     console.error('[jobRunner] failed', error);
     res.status(500).json({ ok: false, error: error instanceof Error ? error.message : String(error) });
   }
+});
+
+export const jobsScheduler = onSchedule({
+  region: REGION,
+  schedule: JOB_RUNNER_CRON,
+  timeZone: REMINDER_TIMEZONE,
+}, async () => {
+  const result = await processPendingJobs();
+  console.info('[jobsScheduler] processed', result);
 });
 
 export const taskReminderScheduler = onSchedule({

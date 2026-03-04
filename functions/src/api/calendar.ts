@@ -1,10 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../lib/auth';
-import { enqueueCalendarSync } from '../lib/jobs';
+import { enqueueCalendarSync, enqueueInboundCalendarSync } from '../lib/jobs';
 import { getUser } from '../lib/users';
 import { getEffectiveOrgId } from '../lib/access-helpers';
-import { syncInboundCalendar } from '../lib/calendarInbound';
 
 const router = Router();
 
@@ -51,7 +50,7 @@ router.post('/delete', async (req: any, res, next) => {
 
 /**
  * POST /api/calendar/inbound-sync
- * Google Calendar -> Compass のインバウンド同期を手動実行
+ * Google Calendar -> Compass のインバウンド同期を手動トリガー
  */
 router.post('/inbound-sync', async (req: any, res, next) => {
   try {
@@ -60,22 +59,8 @@ router.post('/inbound-sync', async (req: any, res, next) => {
       return res.status(401).json({ error: 'User not found' });
     }
     const orgId = getEffectiveOrgId(user);
-    const result = await syncInboundCalendar(req.uid, orgId);
-
-    const baseMessage = `Inbound同期完了（作成:${result.created} 更新:${result.updated} 完了:${result.deleted}）`;
-    if (result.errors.length > 0) {
-      return res.json({
-        ok: true,
-        message: `${baseMessage} / エラー:${result.errors.length}件`,
-        result,
-      });
-    }
-
-    res.json({
-      ok: true,
-      message: baseMessage,
-      result,
-    });
+    await enqueueInboundCalendarSync({ userId: req.uid, orgId });
+    res.json({ ok: true, queued: true, message: 'Inbound同期ジョブをキューに追加しました（最大1分で反映）' });
   } catch (error) {
     next(error);
   }

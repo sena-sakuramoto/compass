@@ -1320,6 +1320,7 @@ export async function updateCalendarSyncSettings(settings: Omit<CalendarSyncSett
 export async function triggerInboundCalendarSync() {
   return request<{
     ok: true;
+    queued?: boolean;
     message?: string;
     result?: { created: number; updated: number; deleted: number; errors: string[] };
   }>('/calendar/inbound-sync', {
