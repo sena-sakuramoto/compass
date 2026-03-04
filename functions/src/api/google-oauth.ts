@@ -32,6 +32,23 @@ function getGoogleOAuthErrorData(error: any): GoogleOAuthErrorData | null {
   return responseData as GoogleOAuthErrorData;
 }
 
+function getGoogleApiErrorReason(error: any): string | null {
+  const responseData = error?.response?.data ?? error?.cause?.response?.data;
+  const reason = responseData?.error?.errors?.[0]?.reason;
+  return typeof reason === 'string' ? reason : null;
+}
+
+function getGoogleApiErrorMessage(error: any): string {
+  const responseData = error?.response?.data ?? error?.cause?.response?.data;
+  return String(responseData?.error?.message || error?.message || '');
+}
+
+function isGoogleInsufficientPermission(error: any): boolean {
+  const reason = getGoogleApiErrorReason(error);
+  const message = getGoogleApiErrorMessage(error).toLowerCase();
+  return reason === 'insufficientPermissions' || message.includes('insufficient permission');
+}
+
 function maskClientId(clientId: string | null | undefined): string {
   if (!clientId) return '(none)';
   if (clientId.length <= 14) return clientId;
@@ -167,6 +184,13 @@ router.get('/calendars', async (req: any, res, next) => {
       return res.status(401).json({
         error: 'Google連携の認証が失効しました。再接続してください。',
         code: 'google_reauth_required',
+      });
+    }
+    if (isGoogleInsufficientPermission(error)) {
+      return res.status(400).json({
+        error:
+          'Google連携の権限が不足しています。Googleアカウントを一度切断して再接続してください（必要権限を再取得します）。',
+        code: 'google_scope_insufficient',
       });
     }
     next(error);
@@ -317,20 +341,34 @@ router.put('/calendar-sync-settings', async (req: any, res, next) => {
     if (outbound.enabled && outbound.calendarId) {
       try {
         await calendar.calendarList.get({ calendarId: outbound.calendarId });
-      } catch {
-        return res.status(400).json({
-          error: `Outbound カレンダー（${outbound.calendarId}）にアクセスできません。カレンダーIDを確認してください。`,
-        });
+      } catch (validationError: any) {
+        if (isGoogleInsufficientPermission(validationError)) {
+          console.warn('[google-oauth] Skip outbound calendar validation due to insufficient scope', {
+            uid,
+            calendarId: outbound.calendarId,
+          });
+        } else {
+          return res.status(400).json({
+            error: `Outbound カレンダー（${outbound.calendarId}）にアクセスできません。カレンダーIDを確認してください。`,
+          });
+        }
       }
     }
 
     if (inbound.enabled && inbound.calendarId) {
       try {
         await calendar.calendarList.get({ calendarId: inbound.calendarId });
-      } catch {
-        return res.status(400).json({
-          error: `Inbound カレンダー（${inbound.calendarId}）にアクセスできません。カレンダーIDを確認してください。`,
-        });
+      } catch (validationError: any) {
+        if (isGoogleInsufficientPermission(validationError)) {
+          console.warn('[google-oauth] Skip inbound calendar validation due to insufficient scope', {
+            uid,
+            calendarId: inbound.calendarId,
+          });
+        } else {
+          return res.status(400).json({
+            error: `Inbound カレンダー（${inbound.calendarId}）にアクセスできません。カレンダーIDを確認してください。`,
+          });
+        }
       }
     }
 

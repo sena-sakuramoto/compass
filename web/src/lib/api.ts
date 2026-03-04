@@ -42,6 +42,7 @@ function shouldReportApiError(status: number, code?: string): boolean {
   if (
     code === 'google_not_connected' ||
     code === 'google_reauth_required' ||
+    code === 'google_scope_insufficient' ||
     code.startsWith('google_oauth_')
   ) {
     return false;

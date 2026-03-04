@@ -152,6 +152,8 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
             setCalendarsError('Googleアカウント接続後にカレンダーを選択できます');
           } else if (reason.code === 'google_reauth_required') {
             setCalendarsError('Google連携の認証が失効しました。Googleアカウントを再接続してください');
+          } else if (reason.code === 'google_scope_insufficient') {
+            setCalendarsError('Google権限が不足しています。Googleアカウントを再接続するか、カレンダーURL/IDを直接入力してください');
           } else {
             setCalendarsError(reason.message || 'カレンダー一覧の取得に失敗しました');
           }
