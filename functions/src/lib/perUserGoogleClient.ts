@@ -19,11 +19,31 @@ export interface GoogleTokens {
   syncCalendarId?: string | null;
 }
 
+function readOAuthCredentials() {
+  const clientId = (
+    process.env.GOOGLE_CLIENT_ID ||
+    process.env.GOOGLE_OAUTH_CLIENT_ID ||
+    ''
+  ).trim();
+  const clientSecret = (
+    process.env.GOOGLE_CLIENT_SECRET ||
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET ||
+    ''
+  ).trim();
+  return { clientId, clientSecret };
+}
+
+export function getConfiguredGoogleClientId(): string | null {
+  const { clientId } = readOAuthCredentials();
+  return clientId || null;
+}
+
 function getOAuthClient() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const { clientId, clientSecret } = readOAuthCredentials();
   if (!clientId || !clientSecret) {
-    throw new Error('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set.');
+    throw new Error(
+      'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not set (or legacy GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET).'
+    );
   }
   return new google.auth.OAuth2(clientId, clientSecret);
 }

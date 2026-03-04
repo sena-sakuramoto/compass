@@ -36,6 +36,19 @@ export function setApiErrorHandler(handler: ((info: ApiErrorInfo) => void) | nul
   onApiErrorCallback = handler;
 }
 
+function shouldReportApiError(status: number, code?: string): boolean {
+  if (status === 404) return false;
+  if (!code) return true;
+  if (
+    code === 'google_not_connected' ||
+    code === 'google_reauth_required' ||
+    code.startsWith('google_oauth_')
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function buildAuthHeaders(token?: string): Record<string, string> {
   if (!token) return {};
   const value = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
@@ -141,7 +154,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       });
     }
 
-    if (res.status !== 404 && onApiErrorCallback) {
+    if (onApiErrorCallback && shouldReportApiError(res.status, code)) {
       onApiErrorCallback({
         method: options.method || 'GET',
         url: path,
@@ -1122,10 +1135,10 @@ export interface GoogleStatusResult {
 /**
  * Google authorization code をバックエンドに送信してトークン交換
  */
-export async function connectGoogle(code: string) {
+export async function connectGoogle(code: string, clientId?: string) {
   return request<GoogleConnectResult>('/google/connect', {
     method: 'POST',
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, clientId: clientId || null }),
   });
 }
 

@@ -8,6 +8,7 @@ import admin from 'firebase-admin';
 import { authMiddleware } from '../lib/auth';
 import {
   exchangeCodeForTokens,
+  getConfiguredGoogleClientId,
   getUserCalendarClient,
   getUserGoogleTokens,
   revokeGoogleConnection,
@@ -20,15 +21,47 @@ const router = Router();
 
 router.use(authMiddleware());
 
+type GoogleOAuthErrorData = {
+  error?: string;
+  error_description?: string;
+};
+
+function getGoogleOAuthErrorData(error: any): GoogleOAuthErrorData | null {
+  const responseData = error?.response?.data ?? error?.cause?.response?.data;
+  if (!responseData || typeof responseData !== 'object') return null;
+  return responseData as GoogleOAuthErrorData;
+}
+
+function maskClientId(clientId: string | null | undefined): string {
+  if (!clientId) return '(none)';
+  if (clientId.length <= 14) return clientId;
+  return `${clientId.slice(0, 8)}...${clientId.slice(-6)}`;
+}
+
 /**
  * POST /api/google/connect
  * Authorization code をトークンに交換して保存
  */
 router.post('/connect', async (req: any, res, next) => {
   try {
-    const { code } = req.body;
+    const { code, clientId } = req.body ?? {};
     if (!code || typeof code !== 'string') {
       return res.status(400).json({ error: 'Authorization code is required' });
+    }
+
+    const providedClientId = typeof clientId === 'string' ? clientId.trim() : '';
+    const configuredClientId = getConfiguredGoogleClientId();
+    if (providedClientId && configuredClientId && providedClientId !== configuredClientId) {
+      console.warn('[google-oauth] Client ID mismatch on connect', {
+        uid: req.uid,
+        providedClientId: maskClientId(providedClientId),
+        configuredClientId: maskClientId(configuredClientId),
+      });
+      return res.status(400).json({
+        error:
+          'Google OAuth設定が一致していません。管理者に連絡してください（VITE_GOOGLE_CLIENT_ID と Functions Secret の GOOGLE_CLIENT_ID を同じ値にしてください）。',
+        code: 'google_oauth_client_mismatch',
+      });
     }
 
     const result = await exchangeCodeForTokens(req.uid, code);
@@ -39,9 +72,37 @@ router.post('/connect', async (req: any, res, next) => {
       email: result.email,
     });
   } catch (error: any) {
-    console.error('[google-oauth] Failed to connect:', error);
+    const oauthError = getGoogleOAuthErrorData(error);
+    console.error('[google-oauth] Failed to connect:', {
+      uid: req.uid,
+      message: error?.message,
+      oauthError,
+      configuredClientId: maskClientId(getConfiguredGoogleClientId()),
+    });
     if (error.message?.includes('No refresh token')) {
-      return res.status(400).json({ error: error.message });
+      return res.status(400).json({
+        error: 'Google接続に失敗しました。Googleアカウントのアクセス許可を一度削除してから再接続してください。',
+        code: 'google_oauth_no_refresh_token',
+      });
+    }
+    if (oauthError?.error === 'invalid_client') {
+      return res.status(400).json({
+        error:
+          'Google OAuthのクライアント設定が無効です。管理者に連絡してください（GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET を確認）。',
+        code: 'google_oauth_invalid_client',
+      });
+    }
+    if (oauthError?.error === 'invalid_grant') {
+      return res.status(400).json({
+        error: '認証コードが期限切れ、または既に使用済みです。もう一度Google接続を実行してください。',
+        code: 'google_oauth_invalid_grant',
+      });
+    }
+    if (error.message?.includes('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET')) {
+      return res.status(400).json({
+        error: 'Google OAuth設定が未完了です。管理者に連絡してください。',
+        code: 'google_oauth_not_configured',
+      });
     }
     next(error);
   }
@@ -91,7 +152,23 @@ router.get('/calendars', async (req: any, res, next) => {
       }));
 
     res.json({ calendars, syncCalendarId });
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.message?.includes('Google account not connected')) {
+      return res.status(400).json({
+        error: 'Googleアカウントが未接続です。先に「Googleアカウント接続」を実行してください。',
+        code: 'google_not_connected',
+      });
+    }
+    const oauthError = getGoogleOAuthErrorData(error);
+    if (oauthError?.error === 'invalid_grant') {
+      await revokeGoogleConnection(req.uid).catch((revokeError) => {
+        console.warn('[google-oauth] Failed to revoke invalid Google token', revokeError);
+      });
+      return res.status(401).json({
+        error: 'Google連携の認証が失効しました。再接続してください。',
+        code: 'google_reauth_required',
+      });
+    }
     next(error);
   }
 });

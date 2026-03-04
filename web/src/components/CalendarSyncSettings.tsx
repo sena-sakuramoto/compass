@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Download, Loader2, RefreshCw, Save, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
+  ApiError,
   getCalendarSyncSettings,
   listGoogleCalendars,
   listProjects,
@@ -109,7 +110,18 @@ export function CalendarSyncSettings({ className = '' }: CalendarSyncSettingsPro
         setCalendarsError(null);
       } else {
         setCalendars([]);
-        setCalendarsError('Googleアカウント接続後にカレンダーを選択できます');
+        const reason = calendarsRes.reason;
+        if (reason instanceof ApiError) {
+          if (reason.code === 'google_not_connected') {
+            setCalendarsError('Googleアカウント接続後にカレンダーを選択できます');
+          } else if (reason.code === 'google_reauth_required') {
+            setCalendarsError('Google連携の認証が失効しました。Googleアカウントを再接続してください');
+          } else {
+            setCalendarsError(reason.message || 'カレンダー一覧の取得に失敗しました');
+          }
+        } else {
+          setCalendarsError('Googleアカウント接続後にカレンダーを選択できます');
+        }
       }
 
       if (projectsRes.status === 'fulfilled') {

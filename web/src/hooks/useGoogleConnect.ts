@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { connectGoogle, disconnectGoogle, getGoogleStatus } from '../lib/api';
+import { ApiError, connectGoogle, disconnectGoogle, getGoogleStatus } from '../lib/api';
 
 // GIS types - access via window.google.accounts.oauth2
 interface GisCodeClientConfig {
@@ -43,6 +43,25 @@ const SCOPES = [
   'https://www.googleapis.com/auth/chat.spaces.create',
   'https://www.googleapis.com/auth/chat.memberships',
 ].join(' ');
+
+function formatConnectError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'google_oauth_client_mismatch':
+      case 'google_oauth_invalid_client':
+      case 'google_oauth_not_configured':
+        return 'Google連携の設定不整合です。管理者に「VITE_GOOGLE_CLIENT_ID / GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET の整合確認」を依頼してください。';
+      case 'google_oauth_invalid_grant':
+        return '認証コードが期限切れ、または既に使用済みです。もう一度Google接続を実行してください。';
+      case 'google_oauth_no_refresh_token':
+        return 'Google側でオフラインアクセスが許可されませんでした。Googleアカウントのアクセス権を削除して再接続してください。';
+      default:
+        return err.message || 'Google接続に失敗しました';
+    }
+  }
+  if (err instanceof Error) return err.message;
+  return 'Google接続に失敗しました';
+}
 
 export function useGoogleConnect() {
   const [state, setState] = useState<GoogleConnectState>({
@@ -124,19 +143,19 @@ export function useGoogleConnect() {
         }
 
         try {
-          const result = await connectGoogle(response.code);
+          const result = await connectGoogle(response.code, GOOGLE_CLIENT_ID);
           setState(prev => ({
             ...prev,
             connected: true,
             email: result.email || null,
             connecting: false,
           }));
-        } catch (err: any) {
+        } catch (err: unknown) {
           console.error('[useGoogleConnect] Failed to connect:', err);
           setState(prev => ({
             ...prev,
             connecting: false,
-            error: err.message || 'Google接続に失敗しました',
+            error: formatConnectError(err),
           }));
         }
       },
