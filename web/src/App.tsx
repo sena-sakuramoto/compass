@@ -1634,24 +1634,35 @@ function TasksPage({
       <div className="grid gap-3 md:hidden">
         {sortedRows.map((row) => {
           const task = filteredTasks.find(t => t.id === row.id)!;
+          const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
+          const holder = (task.ballHolder || '').trim();
+          const effectiveHolder = holder || assignee;
+          const isMine = Boolean(effectiveHolder) && currentUserAliases.has(effectiveHolder.toLowerCase());
+          const isWaiting = Boolean(assignee) && currentUserAliases.has(assignee.toLowerCase()) && Boolean(holder) && !currentUserAliases.has(holder.toLowerCase());
           return (
-            <TaskCard
+            <SwipeBallCard
               key={row.id}
-              id={row.id}
-              name={row.name}
-              projectLabel={row.projectLabel}
-              assignee={row.assignee}
-              schedule={row.schedule}
-              scheduleStart={row.scheduleStart}
-              scheduleEnd={row.scheduleEnd}
-              status={row.status}
-              progress={row.progress}
-              onComplete={() => onComplete(task, true)}
-              onSeedReminders={onSeedReminders ? () => handleSeedReminders(row.id) : undefined}
-              onCalendarSync={onCalendarSync ? () => handleCalendarSync(row.id) : undefined}
-              seedBusy={seedBusyIds.has(row.id)}
-              calendarBusy={calendarBusyIds.has(row.id)}
-            />
+              ariaLabel={`${row.name} のタスクカード`}
+              onThrow={isMine ? () => handleBallThrow(task) : undefined}
+              onPullBack={isWaiting ? () => handleBallPullBack(task) : undefined}
+            >
+              <TaskCard
+                id={row.id}
+                name={row.name}
+                projectLabel={row.projectLabel}
+                assignee={row.assignee}
+                schedule={row.schedule}
+                scheduleStart={row.scheduleStart}
+                scheduleEnd={row.scheduleEnd}
+                status={row.status}
+                progress={row.progress}
+                onComplete={() => onComplete(task, true)}
+                onSeedReminders={onSeedReminders ? () => handleSeedReminders(row.id) : undefined}
+                onCalendarSync={onCalendarSync ? () => handleCalendarSync(row.id) : undefined}
+                seedBusy={seedBusyIds.has(row.id)}
+                calendarBusy={calendarBusyIds.has(row.id)}
+              />
+            </SwipeBallCard>
           );
         })}
       </div>

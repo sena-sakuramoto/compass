@@ -17,22 +17,29 @@ export function SwipeBallCard({ children, onThrow, onPullBack, disabled, ariaLab
   const startX = useRef(0);
   const startY = useRef(0);
   const suppressClick = useRef(false);
+  const swipingRef = useRef(false);
+  const offsetXRef = useRef(0);
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const lockedAxis = useRef<'x' | 'y' | null>(null);
+  const setOffset = useCallback((value: number) => {
+    offsetXRef.current = value;
+    setOffsetX(value);
+  }, []);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (disabled) return;
     startX.current = e.touches[0].clientX;
     startY.current = e.touches[0].clientY;
     suppressClick.current = false;
+    swipingRef.current = true;
     lockedAxis.current = null;
     setSwiping(true);
   }, [disabled]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!swiping || disabled) return;
+    if (!swipingRef.current || disabled) return;
     const dx = e.touches[0].clientX - startX.current;
     const dy = e.touches[0].clientY - startY.current;
 
@@ -44,40 +51,42 @@ export function SwipeBallCard({ children, onThrow, onPullBack, disabled, ariaLab
     if (lockedAxis.current === 'y') return;
     if (lockedAxis.current === 'x') {
       e.preventDefault();
-      if (Math.abs(dx) > 8) {
+      if (Math.abs(dx) > 18) {
         suppressClick.current = true;
       }
     }
 
     const clamped = Math.max(-MAX_OFFSET, Math.min(MAX_OFFSET, dx));
-    setOffsetX(clamped);
-  }, [swiping, disabled]);
+    setOffset(clamped);
+  }, [disabled, setOffset]);
 
   const handleTouchEnd = useCallback(() => {
-    if (!swiping) return;
+    if (!swipingRef.current) return;
+    swipingRef.current = false;
     setSwiping(false);
+    const currentOffset = offsetXRef.current;
 
-    if (offsetX > SWIPE_THRESHOLD && onThrow) {
+    if (currentOffset > SWIPE_THRESHOLD && onThrow) {
       setDismissed(true);
-      setOffsetX(300);
+      setOffset(300);
       setTimeout(() => {
         onThrow();
         setDismissed(false);
-        setOffsetX(0);
+        setOffset(0);
       }, 250);
-    } else if (offsetX < -SWIPE_THRESHOLD && onPullBack) {
+    } else if (currentOffset < -SWIPE_THRESHOLD && onPullBack) {
       setDismissed(true);
-      setOffsetX(-300);
+      setOffset(-300);
       setTimeout(() => {
         onPullBack();
         setDismissed(false);
-        setOffsetX(0);
+        setOffset(0);
       }, 250);
     } else {
-      setOffsetX(0);
+      setOffset(0);
     }
     lockedAxis.current = null;
-  }, [swiping, offsetX, onThrow, onPullBack]);
+  }, [onThrow, onPullBack, setOffset]);
 
   const handleClickCapture = useCallback((e: React.MouseEvent) => {
     if (suppressClick.current) {
@@ -131,11 +140,13 @@ export function SwipeBallCard({ children, onThrow, onPullBack, disabled, ariaLab
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
         onClickCapture={handleClickCapture}
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: swiping ? 'none' : 'transform 0.25s ease-out',
           opacity: dismissed ? 0.5 : 1,
+          touchAction: 'pan-y',
         }}
         className="relative z-10"
       >
