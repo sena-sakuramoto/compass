@@ -69,6 +69,37 @@ function toNumber(value: unknown): number {
   return typeof value === 'number' ? value : 0;
 }
 
+function isFailedPreconditionError(error: unknown): boolean {
+  const candidate = error as { code?: number | string; message?: string } | null;
+  if (!candidate) return false;
+  if (candidate.code === 9 || candidate.code === 'failed-precondition') {
+    return true;
+  }
+  const message = typeof candidate.message === 'string' ? candidate.message : '';
+  return /FAILED_PRECONDITION/i.test(message);
+}
+
+async function safeCount(
+  label: string,
+  getCount: () => Promise<{ data: () => { count: number } }>
+): Promise<number> {
+  try {
+    const snapshot = await getCount();
+    return snapshot.data().count;
+  } catch (error) {
+    if (isFailedPreconditionError(error)) {
+      const err = error as { code?: number | string; message?: string };
+      console.warn('[admin-usage] aggregate query failed precondition', {
+        label,
+        code: err.code,
+        message: err.message,
+      });
+      return 0;
+    }
+    throw error;
+  }
+}
+
 async function computeUsageSummary(): Promise<AdminUsageSummary> {
   const now = new Date();
   const sevenDaysAgo = Timestamp.fromDate(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000));
@@ -83,13 +114,13 @@ async function computeUsageSummary(): Promise<AdminUsageSummary> {
     tasksUpdated7Agg,
     tasksUpdated30Agg,
   ] = await Promise.all([
-    db.collection('orgs').count().get(),
-    db.collection('users').count().get(),
-    db.collection('users').where('isActive', '==', true).count().get(),
-    db.collection('users').where('lastLoginAt', '>=', sevenDaysAgo).count().get(),
-    db.collection('users').where('lastLoginAt', '>=', thirtyDaysAgo).count().get(),
-    db.collectionGroup('tasks').where('updatedAt', '>=', sevenDaysAgo).count().get(),
-    db.collectionGroup('tasks').where('updatedAt', '>=', thirtyDaysAgo).count().get(),
+    safeCount('orgs.total', () => db.collection('orgs').count().get()),
+    safeCount('users.total', () => db.collection('users').count().get()),
+    safeCount('users.active', () => db.collection('users').where('isActive', '==', true).count().get()),
+    safeCount('users.lastLoginAt.7d', () => db.collection('users').where('lastLoginAt', '>=', sevenDaysAgo).count().get()),
+    safeCount('users.lastLoginAt.30d', () => db.collection('users').where('lastLoginAt', '>=', thirtyDaysAgo).count().get()),
+    safeCount('tasks.updatedAt.7d', () => db.collectionGroup('tasks').where('updatedAt', '>=', sevenDaysAgo).count().get()),
+    safeCount('tasks.updatedAt.30d', () => db.collectionGroup('tasks').where('updatedAt', '>=', thirtyDaysAgo).count().get()),
   ]);
 
   const todayKey = formatDayKey(now);
@@ -121,13 +152,13 @@ async function computeUsageSummary(): Promise<AdminUsageSummary> {
 
   return {
     computedAt: now.toISOString(),
-    organizationsTotal: orgsAgg.data().count,
-    usersTotal: usersAgg.data().count,
-    activeUsers: activeUsersAgg.data().count,
-    usersLoggedIn7d: login7Agg.data().count,
-    usersLoggedIn30d: login30Agg.data().count,
-    tasksUpdated7d: tasksUpdated7Agg.data().count,
-    tasksUpdated30d: tasksUpdated30Agg.data().count,
+    organizationsTotal: orgsAgg,
+    usersTotal: usersAgg,
+    activeUsers: activeUsersAgg,
+    usersLoggedIn7d: login7Agg,
+    usersLoggedIn30d: login30Agg,
+    tasksUpdated7d: tasksUpdated7Agg,
+    tasksUpdated30d: tasksUpdated30Agg,
     adminEventsToday,
     adminEvents7d,
     adminEventBreakdownToday,
