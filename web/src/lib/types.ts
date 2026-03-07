@@ -117,8 +117,10 @@ export interface Task {
   フェーズ?: string;
   // ボール管理
   ballHolder?: string | null;
+  ballRequestedBy?: string | null;
   responseDeadline?: string | null;
   ballNote?: string | null;
+  ballFollowUpOn?: string | null;
   start?: string;
   end?: string;
   duration_days?: number;

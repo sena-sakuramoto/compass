@@ -805,8 +805,10 @@ export interface TaskInput {
   フェーズ?: string | null;
   // ボール管理
   ballHolder?: string | null;
+  ballRequestedBy?: string | null;
   responseDeadline?: string | null;
   ballNote?: string | null;
+  ballFollowUpOn?: string | null;
 }
 
 export interface PersonInput {

@@ -50,6 +50,7 @@ export interface TaskModalProps extends ModalProps {
     ballHolder?: string | null;
     responseDeadline?: string | null;
     ballNote?: string | null;
+    ballFollowUpOn?: string | null;
     '通知設定'?: TaskNotificationSettings;
     type?: TaskType;
     participants?: string[];
@@ -97,9 +98,12 @@ export function TaskModal({
   const [notifyDue, setNotifyDue] = useState(true);
   const [notifyOverdue, setNotifyOverdue] = useState(true);
   const [isMilestone, setIsMilestone] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [ballEnabled, setBallEnabled] = useState(false);
   const [ballHolder, setBallHolder] = useState<string | null>(null);
   const [responseDeadline, setResponseDeadline] = useState<string | null>(null);
   const [ballNote, setBallNote] = useState<string | null>(null);
+  const [ballFollowUpOn, setBallFollowUpOn] = useState<string | null>(null);
   const [stageId, setStageId] = useState<string>('');
   const taskNameInputRef = useRef<HTMLInputElement | null>(null);
   const submitIntentRef = useRef<'close' | 'continue'>('close');
@@ -132,9 +136,12 @@ export function TaskModal({
     setCalendarSync(false);
     setDurationDays(1);
     setIsMilestone(false);
+    setAdvancedOpen(false);
+    setBallEnabled(false);
     setBallHolder(null);
     setResponseDeadline(null);
     setBallNote(null);
+    setBallFollowUpOn(null);
     setTaskType('task');
     setParticipants([]);
     if (keepContext) return;
@@ -192,12 +199,34 @@ export function TaskModal({
       setNotifyDayBefore(notif?.期限前日 ?? true);
       setNotifyDue(notif?.期限当日 ?? true);
       setNotifyOverdue(notif?.超過 ?? true);
+      setAdvancedOpen(Boolean(
+        editingTask.担当者メール ||
+        editingTask.startTime ||
+        editingTask.endTime ||
+        editingTask.calendarSync ||
+        editingTask['カレンダーイベントID'] ||
+        (editingTask.優先度 || '中') !== '中' ||
+        (editingTask.ステータス || '未着手') !== '未着手' ||
+        existingProgress > 0 ||
+        (existingEstimate != null ? clampToSingleDecimal(existingEstimate) : 4) !== 4 ||
+        notif?.開始日 === false ||
+        notif?.期限前日 === false ||
+        notif?.期限当日 === false ||
+        notif?.超過 === false
+      ));
 
       const milestoneValue = editingTask['マイルストーン'] === true || editingTask['milestone'] === true;
       setIsMilestone(milestoneValue);
+      setBallEnabled(Boolean(
+        editingTask.ballHolder?.trim() ||
+        editingTask.responseDeadline ||
+        editingTask.ballNote?.trim() ||
+        editingTask.ballFollowUpOn
+      ));
       setBallHolder(editingTask.ballHolder ?? null);
       setResponseDeadline(editingTask.responseDeadline ?? null);
       setBallNote(editingTask.ballNote ?? null);
+      setBallFollowUpOn(editingTask.ballFollowUpOn ?? null);
     } else {
       resetFormFields(false);
       if (defaultProjectId) {
@@ -206,6 +235,7 @@ export function TaskModal({
       if (defaultStageId) {
         setStageId(defaultStageId);
       }
+      setAdvancedOpen(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingTask, defaultProjectId, defaultStageId, resetFormFields]);
@@ -296,6 +326,32 @@ export function TaskModal({
   // マイルストーンチェックボックスが有効かどうかを判定
   const isMilestoneCheckboxEnabled = startDate && endDate && startDate.getTime() === endDate.getTime();
 
+  const advancedSummary = useMemo(() => {
+    const items: string[] = [];
+    if (assigneeEmail.trim()) items.push('通知先');
+    if (startTime || endTime) items.push('時刻');
+    if (calendarSync) items.push('Google同期');
+    if (priority !== '中') items.push(`優先度 ${priority}`);
+    if (status !== '未着手') items.push(status);
+    if (progress > 0) items.push(`進捗 ${Math.round(progress)}%`);
+    if (estimate !== 4) items.push(`工数 ${estimate}h`);
+    if (!(notifyStart && notifyDayBefore && notifyDue && notifyOverdue)) items.push('通知調整');
+    return items.length > 0 ? items.join(' / ') : '必要なときだけ開きます';
+  }, [
+    assigneeEmail,
+    startTime,
+    endTime,
+    calendarSync,
+    priority,
+    status,
+    progress,
+    estimate,
+    notifyStart,
+    notifyDayBefore,
+    notifyDue,
+    notifyOverdue,
+  ]);
+
   // 期間変更時に終了日を再計算
   const handleDurationChange = (days: number) => {
     setDurationDays(days);
@@ -328,9 +384,10 @@ export function TaskModal({
         担当者メール: taskType === 'meeting' ? undefined : (assigneeEmail || undefined),
         マイルストーン: isMilestone,
         parentId: stageId || null,
-        ballHolder: ballHolder?.trim() ? ballHolder.trim() : null,
-        responseDeadline: responseDeadline || null,
-        ballNote: ballNote?.trim() ? ballNote.trim() : null,
+        ballHolder: ballEnabled && ballHolder?.trim() ? ballHolder.trim() : null,
+        responseDeadline: ballEnabled ? (responseDeadline || null) : null,
+        ballNote: ballEnabled && ballNote?.trim() ? ballNote.trim() : null,
+        ballFollowUpOn: ballEnabled ? (ballFollowUpOn || null) : null,
         '通知設定': {
           開始日: notifyStart,
           期限前日: notifyDayBefore,
@@ -358,6 +415,7 @@ export function TaskModal({
         ballHolder?: string | null;
         responseDeadline?: string | null;
         ballNote?: string | null;
+        ballFollowUpOn?: string | null;
         '通知設定'?: TaskNotificationSettings;
         type?: TaskType;
         participants?: string[];
@@ -391,6 +449,7 @@ export function TaskModal({
           ballHolder: editingTask.ballHolder || null,
           responseDeadline: editingTask.responseDeadline || null,
           ballNote: editingTask.ballNote || null,
+          ballFollowUpOn: editingTask.ballFollowUpOn || null,
           '通知設定': editingTask['通知設定'] ?? {
             開始日: true,
             期限前日: true,
@@ -441,6 +500,46 @@ export function TaskModal({
       label: `${member.displayName} (${roleLabel})`,
     };
   });
+
+  const normalizedCurrentUserName = (currentUserName || '').trim();
+  const normalizedAssignee = assignee.trim();
+  const normalizedBallHolder = (ballHolder ?? '').trim();
+  const ballHolderOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    if (normalizedCurrentUserName) {
+      options.set(normalizedCurrentUserName, '自分');
+    }
+    if (normalizedAssignee) {
+      options.set(
+        normalizedAssignee,
+        normalizedAssignee === normalizedCurrentUserName
+          ? '担当者'
+          : `担当者 (${normalizedAssignee})`
+      );
+    }
+    for (const option of assigneeOptions) {
+      options.set(option.value, option.label);
+    }
+    options.set('クライアント', 'クライアント');
+    options.set('施工会社', '施工会社');
+    return Array.from(options, ([value, label]) => ({ value, label }));
+  }, [assigneeOptions, normalizedAssignee, normalizedCurrentUserName]);
+
+  const ballHolderSelectValue = normalizedBallHolder
+    ? (ballHolderOptions.some((option) => option.value === normalizedBallHolder) ? normalizedBallHolder : '__custom__')
+    : '';
+  const showCustomBallHolderInput = ballHolderSelectValue === '__custom__';
+  const ballSummary = !ballEnabled
+    ? '必要なときだけ開きます'
+    : [
+        normalizedBallHolder
+          ? (normalizedBallHolder === normalizedCurrentUserName ? '自分が対応中' : `${normalizedBallHolder} が対応中`)
+          : '相手未設定',
+        responseDeadline ? `期限 ${responseDeadline}` : null,
+        ballFollowUpOn ? `催促 ${ballFollowUpOn}` : null,
+      ]
+        .filter(Boolean)
+        .join(' / ');
 
   const handleFormKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
     if (e.key !== 'Enter') return;
@@ -551,16 +650,6 @@ export function TaskModal({
                 </div>
               )}
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">通知送信先メール</label>
-              <input
-                type="email"
-                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={assigneeEmail}
-                onChange={(e) => setAssigneeEmail(e.target.value)}
-                placeholder="担当者メールアドレス"
-              />
-            </div>
           </>
         )}
 
@@ -614,6 +703,7 @@ export function TaskModal({
           </div>
         )}
 
+        {false && (
         <div className="space-y-3 border-t border-slate-200 pt-4 mt-2">
           <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">ボール管理</h4>
           <div>
@@ -696,6 +786,7 @@ export function TaskModal({
             />
           </div>
         </div>
+        )}
         <div>
           <label className="mb-1 block text-xs text-slate-500">工程</label>
           <select
@@ -804,130 +895,264 @@ export function TaskModal({
             </div>
           )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">開始時刻</label>
-            <input
-              type="time"
-              value={startTime ?? ''}
-              onChange={(e) => setStartTime(e.target.value || null)}
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">終了時刻</label>
-            <input
-              type="time"
-              value={endTime ?? ''}
-              onChange={(e) => setEndTime(e.target.value || null)}
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={calendarSync}
-              onChange={(e) => setCalendarSync(e.target.checked)}
-              disabled={!googleConnected || googleLoading}
-              className="h-4 w-4 rounded border-slate-300 disabled:opacity-50"
-            />
-            <span className={!googleConnected && !googleLoading ? 'text-slate-400' : ''}>
-              Googleカレンダーに同期
+        <div className="rounded-2xl border border-slate-200 bg-white">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((prev) => !prev)}
+            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">詳細設定</p>
+              <p className="mt-0.5 text-xs text-slate-500">{advancedSummary}</p>
+            </div>
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                advancedOpen ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {advancedOpen ? '表示中' : '開く'}
             </span>
-          </label>
-          {!googleConnected && !googleLoading && (
-            <p className="mt-1 text-xs text-amber-600">
-              設定画面でGoogleアカウントを連携してください
-            </p>
+          </button>
+          {advancedOpen && (
+            <div className="space-y-3 border-t border-slate-200 px-4 py-3">
+              {taskType === 'task' && (
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">通知送信先メール</label>
+                  <input
+                    type="email"
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={assigneeEmail}
+                    onChange={(e) => setAssigneeEmail(e.target.value)}
+                    placeholder="担当者メールアドレス"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">開始時刻</label>
+                  <input
+                    type="time"
+                    value={startTime ?? ''}
+                    onChange={(e) => setStartTime(e.target.value || null)}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">終了時刻</label>
+                  <input
+                    type="time"
+                    value={endTime ?? ''}
+                    onChange={(e) => setEndTime(e.target.value || null)}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={calendarSync}
+                    onChange={(e) => setCalendarSync(e.target.checked)}
+                    disabled={!googleConnected || googleLoading}
+                    className="h-4 w-4 rounded border-slate-300 disabled:opacity-50"
+                  />
+                  <span className={!googleConnected && !googleLoading ? 'text-slate-400' : ''}>
+                    Googleカレンダーに同期
+                  </span>
+                </label>
+                {!googleConnected && !googleLoading && (
+                  <p className="mt-1 text-xs text-amber-600">
+                    設定画面でGoogleアカウントを連携してください
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">優先度</label>
+                  <select
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                  >
+                    <option value="高">高</option>
+                    <option value="中">中</option>
+                    <option value="低">低</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">ステータス</label>
+                  <select
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={status}
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      setStatus(newStatus);
+                      if (newStatus === '完了') setProgress(100);
+                    }}
+                  >
+                    <option value="未着手">未着手</option>
+                    <option value="進行中">進行中</option>
+                    <option value="確認待ち">確認待ち</option>
+                    <option value="保留">保留</option>
+                    <option value="完了">完了</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">進捗率: {Math.round(progress)}%</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600"
+                  value={progress}
+                  onChange={(e) => {
+                    const newProgress = Number(e.target.value);
+                    setProgress(newProgress);
+                    if (newProgress === 100 && status !== '完了') setStatus('完了');
+                    else if (newProgress === 0 && status === '完了') setStatus('未着手');
+                  }}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">工数見積(h)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    inputMode="decimal"
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={estimate}
+                    onChange={(e) => setEstimate(parseHoursInput(e.target.value))}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-1 text-xs font-semibold text-slate-500">メール通知</p>
+                <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={notifyStart} onChange={(e) => setNotifyStart(e.target.checked)} className="h-3.5 w-3.5" />
+                    <span>開始日</span>
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={notifyDayBefore} onChange={(e) => setNotifyDayBefore(e.target.checked)} className="h-3.5 w-3.5" />
+                    <span>期限前日</span>
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={notifyDue} onChange={(e) => setNotifyDue(e.target.checked)} className="h-3.5 w-3.5" />
+                    <span>期限当日</span>
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={notifyOverdue} onChange={(e) => setNotifyOverdue(e.target.checked)} className="h-3.5 w-3.5" />
+                    <span>期限超過</span>
+                  </label>
+                </div>
+              </div>
+            </div>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">優先度</label>
-            <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            >
-              <option value="高">高</option>
-              <option value="中">中</option>
-              <option value="低">低</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">ステータス</label>
-            <select
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-              value={status}
-              onChange={(e) => {
-                const newStatus = e.target.value;
-                setStatus(newStatus);
-                // 完了に変更したら進捗を100%に
-                if (newStatus === '完了') setProgress(100);
-              }}
-            >
-              <option value="未着手">未着手</option>
-              <option value="進行中">進行中</option>
-              <option value="確認待ち">確認待ち</option>
-              <option value="保留">保留</option>
-              <option value="完了">完了</option>
-            </select>
-          </div>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-slate-500">進捗率: {Math.round(progress)}%</label>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            step="5"
-            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-            value={progress}
-            onChange={(e) => {
-              const newProgress = Number(e.target.value);
-              setProgress(newProgress);
-              // 100%にしたら完了に、0%にしたら未着手に自動変更
-              if (newProgress === 100 && status !== '完了') setStatus('完了');
-              else if (newProgress === 0 && status === '完了') setStatus('未着手');
+        <div className="rounded-2xl border border-slate-200 bg-white">
+          <button
+            type="button"
+            onClick={() => {
+              const nextEnabled = !ballEnabled;
+              setBallEnabled(nextEnabled);
+              if (nextEnabled && !normalizedBallHolder && !responseDeadline && !ballNote) {
+                setBallHolder(normalizedAssignee || normalizedCurrentUserName || null);
+              }
             }}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">工数見積(h)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.1"
-              inputMode="decimal"
-              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-              value={estimate}
-              onChange={(e) => setEstimate(parseHoursInput(e.target.value))}
-            />
-          </div>
-        </div>
-        <div>
-          <p className="mb-1 text-xs font-semibold text-slate-500">メール通知</p>
-          <div className="grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={notifyStart} onChange={(e) => setNotifyStart(e.target.checked)} className="w-3.5 h-3.5" />
-              <span>開始日</span>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={notifyDayBefore} onChange={(e) => setNotifyDayBefore(e.target.checked)} className="w-3.5 h-3.5" />
-              <span>期限前日</span>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={notifyDue} onChange={(e) => setNotifyDue(e.target.checked)} className="w-3.5 h-3.5" />
-              <span>期限当日</span>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={notifyOverdue} onChange={(e) => setNotifyOverdue(e.target.checked)} className="w-3.5 h-3.5" />
-              <span>期限超過</span>
-            </label>
-          </div>
+            className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-900">返信待ちを管理する</p>
+              <p className="mt-0.5 text-xs text-slate-500">{ballSummary}</p>
+            </div>
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                ballEnabled ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'
+              }`}
+            >
+              {ballEnabled ? 'ON' : 'OFF'}
+            </span>
+          </button>
+          {ballEnabled && (
+            <div className="space-y-3 border-t border-slate-200 px-4 py-3">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">今のボール</label>
+                <select
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  value={ballHolderSelectValue}
+                  onChange={(e) => {
+                    const nextValue = e.target.value;
+                    if (!nextValue) {
+                      setBallHolder(null);
+                      return;
+                    }
+                    if (nextValue === '__custom__') {
+                      setBallHolder(normalizedBallHolder || '');
+                      return;
+                    }
+                    setBallHolder(nextValue);
+                  }}
+                >
+                  <option value="">未設定</option>
+                  {ballHolderOptions.map((option) => (
+                    <option key={`ball-holder-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                  <option value="__custom__">その他を入力</option>
+                </select>
+                {showCustomBallHolderInput && (
+                  <input
+                    type="text"
+                    value={ballHolder ?? ''}
+                    onChange={(e) => setBallHolder(e.target.value || null)}
+                    placeholder="相手名を入力"
+                    className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">返答期限</label>
+                  <input
+                    type="date"
+                    value={responseDeadline ?? ''}
+                    onChange={(e) => setResponseDeadline(e.target.value || null)}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">催促日</label>
+                  <input
+                    type="date"
+                    value={ballFollowUpOn ?? ''}
+                    onChange={(e) => setBallFollowUpOn(e.target.value || null)}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">メモ</label>
+                  <input
+                    type="text"
+                    value={ballNote ?? ''}
+                    onChange={(e) => setBallNote(e.target.value || null)}
+                    placeholder="一言メモ"
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-between pt-2">
           {/* 削除ボタン（編集モード時のみ表示） */}

@@ -81,8 +81,10 @@ export interface Task {
   フェーズ?: string | null;
   // ボール管理
   ballHolder?: string | null;
+  ballRequestedBy?: string | null;
   responseDeadline?: string | null;
   ballNote?: string | null;
+  ballFollowUpOn?: string | null;
   マイルストーン?: boolean | null;
   createdAt: FirebaseFirestore.Timestamp;
   updatedAt: FirebaseFirestore.Timestamp;

@@ -80,7 +80,6 @@ function normalizeTask(raw: any, index: number): Task {
     typeof raw.calendarSync === 'boolean'
       ? raw.calendarSync
       : undefined;
-
   return {
     id: finalId,
     TaskID: finalId,
@@ -110,6 +109,11 @@ function normalizeTask(raw: any, index: number): Task {
     '通知設定': notifications,
     マイルストーン: raw['マイルストーン'] ?? raw['milestone'],
     milestone: raw['マイルストーン'] ?? raw['milestone'],
+    ballHolder: typeof raw.ballHolder === 'string' ? raw.ballHolder.trim() || null : raw.ballHolder ?? null,
+    ballRequestedBy: typeof raw.ballRequestedBy === 'string' ? raw.ballRequestedBy.trim() || null : raw.ballRequestedBy ?? null,
+    responseDeadline: formatDate(raw.responseDeadline),
+    ballNote: typeof raw.ballNote === 'string' ? raw.ballNote.trim() || null : raw.ballNote ?? null,
+    ballFollowUpOn: formatDate(raw.ballFollowUpOn),
     start,
     end,
     duration_days: calculateDuration(start, end),
@@ -284,7 +288,7 @@ export function shiftSnapshotDates(payload: SnapshotPayload, referenceDate: Date
     ...payload,
     generated_at: formatDate(referenceDate),
     projects: (payload.projects ?? []).map((project) => shiftFields(project as unknown as Record<string, unknown>, projectFields, offsetDays) as unknown as Project),
-    tasks: (payload.tasks ?? []).map((task) => shiftFields(task as unknown as Record<string, unknown>, taskFields, offsetDays) as unknown as Task),
+    tasks: (payload.tasks ?? []).map((task) => shiftFields(task as unknown as Record<string, unknown>, [...taskFields, 'responseDeadline', 'ballFollowUpOn'], offsetDays) as unknown as Task),
   };
 }
 
@@ -558,6 +562,10 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       start: '2025-09-01',
       end: '2025-09-08',
       duration_days: 7,
+      ballHolder: '佐藤 美咲',
+      responseDeadline: '2025-09-06',
+      ballNote: 'レイアウト案を整理中',
+      ballFollowUpOn: '2025-09-05',
       progress: 0.625,
     },
     {
@@ -595,6 +603,10 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       '依存タスク': ['T053'],
       start: '2025-09-04',
       end: '2025-09-08',
+      ballHolder: 'クライアント',
+      responseDeadline: '2025-09-09',
+      ballNote: '仕上げサンプルの確認待ち',
+      ballFollowUpOn: '2025-09-07',
     },
     {
       id: 'T055',
@@ -612,6 +624,10 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       '依存タスク': ['T054'],
       start: '2025-09-07',
       end: '2025-09-10',
+      ballHolder: 'クライアント',
+      responseDeadline: '2025-09-11',
+      ballNote: '承認コメント待ち',
+      ballFollowUpOn: '2025-09-09',
     },
     {
       id: 'T056',
@@ -774,6 +790,10 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       '依存タスク': ['T006'],
       start: '2025-09-12',
       end: '2025-09-20',
+      ballHolder: '佐藤 美咲',
+      responseDeadline: '2025-09-18',
+      ballNote: 'サイン案を整理して返送する',
+      ballFollowUpOn: '2025-09-16',
     },
     {
       id: 'T007',
@@ -895,6 +915,10 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       '依存タスク': ['T011'],
       start: '2025-10-15',
       end: '2025-10-25',
+      ballHolder: '施工会社',
+      responseDeadline: '2025-10-23',
+      ballNote: '見積の初回回答待ち',
+      ballFollowUpOn: '2025-10-21',
     },
     {
       id: 'T013',
@@ -1201,6 +1225,10 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       ['工数見積(h)']: 24,
       start: '2025-11-20',
       end: '2025-12-10',
+      ballHolder: '佐藤 美咲',
+      responseDeadline: '2025-12-08',
+      ballNote: '候補を3案まで絞る',
+      ballFollowUpOn: '2025-12-04',
     },
     {
       id: 'T032',
@@ -1299,6 +1327,10 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       start: '2025-09-05',
       end: '2025-09-20',
       progress: 0.5,
+      ballHolder: 'クライアント',
+      responseDeadline: '2025-09-19',
+      ballNote: '最終仕様の返答待ち',
+      ballFollowUpOn: '2025-09-17',
     },
     {
       id: 'T038',
@@ -1499,6 +1531,10 @@ export const SAMPLE_SNAPSHOT: SnapshotPayload = {
       ['工数見積(h)']: 40,
       start: '2025-12-15',
       end: '2026-01-10',
+      ballHolder: '佐藤 美咲',
+      responseDeadline: '2026-01-08',
+      ballNote: 'レイアウト案を確定する',
+      ballFollowUpOn: '2026-01-05',
     },
     {
       id: 'T051',

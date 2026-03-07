@@ -76,18 +76,19 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   const barHeight = isStage ? 38 : 28;
   // バーを行の中央に配置（position.heightは行の高さ）
   const barTop = position.top + (position.height - barHeight) / 2;
+  const rangeStart = new Date(dateRange.start);
+  rangeStart.setHours(0, 0, 0, 0);
+  const rangeEnd = new Date(dateRange.end);
+  rangeEnd.setHours(0, 0, 0, 0);
+  const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
+  const dayWidth = containerWidth / totalDaysInclusive;
+  const followUpDate = task.ballFollowUpOn ? new Date(`${task.ballFollowUpOn}T00:00:00`) : null;
 
   // タスク名の表示（幅に応じて省略）
   const displayName = task.name.length > 18 ? task.name.substring(0, 16) + '…' : task.name;
 
   // ピクセルから日数への変換
   const pixelsToDays = (pixels: number): number => {
-    // 表示列数は ticks.length と一致させるため +1 日の inclusive 幅にする
-    const rangeStart = new Date(dateRange.start);
-    rangeStart.setHours(0, 0, 0, 0);
-    const rangeEnd = new Date(dateRange.end);
-    rangeEnd.setHours(0, 0, 0, 0);
-    const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
     return Math.round((pixels / containerWidth) * totalDaysInclusive);
   };
 
@@ -187,13 +188,6 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
 
     // プレビュー用の位置を計算
     // 表示列数は ticks.length と一致させるため +1 日の inclusive 幅にする
-    const rangeStart = new Date(dateRange.start);
-    rangeStart.setHours(0, 0, 0, 0);
-    const rangeEnd = new Date(dateRange.end);
-    rangeEnd.setHours(0, 0, 0, 0);
-    const totalDaysInclusive = differenceInDays(rangeEnd, rangeStart) + 1;
-    const dayWidth = containerWidth / totalDaysInclusive;
-
     const startOffset = differenceInDays(newStartDate, dateRange.start);
     const duration = differenceInDays(newEndDate, newStartDate);
 
@@ -292,6 +286,9 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
   const dimOpacity = task.isDimmed && !isDragging ? 0.35 : 1;
   const baseOpacity = task.status === 'completed' ? 0.5 : isDragging ? (isCopyMode ? 0.5 : 0.8) : 1;
   const barOpacity = baseOpacity * dimOpacity;
+  const followUpMarkerLeft = followUpDate && followUpDate >= rangeStart && followUpDate <= rangeEnd
+    ? differenceInDays(followUpDate, rangeStart) * dayWidth - displayPosition.left
+    : null;
 
   return (
     <div
@@ -312,6 +309,20 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
       }}
     >
       {/* バーの本体 */}
+      {followUpMarkerLeft !== null && !isStage ? (
+        <div
+          className="pointer-events-none absolute"
+          style={{
+            left: `${followUpMarkerLeft}px`,
+            top: '-10px',
+            height: `${barHeight + 20}px`,
+            width: '0px',
+          }}
+        >
+          <div className="absolute left-1/2 top-0 h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 border-white bg-amber-500 shadow-sm" />
+          <div className="absolute left-1/2 top-2.5 bottom-0 -translate-x-1/2 border-l border-dashed border-amber-300" />
+        </div>
+      ) : null}
       <div
         className={`h-full flex items-center text-white text-xs shadow-sm transition-all duration-200 ${interactive ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'
           } ${isHovered || isDragging ? 'shadow-md transform -translate-y-0.5' : ''} ${isCopyMode ? 'ring-2 ring-blue-400' : ''
@@ -360,6 +371,18 @@ const GanttTaskBarComponent: React.FC<GanttTaskBarProps> = ({
           {!isStage && (
             <div className="mt-1 text-[11px] text-slate-500">
               担当: {task.assignee || '未設定'}
+            </div>
+          )}
+          {task.ballFollowUpOn && (
+            <div className="mt-2">
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                催促 {task.ballFollowUpOn}
+              </span>
+            </div>
+          )}
+          {task.ballNote && (
+            <div className="mt-2 max-w-[260px] text-[11px] text-slate-500">
+              {task.ballNote}
             </div>
           )}
           {task.progress > 0 && (
@@ -419,6 +442,10 @@ export const GanttTaskBar = React.memo(GanttTaskBarComponent, (prevProps, nextPr
     prevProps.task.id === nextProps.task.id &&
     prevProps.task.status === nextProps.task.status &&
     prevProps.task.progress === nextProps.task.progress &&
+    prevProps.task.ballFollowUpOn === nextProps.task.ballFollowUpOn &&
+    prevProps.task.ballNote === nextProps.task.ballNote &&
+    prevProps.task.responseDeadline === nextProps.task.responseDeadline &&
+    prevProps.task.ballHolder === nextProps.task.ballHolder &&
     prevProps.task.startDate.getTime() === nextProps.task.startDate.getTime() &&
     prevProps.task.endDate.getTime() === nextProps.task.endDate.getTime() &&
     prevProps.task.isDimmed === nextProps.task.isDimmed &&

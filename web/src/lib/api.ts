@@ -367,13 +367,6 @@ export async function listSchedule(params: { view?: 'people' | 'projects'; from?
   return request<{ items: Task[] }>(`/schedule${suffix}`);
 }
 
-export async function seedTaskReminders(taskId: string) {
-  return request<{ ok: true }>(`/tasks/${taskId}/seed-reminders`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
-}
-
 export async function syncTaskCalendar(taskId: string, mode: 'push' | 'sync' = 'push') {
   return request<{ ok: true }>(`/calendar/sync`, {
     method: 'POST',

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import toast, { Toaster } from 'react-hot-toast';
@@ -37,7 +37,6 @@ import {
   exportExcel,
   exportSnapshot,
   moveTaskDates,
-  seedTaskReminders,
   syncTaskCalendar,
   listProjectMembers,
   listStages,
@@ -73,6 +72,7 @@ import { UserManagement } from './components/UserManagement';
 import { BottomNavBar } from './components/BottomNavBar';
 import { SettingsMenuPage } from './components/SettingsMenuPage';
 import { SwipeBallCard } from './components/SwipeBallCard';
+import { BallActionSheet } from './components/BallActionSheet';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { CommercialTransactionPage } from './pages/CommercialTransactionPage';
@@ -130,6 +130,7 @@ import {
 } from 'recharts';
 import { useFirebaseAuth, saveDemoUserProfile, getDemoUserProfile, type DemoUserProfile } from './lib/firebaseClient';
 import { DemoLoginScreen } from './components/DemoLoginScreen';
+import { canUseLocalPreview, disableLocalPreview, enableLocalPreview, isLocalPreviewMode } from './lib/localPreview';
 import { useJapaneseHolidaySet } from './lib/japaneseHolidays';
 import { getCachedSnapshot, cacheSnapshot, cacheProjectMembers, getAllCachedProjectMembers } from './lib/idbCache';
 import { cacheDelete, cacheDeleteByPrefix, CACHE_KEY_TASKS, CACHE_KEY_PROJECTS } from './lib/cache';
@@ -179,6 +180,15 @@ import { useRemoteData } from './hooks/useRemoteData';
 import { stagesQueryKey } from './lib/hooks/useStages';
 
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true' || window.location.hostname === 'compass-demo.web.app';
+const LOCAL_PREVIEW_MODE = isLocalPreviewMode();
+const LOCAL_PREVIEW_AVAILABLE = canUseLocalPreview();
+const AUTH_BYPASS_MODE = DEMO_MODE || LOCAL_PREVIEW_MODE;
+const LOCAL_PREVIEW_USER = {
+  uid: 'local-preview',
+  email: 'local-preview@compass.local',
+  displayName: '佐藤 美咲',
+  photoURL: null,
+} as unknown as User;
 
 type PrivateSettings = {
   holidayClickEnabled: boolean;
@@ -246,12 +256,29 @@ type ToastInput = {
   duration?: number;
 };
 
+type BallUndoState = Pick<Task, 'ballHolder' | 'ballRequestedBy' | 'responseDeadline' | 'ballNote' | 'ballFollowUpOn'>;
+
+type BallInboxNotice = {
+  action: 'throw' | 'pull';
+  counterpartLabel: string;
+  description: string;
+  editorLabel: string;
+  headline: string;
+  id: string;
+  previousBallState: BallUndoState;
+  recipient: string;
+  recipientEditable: boolean;
+  taskId: string;
+  taskName: string;
+};
+
 function AppLayout({
   children,
   onOpenTask,
   onOpenProject,
   onOpenPerson,
   user,
+  localPreviewMode,
   authSupported,
   authReady,
   onSignIn,
@@ -277,6 +304,7 @@ function AppLayout({
   onOpenProject(): void;
   onOpenPerson(): void;
   user: User | null;
+  localPreviewMode: boolean;
   authSupported: boolean;
   authReady: boolean;
   onSignIn(): void;
@@ -300,12 +328,11 @@ function AppLayout({
   const navLinks = [
     { path: '/', label: '工程表' },
     { path: '/summary', label: 'プロジェクト' },
-    { path: '/tasks', label: 'タスク' },
+    { path: '/tasks', label: 'ボール' },
     { path: '/workload', label: '稼働状況' },
     { path: '/users', label: '人員管理' },
   ];
-  const offline = !authSupported || !user;
-
+  const offline = !localPreviewMode && (!authSupported || !user);
   return (
     <div className="app-root h-screen flex flex-col bg-slate-50">
       <div className="no-print">
@@ -330,7 +357,7 @@ function AppLayout({
             <div className="flex items-center gap-2 min-w-0 pl-12 lg:pl-0">
               <div>
                 <h1 className="text-base lg:text-lg font-semibold text-slate-900 truncate">APDW Project Compass</h1>
-                <p className="hidden lg:block text-[11px] text-slate-500 leading-tight">工程管理ダッシュボード - 全プロジェクト・タスクを横断管理</p>
+                <p className="hidden lg:block text-[11px] text-slate-500 leading-tight">工程と受け渡しを横断して、プロジェクト全体の停滞を減らす</p>
               </div>
             </div>
 
@@ -341,6 +368,7 @@ function AppLayout({
               <div className="hidden lg:block">
                 <HeaderActions
                     user={user}
+                    localPreviewMode={localPreviewMode}
                     authSupported={authSupported}
                     authReady={authReady}
                     onSignIn={onSignIn}
@@ -358,7 +386,20 @@ function AppLayout({
               </div>
             </div>
           </div>
-          {!authSupported && !DEMO_MODE ? (
+          {localPreviewMode ? (
+            <div className="bg-sky-50 text-sky-700">
+              <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-2 text-xs">
+                <span>localhost 限定のローカル確認モードです。同期せず、ローカル保存だけで UI を確認できます。</span>
+                <button
+                  type="button"
+                  onClick={disableLocalPreview}
+                  className="rounded-full bg-white px-3 py-1 font-semibold text-sky-700 hover:bg-sky-100"
+                >
+                  終了
+                </button>
+              </div>
+            </div>
+          ) : !authSupported && !DEMO_MODE ? (
             <div className="bg-amber-50 text-amber-700">
               <div className="mx-auto max-w-6xl px-4 py-2 text-xs">
                 Firebase Auth が未設定です。ローカルデータとして表示しています。
@@ -415,6 +456,7 @@ function AppLayout({
 
 function HeaderActions({
   user,
+  localPreviewMode,
   authSupported,
   authReady,
   onSignIn,
@@ -430,6 +472,7 @@ function HeaderActions({
   onResetPersonalHolidays,
 }: {
   user: User | null;
+  localPreviewMode: boolean;
   authSupported: boolean;
   authReady: boolean;
   onSignIn(): void;
@@ -607,7 +650,9 @@ function HeaderActions({
         <span className="text-xs text-slate-400">Firebase Auth 未設定</span>
       ) : null}
       {!canSync ? (
-        <span className="text-[11px] font-semibold text-slate-400">{DEMO_MODE ? 'デモモード' : 'ローカルモード'}</span>
+        <span className="text-[11px] font-semibold text-slate-400">
+          {DEMO_MODE ? 'デモモード' : localPreviewMode ? 'ローカル確認' : 'ローカルモード'}
+        </span>
       ) : null}
       {authError && user ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] text-rose-700">{authError}</div>
@@ -806,7 +851,7 @@ function BottomBar({
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="fixed bottom-[76px] right-6 z-40 flex items-center justify-center w-16 h-16 rounded-full bg-slate-900 text-white shadow-2xl hover:bg-slate-800 transition-all hover:scale-110 md:bottom-6"
+          className="hidden md:flex fixed bottom-6 right-6 z-40 items-center justify-center w-16 h-16 rounded-full bg-slate-900 text-white shadow-2xl hover:bg-slate-800 transition-all hover:scale-110"
         >
           {isOpen ? (
             <X className="h-7 w-7" />
@@ -1213,7 +1258,6 @@ function TasksPage({
   onOpenProject,
   onOpenPerson,
   onEditTask,
-  onSeedReminders,
   onCalendarSync,
   pushToast,
   canEdit,
@@ -1227,13 +1271,12 @@ function TasksPage({
   projectMap: Record<string, Project>;
   people: Person[];
   onComplete(task: Task, done: boolean): void;
-  onTaskUpdate(taskId: string, updates: Partial<Task>): void;
+  onTaskUpdate(taskId: string, updates: Partial<Task>): Promise<void> | void;
   onDeleteTask(taskId: string): Promise<void>;
   onOpenTask(): void;
   onOpenProject(): void;
   onOpenPerson(): void;
   onEditTask(task: Task): void;
-  onSeedReminders?(taskId: string): Promise<void>;
   onCalendarSync?(taskId: string): Promise<void>;
   pushToast: (toast: ToastInput) => void;
   canEdit: boolean;
@@ -1243,10 +1286,25 @@ function TasksPage({
   currentUserName: string;
   currentUserEmail?: string | null;
 }) {
-  const [seedBusyIds, setSeedBusyIds] = useState<Set<string>>(new Set());
   const [calendarBusyIds, setCalendarBusyIds] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<TaskTableSortKey>('status');
   const [sortDirection, setSortDirection] = useState<TaskTableSortDirection>('asc');
+  const [viewMode, setViewMode] = useState<'tasks' | 'ball'>('ball');
+  const [supportPanelOpen, setSupportPanelOpen] = useState(false);
+  const GENERIC_BALL_RECIPIENT = '相手';
+  const [ballInboxNotices, setBallInboxNotices] = useState<BallInboxNotice[]>([]);
+  const activeBallUndoToastIdRef = useRef<string | null>(null);
+  const activeBallPromptToastIdRef = useRef<string | null>(null);
+  const [ballActionSheetState, setBallActionSheetState] = useState<{
+    action: 'throw' | 'pull';
+    counterpartLabel: string;
+    projectName: string;
+    recipient: string;
+    recipientEditable: boolean;
+    committed: boolean;
+    taskId: string;
+    taskName: string;
+  } | null>(null);
 
   // Ball categorization (ported from BallView)
   const normalizedCurrentUser = (currentUserName ?? '').trim().toLowerCase();
@@ -1257,59 +1315,171 @@ function TasksPage({
     if (normalizedCurrentUserEmail) aliases.add(normalizedCurrentUserEmail);
     return aliases;
   }, [normalizedCurrentUser, normalizedCurrentUserEmail]);
+  const normalizeBallText = useCallback((value: string | null | undefined) => (value ?? '').trim(), []);
+  const getBallMeta = useCallback((task: Task) => {
+    const holder = normalizeBallText(task.ballHolder);
+    const requester = normalizeBallText(task.ballRequestedBy);
+    const assignee = normalizeBallText(task.assignee || task.担当者 || task.担当者メール);
+    const hasBall = Boolean(holder || task.responseDeadline || task.ballFollowUpOn || normalizeBallText(task.ballNote));
+    const effectiveHolder = hasBall ? (holder || assignee) : '';
+    return {
+      assignee,
+      effectiveHolder,
+      hasBall,
+      holder,
+      requester,
+    };
+  }, [normalizeBallText]);
+  const ballRecipientPool = useMemo(() => {
+    const options = new Set<string>();
+    for (const person of people) {
+      if (typeof person.氏名 === 'string' && person.氏名.trim()) {
+        options.add(person.氏名.trim());
+      }
+      if (typeof person.メール === 'string' && person.メール.trim()) {
+        options.add(person.メール.trim());
+      }
+    }
+    return Array.from(options).sort((a, b) => a.localeCompare(b, 'ja'));
+  }, [people]);
+  const getBallPreferredRecipient = useCallback((task: Task) => {
+    const project = projectMap[task.projectId];
+    const candidates = [
+      task.assignee ?? task.担当者 ?? null,
+      project?.クライアント,
+      project?.LS担当者,
+      project?.自社PM,
+      project?.営業 ?? null,
+      project?.PM ?? null,
+      project?.設計 ?? null,
+      project?.施工管理 ?? null,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') continue;
+      const normalized = candidate.trim();
+      if (!normalized) continue;
+      if (currentUserAliases.has(normalized.toLowerCase())) continue;
+      return normalized;
+    }
+    return GENERIC_BALL_RECIPIENT;
+  }, [GENERIC_BALL_RECIPIENT, currentUserAliases, projectMap]);
+  const getBallRecipientOptions = useCallback((task: Task) => {
+    const options = new Set(ballRecipientPool);
+    const project = projectMap[task.projectId];
+    const candidates = [
+      project?.クライアント,
+      project?.LS担当者,
+      project?.自社PM,
+      project?.営業 ?? null,
+      project?.PM ?? null,
+      project?.設計 ?? null,
+      project?.施工管理 ?? null,
+      task.assignee ?? task.担当者 ?? null,
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        options.add(candidate.trim());
+      }
+    }
+    return Array.from(options)
+      .filter((value) => !currentUserAliases.has(value.toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, 'ja'));
+  }, [ballRecipientPool, currentUserAliases, projectMap]);
   const ballCategorized = useMemo(() => {
-    const normalizeText = (v: string | null | undefined) => (v ?? '').trim();
-    const isCurrentUser = (name: string) => currentUserAliases.has(normalizeText(name).toLowerCase());
-    const activeTasks = allTasks.filter((t) => t.ステータス !== '完了' && t.type !== 'stage');
+    const isCurrentUser = (name: string) => currentUserAliases.has(normalizeBallText(name).toLowerCase());
+    const activeTasks = filteredTasks.filter((t) => t.ステータス !== '完了' && t.type !== 'stage');
     const mine: Task[] = [];
     const waiting: Task[] = [];
-    const all = [...activeTasks];
+    const all: Task[] = [];
 
     const sortByDeadline = (a: Task, b: Task) => {
-      const da = a.responseDeadline || a.期限 || '9999-12-31';
-      const db = b.responseDeadline || b.期限 || '9999-12-31';
+      const da = a.ballFollowUpOn || a.responseDeadline || a.期限 || '9999-12-31';
+      const db = b.ballFollowUpOn || b.responseDeadline || b.期限 || '9999-12-31';
       return da.localeCompare(db);
     };
 
     for (const task of activeTasks) {
-      const holder = normalizeText(task.ballHolder);
-      const assignee = normalizeText(task.assignee || task.担当者 || task.担当者メール);
-      const effectiveHolder = holder || assignee;
-      if (effectiveHolder && isCurrentUser(effectiveHolder)) {
+      const { assignee, effectiveHolder, hasBall, holder, requester } = getBallMeta(task);
+      if (!hasBall || !effectiveHolder) {
+        continue;
+      }
+      const isMine = effectiveHolder && isCurrentUser(effectiveHolder);
+      const isWaiting =
+        Boolean(holder && !isCurrentUser(holder)) &&
+        ((requester && isCurrentUser(requester)) || (assignee && isCurrentUser(assignee)));
+
+      if (isMine) {
         mine.push(task);
-      } else if (assignee && isCurrentUser(assignee) && holder && !isCurrentUser(holder)) {
+      }
+      if (isWaiting) {
         waiting.push(task);
+      }
+      if (isMine || isWaiting) {
+        all.push(task);
       }
     }
     mine.sort(sortByDeadline);
     waiting.sort(sortByDeadline);
     all.sort(sortByDeadline);
     return { mine, waiting, all };
-  }, [allTasks, currentUserAliases]);
+  }, [currentUserAliases, filteredTasks, getBallMeta, normalizeBallText]);
 
   const getBallProjectName = (projectId: string) => projects.find((p) => p.id === projectId)?.物件名 || '';
 
-  const getBallDeadlineColor = (deadline?: string | null) => {
-    if (!deadline) return 'text-slate-300';
+  const getBallDateState = (dateText?: string | null) => {
+    if (!dateText) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const limit = new Date(`${deadline}T00:00:00`);
-    const diffDays = Math.ceil((limit.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const target = new Date(`${dateText}T00:00:00`);
+    const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return { diffDays };
+  };
+
+  const getBallDeadlineColor = (deadline?: string | null) => {
+    const state = getBallDateState(deadline);
+    if (!state) return 'text-slate-300';
+    const { diffDays } = state;
     if (diffDays < 0) return 'text-red-600 font-bold';
     if (diffDays <= 1) return 'text-slate-900 font-semibold';
     if (diffDays <= 3) return 'text-slate-700';
     return 'text-slate-400';
   };
 
+  const getFollowUpBadgeClass = (followUpOn?: string | null) => {
+    const state = getBallDateState(followUpOn);
+    if (!state) return 'border-slate-200 bg-slate-100 text-slate-500';
+    if (state.diffDays < 0) return 'border-red-200 bg-red-50 text-red-700';
+    if (state.diffDays <= 1) return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-slate-200 bg-white text-slate-600';
+  };
+
   const getBallHolderLabel = (task: Task) => {
-    const normalizeText = (v: string | null | undefined) => (v ?? '').trim();
-    const holder = normalizeText(task.ballHolder);
-    const assignee = normalizeText(task.assignee || task.担当者 || task.担当者メール);
-    const effectiveHolder = holder || assignee;
+    const { effectiveHolder } = getBallMeta(task);
     if (!effectiveHolder) return '未設定';
     if (currentUserAliases.has(effectiveHolder.toLowerCase())) return '自分';
     return effectiveHolder;
   };
+
+  const ballSummary = useMemo(() => {
+    const todayKey = todayString();
+    const total = ballCategorized.mine.length + ballCategorized.waiting.length;
+    const followUpDue = ballCategorized.waiting.filter((task) => {
+      const followUpOn = task.ballFollowUpOn;
+      return Boolean(followUpOn && followUpOn <= todayKey);
+    }).length;
+    const overdue = ballCategorized.waiting.filter((task) => {
+      const deadline = task.responseDeadline || task.期限;
+      return Boolean(deadline && deadline < todayKey);
+    }).length;
+
+    return {
+      total,
+      followUpDue,
+      overdue,
+      mine: ballCategorized.mine.length,
+      waiting: ballCategorized.waiting.length,
+    };
+  }, [ballCategorized]);
 
   const runWithBusy = useCallback(
     async (
@@ -1334,11 +1504,6 @@ function TasksPage({
       }
     },
     []
-  );
-
-  const handleSeedReminders = useCallback(
-    (taskId: string) => runWithBusy(taskId, setSeedBusyIds, onSeedReminders),
-    [onSeedReminders, runWithBusy]
   );
 
   const handleCalendarSync = useCallback(
@@ -1440,8 +1605,16 @@ function TasksPage({
   }, [rows, sortKey, sortDirection]);
 
   const showBallUndoToast = useCallback(
-    (task: Task, previousHolder: string | null, actionTitle: string) => {
-      toast(
+    (
+      task: Task,
+      previousBallState: Pick<Task, 'ballHolder' | 'ballRequestedBy' | 'responseDeadline' | 'ballNote' | 'ballFollowUpOn'>,
+      actionTitle: string
+    ) => {
+      const isMobileViewport = typeof window !== 'undefined' && window.innerWidth < 768;
+      if (activeBallUndoToastIdRef.current) {
+        toast.dismiss(activeBallUndoToastIdRef.current);
+      }
+      const toastId = toast(
         (t) => (
           <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-lg">
             <span className="text-xs text-slate-700">{actionTitle}</span>
@@ -1450,9 +1623,12 @@ function TasksPage({
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                updateTask(task.id, { ballHolder: previousHolder });
+                setBallActionSheetState((current) => (current?.taskId === task.id ? null : current));
+                updateTask(task.id, previousBallState);
+                if (activeBallUndoToastIdRef.current === t.id) {
+                  activeBallUndoToastIdRef.current = null;
+                }
                 toast.dismiss(t.id);
-                pushToast({ tone: 'info', title: 'ボール操作を元に戻しました' });
               }}
               className="rounded bg-slate-900 px-2 py-1 text-xs text-white hover:bg-slate-800"
             >
@@ -1460,47 +1636,245 @@ function TasksPage({
             </button>
             <button
               type="button"
-              onClick={() => toast.dismiss(t.id)}
+              onClick={() => {
+                if (activeBallUndoToastIdRef.current === t.id) {
+                  activeBallUndoToastIdRef.current = null;
+                }
+                toast.dismiss(t.id);
+              }}
               className="text-xs text-slate-500 hover:text-slate-700"
             >
               閉じる
             </button>
           </div>
         ),
-        { duration: 5000, position: 'bottom-center' }
+        {
+          duration: Infinity,
+          position: isMobileViewport ? 'bottom-center' : 'bottom-right',
+          style: {
+            marginBottom: isMobileViewport ? '78px' : '20px',
+            marginRight: isMobileViewport ? '0' : '20px',
+          },
+        }
       );
+      activeBallUndoToastIdRef.current = toastId;
     },
-    [pushToast, updateTask]
+    [updateTask]
   );
 
   const applyBallHolderWithUndo = useCallback(
-    (task: Task, nextHolder: string | null, actionTitle: string) => {
-      const previousHolder = (task.ballHolder || '').trim() || null;
+    (
+      task: Task,
+      nextHolder: string | null,
+      actionTitle: string,
+      extraUpdates: Partial<Pick<Task, 'ballRequestedBy' | 'ballNote' | 'ballFollowUpOn' | 'responseDeadline'>> = {}
+    ) => {
+      const previousBallState = {
+        ballHolder: (task.ballHolder || '').trim() || null,
+        ballRequestedBy: (task.ballRequestedBy || '').trim() || null,
+        responseDeadline: task.responseDeadline ?? null,
+        ballNote: task.ballNote ?? null,
+        ballFollowUpOn: task.ballFollowUpOn ?? null,
+      } satisfies Pick<Task, 'ballHolder' | 'ballRequestedBy' | 'responseDeadline' | 'ballNote' | 'ballFollowUpOn'>;
+      const previousHolder = previousBallState;
       const normalizedNext = (nextHolder || '').trim() || null;
-      if (previousHolder === normalizedNext) {
+      if (previousBallState.ballHolder === normalizedNext && Object.keys(extraUpdates).length === 0) {
         return;
       }
-      updateTask(task.id, { ballHolder: normalizedNext });
-      pushToast({ tone: 'success', title: actionTitle });
-      showBallUndoToast(task, previousHolder, `${actionTitle}（5秒以内なら取り消せます）`);
+      updateTask(task.id, { ballHolder: normalizedNext, ...extraUpdates });
+      showBallUndoToast(task, previousHolder, `${actionTitle}（閉じるまで元に戻せます）`);
     },
-    [pushToast, showBallUndoToast, updateTask]
+    [showBallUndoToast, updateTask]
   );
 
+  const openBallActionSheet = useCallback(
+    (
+      task: Task,
+      action: 'throw' | 'pull',
+      counterpartLabel: string,
+      options?: {
+        recipient?: string;
+        recipientEditable?: boolean;
+        committed?: boolean;
+      }
+    ) => {
+      setBallActionSheetState({
+        action,
+        counterpartLabel,
+        committed: options?.committed ?? false,
+        projectName: getBallProjectName(task.projectId),
+        recipient: options?.recipient ?? '',
+        recipientEditable: options?.recipientEditable ?? false,
+        taskId: task.id,
+        taskName: task.タスク名,
+      });
+    },
+    [getBallProjectName]
+  );
+
+  const showBallActionPromptToast = useCallback(
+    (
+      task: Task,
+      action: 'throw' | 'pull',
+      counterpartLabel: string,
+      options?: {
+        recipient?: string;
+        recipientEditable?: boolean;
+      }
+    ) => {
+      const isMobileViewport = typeof window !== 'undefined' && window.innerWidth < 768;
+      if (activeBallPromptToastIdRef.current) {
+        toast.dismiss(activeBallPromptToastIdRef.current);
+      }
+      const title = action === 'throw'
+        ? '必要なら一言を残せます'
+        : '必要なら引き取りメモを残せます';
+      const description = action === 'throw'
+        ? options?.recipientEditable
+          ? '相手名や一言はあとから補足できます。無視して続けて大丈夫です。'
+          : '一言や催促日はあとから補足できます。無視して続けて大丈夫です。'
+        : '確認メモはあとから補足できます。無視して続けて大丈夫です。';
+      const toastId = toast(
+        (t) => (
+          <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-900">{title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">{description}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openBallActionSheet(task, action, counterpartLabel, {
+                    committed: true,
+                    recipient: options?.recipient ?? '',
+                    recipientEditable: options?.recipientEditable ?? false,
+                  });
+                  if (activeBallPromptToastIdRef.current === t.id) {
+                    activeBallPromptToastIdRef.current = null;
+                  }
+                  toast.dismiss(t.id);
+                }}
+                className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+              >
+                補足する
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeBallPromptToastIdRef.current === t.id) {
+                    activeBallPromptToastIdRef.current = null;
+                  }
+                  toast.dismiss(t.id);
+                }}
+                className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        ),
+        {
+          duration: 4500,
+          position: isMobileViewport ? 'top-center' : 'top-right',
+        }
+      );
+      activeBallPromptToastIdRef.current = toastId;
+    },
+    [openBallActionSheet]
+  );
+
+  const applyBallHolderWithInboxNotice = useCallback(
+    (
+      task: Task,
+      nextHolder: string | null,
+      notice: Omit<BallInboxNotice, 'id' | 'previousBallState' | 'taskId' | 'taskName'>,
+      extraUpdates: Partial<Pick<Task, 'ballRequestedBy' | 'ballNote' | 'ballFollowUpOn' | 'responseDeadline'>> = {}
+    ) => {
+      const previousBallState: BallUndoState = {
+        ballHolder: (task.ballHolder || '').trim() || null,
+        ballRequestedBy: (task.ballRequestedBy || '').trim() || null,
+        responseDeadline: task.responseDeadline ?? null,
+        ballNote: task.ballNote ?? null,
+        ballFollowUpOn: task.ballFollowUpOn ?? null,
+      };
+      const normalizedNext = (nextHolder || '').trim() || null;
+      if (previousBallState.ballHolder === normalizedNext && Object.keys(extraUpdates).length === 0) {
+        return false;
+      }
+      setBallActionSheetState((current) => (current?.taskId === task.id ? null : current));
+      updateTask(task.id, { ballHolder: normalizedNext, ...extraUpdates });
+      setBallInboxNotices((current) => [
+        {
+          ...notice,
+          id: `${task.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          previousBallState,
+          taskId: task.id,
+          taskName: task.タスク名,
+        },
+        ...current.filter((entry) => entry.taskId !== task.id),
+      ].slice(0, 3));
+      return true;
+    },
+    [updateTask]
+  );
+
+  const handleBallInboxNoticeUndo = useCallback((noticeId: string) => {
+    const notice = ballInboxNotices.find((entry) => entry.id === noticeId);
+    if (!notice) return;
+    setBallActionSheetState((current) => (current?.taskId === notice.taskId ? null : current));
+    updateTask(notice.taskId, notice.previousBallState);
+    setBallInboxNotices((current) => current.filter((entry) => entry.id !== noticeId));
+  }, [ballInboxNotices, updateTask]);
+
+  const handleBallInboxNoticeSupplement = useCallback((noticeId: string) => {
+    const notice = ballInboxNotices.find((entry) => entry.id === noticeId);
+    if (!notice) return;
+    const task = allTasks.find((candidate) => candidate.id === notice.taskId);
+    if (!task) {
+      setBallInboxNotices((current) => current.filter((entry) => entry.id !== noticeId));
+      return;
+    }
+    openBallActionSheet(task, notice.action, notice.counterpartLabel, {
+      committed: true,
+      recipient: notice.recipient,
+      recipientEditable: notice.recipientEditable,
+    });
+  }, [allTasks, ballInboxNotices, openBallActionSheet]);
+
   const handleBallThrow = useCallback(
-    (task: Task) => {
-      const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
+    (
+      task: Task,
+      nextRecipient?: string | null,
+      extraUpdates: Partial<Pick<Task, 'ballRequestedBy' | 'ballNote' | 'ballFollowUpOn' | 'responseDeadline'>> = {}
+    ) => {
+      const assignee = (nextRecipient ?? task.assignee ?? task.担当者 ?? task.担当者メール ?? '').trim();
+      const requester = (currentUserName || currentUserEmail || '').trim();
       if (!assignee) {
         pushToast({ tone: 'info', title: '担当者が未設定のため、ボールを渡せません' });
-        return;
+        return false;
       }
       if (currentUserAliases.has(assignee.toLowerCase())) {
         pushToast({ tone: 'info', title: '自分宛てのため、ボールを渡せません' });
-        return;
+        return false;
       }
-      applyBallHolderWithUndo(task, assignee, 'ボールを相手に渡しました');
+      applyBallHolderWithInboxNotice(task, assignee, {
+        action: 'throw',
+        counterpartLabel: assignee,
+        description: '必要なら一言や催促日をあとから補足できます。',
+        editorLabel: '一言・催促日',
+        headline: `${assignee} に渡しました`,
+        recipient: assignee,
+        recipientEditable: true,
+      }, {
+        ballRequestedBy: requester || null,
+        ...extraUpdates,
+      });
+      return true;
     },
-    [applyBallHolderWithUndo, currentUserAliases, pushToast]
+    [applyBallHolderWithInboxNotice, currentUserAliases, currentUserEmail, currentUserName, pushToast]
   );
 
   const handleBallPullBack = useCallback(
@@ -1508,194 +1882,486 @@ function TasksPage({
       const myHolder = (currentUserName || currentUserEmail || '').trim();
       if (!myHolder) {
         pushToast({ tone: 'info', title: 'ユーザー情報が未取得のため、ボールを戻せません' });
-        return;
+        return false;
       }
-      applyBallHolderWithUndo(task, myHolder, 'ボールを自分に戻しました');
+      applyBallHolderWithInboxNotice(task, myHolder, {
+        action: 'pull',
+        counterpartLabel: getBallHolderLabel(task),
+        description: '必要なら引き取りメモをあとから補足できます。',
+        editorLabel: '一言',
+        headline: '自分に引き取りました',
+        recipient: '',
+        recipientEditable: false,
+      }, {
+        ballRequestedBy: null,
+        ballFollowUpOn: null,
+      });
+      return true;
     },
-    [applyBallHolderWithUndo, currentUserEmail, currentUserName, pushToast]
+    [applyBallHolderWithInboxNotice, currentUserEmail, currentUserName, pushToast, getBallHolderLabel]
   );
 
-  const renderBallSection = (title: string, tasks: Task[], mode: 'mine' | 'waiting') => {
-    if (tasks.length === 0) return null;
+  const renderBallCard = (task: Task, mode: 'mine' | 'waiting') => {
+    const { assignee } = getBallMeta(task);
+    const canThrow = Boolean((currentUserName || currentUserEmail || '').trim());
+    const hasDefaultThrowTarget = Boolean(assignee) && !currentUserAliases.has(assignee.toLowerCase());
+    const canPullBack = Boolean((currentUserName || currentUserEmail || '').trim());
+    const swipeHint = mode === 'mine' ? '右スワイプで渡す' : '左スワイプで引き取る';
+    const startLabel = formatDate(task.start ?? task.予定開始日 ?? null);
+    const endLabel = formatDate(task.end ?? task.期限 ?? null);
+    const scheduleLabel = buildScheduleLabel(startLabel, endLabel);
+    const counterpartLabel = mode === 'mine' ? (assignee || '返し先未設定') : getBallHolderLabel(task);
+    const isBallSheetOpen = ballActionSheetState?.taskId === task.id;
+    const handlePrimaryAction = () => {
+      if (mode === 'mine' && canThrow) {
+        const recipient = hasDefaultThrowTarget ? assignee : getBallPreferredRecipient(task);
+        handleBallThrow(task, recipient);
+        return;
+      }
+      if (mode === 'waiting' && canPullBack) {
+        handleBallPullBack(task);
+      }
+    };
+
     return (
-      <div className="space-y-2">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-          {title}
-          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal text-slate-500">{tasks.length}</span>
-        </h3>
-        {tasks.map((task) => {
-          const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
-          const canThrow = Boolean(assignee) && !currentUserAliases.has(assignee.toLowerCase());
-          const canPullBack = Boolean((currentUserName || currentUserEmail || '').trim());
-          return (
-            <SwipeBallCard
-              key={task.id}
-              ariaLabel={`${task.タスク名} のボールカード`}
-              onThrow={mode === 'mine' ? () => handleBallThrow(task) : undefined}
-              onPullBack={mode === 'waiting' ? () => handleBallPullBack(task) : undefined}
-            >
-              <div className="w-full rounded-xl border border-slate-200 bg-white transition-colors hover:border-slate-300">
+      <SwipeBallCard
+        key={task.id}
+        ariaLabel={`${task.タスク名} のボールカード`}
+        disabled={isBallSheetOpen}
+        onThrow={mode === 'mine' && canThrow ? handlePrimaryAction : undefined}
+        onPullBack={mode === 'waiting' && canPullBack ? handlePrimaryAction : undefined}
+      >
+        <div className="space-y-2">
+          <div className="w-full rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex items-start justify-between gap-2">
+              <button type="button" onClick={() => onEditTask(task)} className="min-w-0 flex-1 text-left">
+                <p className="text-[11px] text-slate-400">{getBallProjectName(task.projectId)}</p>
+                <p className="mt-0.5 text-sm font-medium text-slate-900">{task.タスク名}</p>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {mode === 'mine' ? '返し先' : '待ち先'} {counterpartLabel} ・ {scheduleLabel}
+                </p>
+                {task.ballNote ? (
+                  <p className="mt-1 truncate text-[11px] text-slate-400">{task.ballNote}</p>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                onClick={() => onComplete(task, true)}
+                className="mt-1 h-5 w-5 shrink-0 rounded border-2 border-slate-300 transition-colors hover:border-slate-500"
+                aria-label="完了にする"
+              />
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <span
+                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] ${
+                  mode === 'mine'
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-slate-200 text-slate-700'
+                }`}
+              >
+                {mode === 'mine' ? '自分' : getBallHolderLabel(task)}
+              </span>
+              <div className="flex min-w-0 items-center gap-2">
+                {mode === 'waiting' && task.ballFollowUpOn ? (
+                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] whitespace-nowrap ${getFollowUpBadgeClass(task.ballFollowUpOn)}`}>
+                    催促 {task.ballFollowUpOn}
+                  </span>
+                ) : null}
+                <span className={`text-[11px] whitespace-nowrap ${getBallDeadlineColor(task.responseDeadline || task.期限)}`}>
+                  {task.responseDeadline || task.期限 || '期限なし'}
+                </span>
+              </div>
+            </div>
+            <div className="mt-3 hidden items-center justify-between gap-2 md:flex">
+              <span className="text-[10px] text-slate-400">
+                {mode === 'mine' ? `返し先 ${counterpartLabel}` : `${counterpartLabel} からの返答待ち`}
+              </span>
+              {(mode === 'mine' && canThrow) || (mode === 'waiting' && canPullBack) ? (
                 <button
                   type="button"
-                  onClick={() => onEditTask(task)}
-                  className="w-full p-4 text-left"
+                  onClick={handlePrimaryAction}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    mode === 'mine'
+                      ? 'bg-slate-900 text-white hover:bg-slate-800'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                  }`}
                 >
-                  <p className="mb-1 text-xs text-slate-400">{getBallProjectName(task.projectId)}</p>
-                  <p className="mb-2 text-sm font-medium text-slate-900">{task.タスク名}</p>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${
-                          getBallHolderLabel(task) === '自分'
-                            ? 'bg-slate-900 text-white'
-                            : 'bg-slate-200 text-slate-700'
-                        }`}
-                      >
-                        {getBallHolderLabel(task)}
-                      </span>
-                      {task.ballNote && (
-                        <span className="truncate text-xs text-slate-400">{task.ballNote}</span>
-                      )}
-                    </div>
-                    <span className={`text-xs ${getBallDeadlineColor(task.responseDeadline || task.期限)}`}>
-                      {task.responseDeadline || task.期限 || '期限なし'}
-                    </span>
-                  </div>
+                  {mode === 'mine' ? '渡す' : '引き取る'}
                 </button>
-                <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-3 py-2">
-                  {mode === 'mine' ? (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        handleBallThrow(task);
-                      }}
-                      disabled={!canThrow}
-                      className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label="ボールを相手に渡す"
-                    >
-                      相手に渡す
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        handleBallPullBack(task);
-                      }}
-                      disabled={!canPullBack}
-                      className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label="ボールを自分に戻す"
-                    >
-                      自分に戻す
-                    </button>
-                  )}
-                </div>
-              </div>
-            </SwipeBallCard>
-          );
-        })}
-      </div>
+              ) : null}
+            </div>
+            <p className="mt-2 text-right text-[10px] text-slate-400 md:hidden">{swipeHint}</p>
+          </div>
+          <BallActionSheet
+            open={isBallSheetOpen}
+            action={ballActionSheetState?.action ?? 'throw'}
+            committed={ballActionSheetState?.committed ?? false}
+            projectName={ballActionSheetState?.projectName ?? ''}
+            taskName={ballActionSheetState?.taskName ?? ''}
+            counterpartLabel={ballActionSheetState?.counterpartLabel ?? ''}
+            initialNote={task.ballNote ?? null}
+            initialFollowUpOn={task.ballFollowUpOn ?? null}
+            recipientValue={ballActionSheetState?.recipient ?? ''}
+            recipientEditable={Boolean(ballActionSheetState?.recipientEditable)}
+            recipientOptions={getBallRecipientOptions(task)}
+            onRecipientChange={(value) => {
+              setBallActionSheetState((current) => {
+                if (!current || current.taskId !== task.id) return current;
+                return {
+                  ...current,
+                  recipient: value,
+                  counterpartLabel: value.trim() || '返し先未設定',
+                };
+              });
+            }}
+            onOpenChange={(open) => {
+              if (!open) {
+                setBallActionSheetState((current) => (current?.taskId === task.id ? null : current));
+              }
+            }}
+            onSave={async ({ note, followUpOn, recipient }) => {
+              const activeState = ballActionSheetState;
+              if (!activeState || activeState.taskId !== task.id) {
+                return;
+              }
+              const trimmedNote = note.trim() || null;
+              const nextFollowUp = activeState.action === 'throw' ? (followUpOn || null) : null;
+
+              if (activeState.action === 'throw' && recipient) {
+                if (currentUserAliases.has(recipient.toLowerCase())) {
+                  pushToast({ tone: 'info', title: '自分以外の相手を入れてください' });
+                  return;
+                }
+              }
+
+              const nextRecipient = activeState.action === 'throw' ? recipient.trim() : '';
+
+              await Promise.resolve(
+                updateTask(task.id, {
+                  ...(activeState.action === 'throw' && activeState.recipientEditable && nextRecipient
+                    ? { ballHolder: nextRecipient }
+                    : {}),
+                  ballNote: trimmedNote,
+                  ballFollowUpOn: nextFollowUp,
+                })
+              );
+              setBallInboxNotices((current) => current.map((entry) => {
+                if (entry.taskId !== task.id || activeState.action !== 'throw') {
+                  return entry;
+                }
+                return {
+                  ...entry,
+                  counterpartLabel: nextRecipient || entry.counterpartLabel,
+                  headline: `${nextRecipient || entry.counterpartLabel} に渡しました`,
+                  recipient: nextRecipient || entry.recipient,
+                };
+              }));
+              setBallActionSheetState(null);
+            }}
+          />
+        </div>
+      </SwipeBallCard>
     );
   };
 
+  const renderBallLane = (
+    title: string,
+    description: string,
+    tasks: Task[],
+    mode: 'mine' | 'waiting',
+    emptyMessage: string
+  ) => (
+    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+          <p className="mt-1 text-xs text-slate-500">{description}</p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+          {tasks.length}
+        </span>
+      </div>
+      <div className="mt-4 space-y-3">
+        {tasks.length ? (
+          tasks.map((task) => renderBallCard(task, mode))
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
+            {emptyMessage}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+
   return (
     <div className="space-y-4">
-      <WorkerMonitor tasks={filteredTasks} canSync={canSync} />
-      {!canSync ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-500">
-          通知・カレンダー連携はサインイン後にご利用いただけます。
+      <section className="rounded-3xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Ball Inbox</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-900">
+              {ballSummary.total > 0 ? 'いま止まっている受け渡し' : 'いま止まっている受け渡しはありません'}
+            </h2>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              {ballSummary.overdue > 0 ? (
+                <span className="rounded-full border border-red-200 bg-white px-3 py-1 font-medium text-red-700">
+                  期限超過 {ballSummary.overdue}
+                </span>
+              ) : null}
+              {ballSummary.followUpDue > 0 ? (
+                <span className="rounded-full border border-amber-200 bg-white px-3 py-1 font-medium text-amber-700">
+                  今日催促 {ballSummary.followUpDue}
+                </span>
+              ) : null}
+              {ballSummary.total === 0 ? (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-medium text-slate-500">
+                  新しい受け渡しが出るとここにまとまります
+                </span>
+              ) : null}
+              {ballSummary.total > 0 && ballSummary.overdue === 0 && ballSummary.followUpDue === 0 ? (
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-medium text-slate-500">
+                  自分が動かすもの {ballSummary.mine} 件、相手待ち {ballSummary.waiting} 件です
+                </span>
+              ) : null}
+            </div>
+          </div>
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+            自分 {ballSummary.mine}
+          </span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+              相手待ち {ballSummary.waiting}
+            </span>
+            {ballSummary.followUpDue > 0 ? (
+              <span className="rounded-full border border-amber-200 bg-white px-3 py-1 text-xs font-semibold text-amber-700">
+                今日催促 {ballSummary.followUpDue}
+              </span>
+            ) : null}
+            {ballSummary.overdue > 0 ? (
+              <span className="rounded-full border border-red-200 bg-white px-3 py-1 text-xs font-semibold text-red-700">
+                期限超過 {ballSummary.overdue}
+              </span>
+            ) : null}
+          </div>
         </div>
-      ) : null}
+        {ballInboxNotices.length ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold tracking-[0.12em] text-slate-400">最近の操作</p>
+              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                {ballInboxNotices.length}件
+              </span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {ballInboxNotices.map((notice, index) => (
+                <div
+                  key={notice.id}
+                  className={`rounded-2xl border px-3 py-3 ${
+                    index === 0
+                      ? 'border-slate-200 bg-white'
+                      : 'border-slate-100 bg-white/70'
+                  }`}
+                >
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">{notice.headline}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {notice.taskName} ・ {notice.description}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleBallInboxNoticeSupplement(notice.id)}
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                      >
+                        {notice.editorLabel}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleBallInboxNoticeUndo(notice.id)}
+                        className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        元に戻す
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBallInboxNotices((current) => current.filter((entry) => entry.id !== notice.id))}
+                        className="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-white hover:text-slate-700"
+                      >
+                        閉じる
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <p className="mt-3 text-[11px] text-slate-500 md:hidden">
+          自分ボールは右スワイプ、相手待ちは左スワイプ。操作後も戻せます。
+        </p>
+      </section>
 
-      {/* Task list */}
-      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
-        <div className="flex items-center gap-2">
-          <select
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as TaskTableSortKey)}
-            className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700"
-          >
-            <option value="status">並替: ステータス</option>
-            <option value="name">並替: タスク名</option>
-            <option value="project">並替: プロジェクト</option>
-            <option value="assignee">並替: 担当者</option>
-            <option value="schedule">並替: 期限</option>
-            <option value="effort">並替: 工数</option>
-            <option value="progress">並替: 進捗</option>
-            <option value="priority">並替: 優先度</option>
-            <option value="completed">並替: 完了</option>
-          </select>
-          <div className="hidden md:block" />
-        </div>
+      {/* Toggle: タスク / ボール */}
+      <div className="flex rounded-lg bg-slate-100 p-0.5 md:hidden">
+        <button
+          type="button"
+          onClick={() => setViewMode('ball')}
+          className={`flex-1 rounded-md py-1.5 text-center text-xs font-medium transition-colors ${
+            viewMode === 'ball'
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-500'
+          }`}
+        >
+          ボール
+          {(ballCategorized.mine.length + ballCategorized.waiting.length) > 0 && (
+            <span className="ml-1 text-[10px] text-slate-400">
+              {ballCategorized.mine.length + ballCategorized.waiting.length}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewMode('tasks')}
+          className={`flex-1 rounded-md py-1.5 text-center text-xs font-medium transition-colors ${
+            viewMode === 'tasks'
+              ? 'bg-white text-slate-900 shadow-sm'
+              : 'text-slate-500'
+          }`}
+        >
+          タスク
+        </button>
       </div>
-      <div className="grid gap-3 md:hidden">
-        {sortedRows.map((row) => {
-          const task = filteredTasks.find(t => t.id === row.id)!;
-          const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
-          const holder = (task.ballHolder || '').trim();
-          const effectiveHolder = holder || assignee;
-          const isMine = Boolean(effectiveHolder) && currentUserAliases.has(effectiveHolder.toLowerCase());
-          const isWaiting = Boolean(assignee) && currentUserAliases.has(assignee.toLowerCase()) && Boolean(holder) && !currentUserAliases.has(holder.toLowerCase());
-          return (
-            <SwipeBallCard
-              key={row.id}
-              ariaLabel={`${row.name} のタスクカード`}
-              onThrow={isMine ? () => handleBallThrow(task) : undefined}
-              onPullBack={isWaiting ? () => handleBallPullBack(task) : undefined}
-            >
-              <TaskCard
-                id={row.id}
-                name={row.name}
-                projectLabel={row.projectLabel}
-                assignee={row.assignee}
-                schedule={row.schedule}
-                scheduleStart={row.scheduleStart}
-                scheduleEnd={row.scheduleEnd}
-                status={row.status}
-                progress={row.progress}
-                onComplete={() => onComplete(task, true)}
-                onSeedReminders={onSeedReminders ? () => handleSeedReminders(row.id) : undefined}
-                onCalendarSync={onCalendarSync ? () => handleCalendarSync(row.id) : undefined}
-                seedBusy={seedBusyIds.has(row.id)}
-                calendarBusy={calendarBusyIds.has(row.id)}
+
+      {/* ===== Ball view (mobile default) ===== */}
+      {viewMode === 'ball' && (
+        <div className="space-y-5 md:hidden">
+          {renderBallLane('自分ボール', 'いま自分が動かすもの。右スワイプで返せます。', ballCategorized.mine, 'mine', 'いま自分が持っているボールはありません')}
+          {renderBallLane('相手待ち', '返答待ちのもの。左スワイプで引き取れます。', ballCategorized.waiting, 'waiting', 'いま相手待ちのボールはありません')}
+        </div>
+      )}
+
+      {/* ===== Task list view ===== */}
+      {(viewMode === 'tasks' || viewMode === 'ball') && (
+        <>
+          {/* Mobile task list (hidden when ball mode on mobile) */}
+          {viewMode === 'tasks' && (
+            <>
+              <div className="flex items-center gap-2 md:hidden">
+                <select
+                  value={sortKey}
+                  onChange={(e) => setSortKey(e.target.value as TaskTableSortKey)}
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700"
+                >
+                  <option value="status">並替: ステータス</option>
+                  <option value="name">並替: タスク名</option>
+                  <option value="project">並替: プロジェクト</option>
+                  <option value="assignee">並替: 担当者</option>
+                  <option value="schedule">並替: 期限</option>
+                  <option value="effort">並替: 工数</option>
+                  <option value="progress">並替: 進捗</option>
+                  <option value="priority">並替: 優先度</option>
+                  <option value="completed">並替: 完了</option>
+                </select>
+              </div>
+              <div className="grid gap-3 md:hidden">
+                {sortedRows.map((row) => {
+                  const task = filteredTasks.find(t => t.id === row.id)!;
+                  return (
+                    <TaskCard
+                      key={row.id}
+                      id={row.id}
+                      name={row.name}
+                      projectLabel={row.projectLabel}
+                      assignee={row.assignee}
+                      schedule={row.schedule}
+                      scheduleStart={row.scheduleStart}
+                      scheduleEnd={row.scheduleEnd}
+                      status={row.status}
+                      progress={row.progress}
+                      onComplete={() => onComplete(task, true)}
+                      onCalendarSync={onCalendarSync ? () => handleCalendarSync(row.id) : undefined}
+                      calendarBusy={calendarBusyIds.has(row.id)}
+                    />
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          <div className="hidden grid-cols-2 gap-4 md:grid">
+            {renderBallLane('自分ボール', 'いま自分が動かすもの。必要ならそのまま渡せます。', ballCategorized.mine, 'mine', 'いま自分が持っているボールはありません')}
+            {renderBallLane('相手待ち', '返答待ちのもの。必要なら引き取って進められます。', ballCategorized.waiting, 'waiting', 'いま相手待ちのボールはありません')}
+          </div>
+
+          <section className={`${viewMode === 'tasks' ? 'block' : 'hidden'} rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:block`}>
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">一覧で確認</h3>
+                <p className="mt-1 text-xs text-slate-500">全体をまとめて見たい時だけ一覧に切り替えます。</p>
+              </div>
+              {canSync ? (
+                <button
+                  type="button"
+                  onClick={() => setSupportPanelOpen((prev) => !prev)}
+                  className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  {supportPanelOpen ? '通知・連携を閉じる' : '通知・連携を開く'}
+                </button>
+              ) : (
+                <span className="rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500">
+                  カレンダー連携はサインイン後に利用できます
+                </span>
+              )}
+            </div>
+
+            {canSync && supportPanelOpen ? (
+              <div className="mt-4">
+                <WorkerMonitor tasks={filteredTasks} canSync={canSync} />
+              </div>
+            ) : null}
+
+            <div className="hidden md:block">
+              <div className="mb-3 mt-4 flex items-center gap-2">
+                <select
+                  value={sortKey}
+                  onChange={(e) => setSortKey(e.target.value as TaskTableSortKey)}
+                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700"
+                >
+                  <option value="status">並替: ステータス</option>
+                  <option value="name">並替: タスク名</option>
+                  <option value="project">並替: プロジェクト</option>
+                  <option value="assignee">並替: 担当者</option>
+                  <option value="schedule">並替: 期限</option>
+                  <option value="effort">並替: 工数</option>
+                  <option value="progress">並替: 進捗</option>
+                  <option value="priority">並替: 優先度</option>
+                  <option value="completed">並替: 完了</option>
+                </select>
+              </div>
+              <TaskTable
+                rows={sortedRows}
+                sortKey={sortKey}
+                sortDirection={sortDirection}
+                onSortChange={(key, direction) => {
+                  setSortKey(key);
+                  setSortDirection(direction);
+                }}
+                onToggle={(id, checked) => {
+                  const task = filteredTasks.find((t) => t.id === id);
+                  if (task) onComplete(task, checked);
+                }}
+                onRowClick={(id) => {
+                  const task = filteredTasks.find((t) => t.id === id);
+                  if (task) onEditTask(task);
+                }}
+                onCalendarSync={onCalendarSync ? (id) => handleCalendarSync(id) : undefined}
+                calendarBusyIds={calendarBusyIds}
               />
-            </SwipeBallCard>
-          );
-        })}
-      </div>
-      <div className="hidden md:block">
-        <TaskTable
-          rows={sortedRows}
-          sortKey={sortKey}
-          sortDirection={sortDirection}
-          onSortChange={(key, direction) => {
-            setSortKey(key);
-            setSortDirection(direction);
-          }}
-          onToggle={(id, checked) => {
-            const task = filteredTasks.find((t) => t.id === id);
-            if (task) onComplete(task, checked);
-          }}
-          onRowClick={(id) => {
-            const task = filteredTasks.find((t) => t.id === id);
-            if (task) onEditTask(task);
-          }}
-          onSeedReminders={onSeedReminders ? (id) => handleSeedReminders(id) : undefined}
-          onCalendarSync={onCalendarSync ? (id) => handleCalendarSync(id) : undefined}
-          seedBusyIds={seedBusyIds}
-          calendarBusyIds={calendarBusyIds}
-        />
-      </div>
-
-      {/* Ball sections (scroll to see) */}
-      {(ballCategorized.mine.length > 0 || ballCategorized.waiting.length > 0) && (
-        <div className="space-y-6 border-t border-slate-200 pt-6">
-          {renderBallSection('自分ボール', ballCategorized.mine, 'mine')}
-          {renderBallSection('相手ボール', ballCategorized.waiting, 'waiting')}
-        </div>
+            </div>
+          </section>
+        </>
       )}
     </div>
   );
@@ -2043,6 +2709,22 @@ function SchedulePage({
 
     return sortedTasks;
   }, [filteredTasksWithStages, projectMap, stageProgressMap, focusIdentity, shouldDimOtherAssignees]);
+
+  const ganttBallAnnotations = useMemo(
+    () =>
+      Object.fromEntries(
+        filteredTasksWithStages.map((task) => [
+          task.id,
+          {
+            ballHolder: task.ballHolder || null,
+            responseDeadline: task.responseDeadline || task.期限 || null,
+            ballNote: task.ballNote || null,
+            ballFollowUpOn: task.ballFollowUpOn || null,
+          },
+        ])
+      ),
+    [filteredTasksWithStages]
+  );
 
   // 工程ベースのガントチャート用データ（削除：不要になったコード）
   /*
@@ -2402,6 +3084,7 @@ function SchedulePage({
         {/* 工程・タスク統合ガントチャート */}
         <NewGanttChart
             tasks={newGanttTasks}
+            ballAnnotations={ganttBallAnnotations}
             interactive={true}
             projectMap={projectMap}
             people={people}
@@ -3619,6 +4302,21 @@ function App() {
   const { addPending, ackPending, rollbackPending, pending, deletedTasks, addPendingProject, ackPendingProject, rollbackPendingProject, pendingProjects } = usePendingOverlay();
 
   const canSync = !DEMO_MODE && authSupported && Boolean(user);
+  const sessionUser = LOCAL_PREVIEW_MODE ? LOCAL_PREVIEW_USER : user;
+  const sessionUserName = (sessionUser?.displayName || sessionUser?.email || '').trim();
+  const sessionUserEmail = (sessionUser?.email || '').trim();
+
+  const handleEnterLocalPreview = useCallback((resetSnapshot = false) => {
+    enableLocalPreview({ resetSnapshot });
+  }, []);
+
+  const handleSessionSignOut = useCallback(() => {
+    if (LOCAL_PREVIEW_MODE) {
+      disableLocalPreview();
+      return;
+    }
+    void signOut();
+  }, [signOut]);
 
   const showErrorReportPrompt = useCallback(
     (info: { method?: string; url?: string; status?: number; message: string; source?: string }) => {
@@ -5237,8 +5935,10 @@ function App() {
     '通知設定'?: TaskNotificationSettings;
     parentId?: string | null;
     ballHolder?: string | null;
+    ballRequestedBy?: string | null;
     responseDeadline?: string | null;
     ballNote?: string | null;
+    ballFollowUpOn?: string | null;
     assignee?: string;
     milestone?: boolean;
   }) => {
@@ -5250,7 +5950,9 @@ function App() {
     const normalizedAssignee = payload.assignee ?? payload.担当者 ?? undefined;
     const normalizedMilestone = payload.milestone === true || payload.マイルストーン === true;
     const normalizedBallHolder = (payload.ballHolder || '').trim();
+    const normalizedBallRequestedBy = (payload.ballRequestedBy || '').trim();
     const normalizedBallNote = (payload.ballNote || '').trim();
+    const normalizedBallFollowUpOn = payload.ballFollowUpOn || null;
     const payloadForApi: Partial<Task> = {
       ...payload,
       担当者: normalizedAssignee,
@@ -5258,8 +5960,10 @@ function App() {
       マイルストーン: normalizedMilestone,
       milestone: normalizedMilestone,
       ballHolder: normalizedBallHolder || null,
+      ballRequestedBy: normalizedBallRequestedBy || null,
       responseDeadline: payload.responseDeadline || null,
       ballNote: normalizedBallNote || null,
+      ballFollowUpOn: normalizedBallFollowUpOn,
       進捗率: (payload as any).進捗率 ?? 0,
     };
 
@@ -5287,8 +5991,10 @@ function App() {
         '通知設定': payload['通知設定'],
         parentId: payload.parentId,
         ballHolder: normalizedBallHolder || null,
+        ballRequestedBy: normalizedBallRequestedBy || null,
         responseDeadline: payload.responseDeadline || null,
         ballNote: normalizedBallNote || null,
+        ballFollowUpOn: normalizedBallFollowUpOn,
         progress: normalizedProgress,
         進捗率: normalizedProgress,
         createdAt: now,
@@ -5322,8 +6028,10 @@ function App() {
         '通知設定': payload['通知設定'],
         parentId: payload.parentId,
         ballHolder: normalizedBallHolder || null,
+        ballRequestedBy: normalizedBallRequestedBy || null,
         responseDeadline: payload.responseDeadline || null,
         ballNote: normalizedBallNote || null,
+        ballFollowUpOn: normalizedBallFollowUpOn,
         マイルストーン: normalizedMilestone,
         milestone: normalizedMilestone,
         progress: normalizedProgress,
@@ -5995,23 +6703,6 @@ function App() {
     [canSync, setState, addPending, ackPending, rollbackPending, requestSnapshotReload]
   );
 
-  const handleSeedReminders = useCallback(
-    async (taskId: string) => {
-      if (!canSync) {
-        pushToast({ tone: 'info', title: 'サインインすると通知ジョブを登録できます' });
-        return;
-      }
-      try {
-        await seedTaskReminders(taskId);
-        pushToast({ tone: 'success', title: '通知ジョブを登録しました' });
-      } catch (error) {
-        console.error(error);
-        pushToast({ tone: 'error', title: '通知ジョブの登録に失敗しました' });
-      }
-    },
-    [canSync]
-  );
-
   const handleCalendarSync = useCallback(
     async (taskId: string) => {
       if (!canSync) {
@@ -6083,7 +6774,7 @@ function App() {
   }
 
   // 認証準備中（デモモードではスキップ）
-  if (!authReady && !DEMO_MODE) {
+  if (!authReady && !AUTH_BYPASS_MODE) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -6095,7 +6786,7 @@ function App() {
   }
 
   // 未認証（デモモードではスキップ）
-  if (authSupported && !user && !DEMO_MODE) {
+  if (authSupported && !user && !AUTH_BYPASS_MODE) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center max-w-md p-8 bg-white rounded-lg shadow-lg">
@@ -6107,6 +6798,24 @@ function App() {
           >
             Googleでサインイン
           </button>
+          {LOCAL_PREVIEW_AVAILABLE ? (
+            <div className="mt-3 grid gap-2">
+              <button
+                type="button"
+                onClick={() => handleEnterLocalPreview(false)}
+                className="w-full rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                ローカル確認で続ける
+              </button>
+              <button
+                type="button"
+                onClick={() => handleEnterLocalPreview(true)}
+                className="w-full rounded-lg border border-dashed border-slate-200 px-4 py-2 text-xs text-slate-500 transition hover:bg-slate-50"
+              >
+                サンプルデータに戻して確認する
+              </button>
+            </div>
+          ) : null}
           <div className="my-6 flex items-center gap-3">
             <div className="h-px flex-1 bg-slate-200" />
             <span className="text-xs text-slate-400">または</span>
@@ -6195,7 +6904,7 @@ function App() {
               </li>
               <li className="flex items-start gap-2 bg-white/5 rounded-lg px-3 py-2 border border-white/10">
                 <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-0.5" />
-                <span>通知・カレンダー連携</span>
+                <span>カレンダー連携</span>
               </li>
               <li className="flex items-start gap-2 bg-white/5 rounded-lg px-3 py-2 border border-white/10">
                 <CheckCircle2 className="h-4 w-4 text-emerald-300 mt-0.5" />
@@ -6439,7 +7148,7 @@ function App() {
       <>
         <ToastStack toasts={toasts} onDismiss={dismissToast} />
         <SetupPage
-          user={user}
+          user={sessionUser}
           authReady={authReady}
           authSupported={authSupported}
           onSignIn={signIn}
@@ -6463,11 +7172,12 @@ function App() {
           setProjectDialogOpen(true);
         }}
         onOpenPerson={() => setPersonModalOpen(true)}
-        user={user}
+        user={sessionUser}
+        localPreviewMode={LOCAL_PREVIEW_MODE}
         authSupported={authSupported}
         authReady={authReady}
         onSignIn={signIn}
-        onSignOut={signOut}
+        onSignOut={handleSessionSignOut}
         authError={authError}
         canEdit={canEdit}
         canSync={canSync}
@@ -6543,7 +7253,7 @@ function App() {
                 onTogglePersonalHoliday={togglePersonalHoliday}
                 holidayClickEnabled={privateSettings.holidayClickEnabled}
                 onDisableHolidayClick={() => setPrivateSettings(prev => ({ ...prev, holidayClickEnabled: false }))}
-                user={user}
+                user={sessionUser}
                 expandedProjectIds={expandedProjectIds}
                 onToggleProject={(projectId) => {
                   userToggledExpandRef.current = true;
@@ -6613,15 +7323,14 @@ function App() {
                 }}
                 onOpenPerson={() => setPersonModalOpen(true)}
                 onEditTask={(task) => setEditingTask(task)}
-                onSeedReminders={canSync ? handleSeedReminders : undefined}
                 onCalendarSync={canSync ? handleCalendarSync : undefined}
                 pushToast={pushToast}
                 canEdit={canEdit}
                 canSync={canSync}
                 allTasks={state.tasks}
                 projects={state.projects}
-                currentUserName={(user?.displayName || user?.email || '').trim()}
-                currentUserEmail={(user?.email || '').trim()}
+                currentUserName={sessionUserName}
+                currentUserEmail={sessionUserEmail}
               />
             }
           />
@@ -6629,8 +7338,8 @@ function App() {
             path="/settings"
             element={
               <SettingsMenuPage
-                user={user}
-                onSignOut={signOut}
+                user={sessionUser}
+                onSignOut={handleSessionSignOut}
               />
             }
           />
@@ -6690,7 +7399,7 @@ function App() {
                 onTogglePersonalHoliday={togglePersonalHoliday}
                 holidayClickEnabled={privateSettings.holidayClickEnabled}
                 onDisableHolidayClick={() => setPrivateSettings(prev => ({ ...prev, holidayClickEnabled: false }))}
-                user={user}
+                user={sessionUser}
                 expandedProjectIds={expandedProjectIds}
                 onToggleProject={(projectId) => {
                   userToggledExpandRef.current = true;
@@ -6713,10 +7422,10 @@ function App() {
             path="/workload"
             element={<WorkloadPage tasks={filteredTasks} projects={state.projects} people={state.people} />}
           />
-          <Route path="/users" element={<UserManagement projects={state.projects} currentUserId={user?.uid ?? null} />} />
+          <Route path="/users" element={<UserManagement projects={state.projects} currentUserId={sessionUser?.uid ?? null} />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/help" element={<HelpPage />} />
-          <Route path="/admin" element={<AdminPage user={user} currentUserRole={currentUserRole} />} />
+          <Route path="/admin" element={<AdminPage user={sessionUser} currentUserRole={currentUserRole} />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/commercial-transaction" element={<CommercialTransactionPage />} />
         </Routes>
@@ -6732,7 +7441,7 @@ function App() {
         defaultStageId={taskModalDefaults?.stageId}
         allowContinuousCreate
         preloadedProjectMembers={taskModalDefaults?.projectId ? allProjectMembers.get(taskModalDefaults.projectId) : undefined}
-        currentUserName={(user?.displayName || user?.email || '').trim()}
+        currentUserName={sessionUserName}
         lockProject={Boolean(taskModalDefaults?.projectId)}
       />
       <TaskModal
@@ -6745,7 +7454,7 @@ function App() {
         onUpdate={handleTaskUpdate}
         onDelete={handleDeleteTask}
         onNotify={pushToast}
-        currentUserName={(user?.displayName || user?.email || '').trim()}
+        currentUserName={sessionUserName}
       />
       <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} onSubmit={handleCreateProject} onNotify={pushToast} />
       <BulkImportModal

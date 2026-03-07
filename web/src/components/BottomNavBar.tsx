@@ -3,7 +3,7 @@ import { CalendarDays, ListChecks, Settings } from 'lucide-react';
 
 const tabs = [
   { path: '/', label: '工程表', icon: CalendarDays },
-  { path: '/tasks', label: 'タスク', icon: ListChecks },
+  { path: '/tasks', label: 'ボール', icon: ListChecks },
   { path: '/settings', label: '設定', icon: Settings },
 ] as const;
 

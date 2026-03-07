@@ -2,13 +2,16 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, shiftSnapshotDates } from '../lib/normalize';
 import { todayString } from '../lib/date';
 import type { CompassState, SnapshotPayload } from '../lib/types';
+import { isLocalPreviewMode, LOCAL_PREVIEW_SNAPSHOT_STORAGE_KEY } from '../lib/localPreview';
 
 const LOCAL_KEY = 'apdw_compass_snapshot_v1';
 const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true' || (typeof window !== 'undefined' && window.location.hostname === 'compass-demo.web.app');
+const LOCAL_PREVIEW_MODE = isLocalPreviewMode();
+const SNAPSHOT_STORAGE_KEY = LOCAL_PREVIEW_MODE ? LOCAL_PREVIEW_SNAPSHOT_STORAGE_KEY : LOCAL_KEY;
 
 export function useSnapshot() {
   const [state, setState] = useState<CompassState>(() => {
-    const sourceSnapshot = DEMO_MODE ? shiftSnapshotDates(SAMPLE_SNAPSHOT) : SAMPLE_SNAPSHOT;
+    const sourceSnapshot = DEMO_MODE || LOCAL_PREVIEW_MODE ? shiftSnapshotDates(SAMPLE_SNAPSHOT) : SAMPLE_SNAPSHOT;
     const normalized = normalizeSnapshot(sourceSnapshot);
     if (typeof window === 'undefined' || DEMO_MODE) {
       return {
@@ -18,7 +21,7 @@ export function useSnapshot() {
       };
     }
     try {
-      const cached = localStorage.getItem(LOCAL_KEY);
+      const cached = localStorage.getItem(SNAPSHOT_STORAGE_KEY);
       if (cached) {
         const parsed = JSON.parse(cached) as SnapshotPayload;
         const restored = normalizeSnapshot(parsed);
@@ -101,7 +104,7 @@ export function useSnapshot() {
   useEffect(() => {
     if (typeof window === 'undefined' || DEMO_MODE) return;
     localStorage.setItem(
-      LOCAL_KEY,
+      SNAPSHOT_STORAGE_KEY,
       JSON.stringify({
         generated_at: todayString(),
         projects: state.projects,

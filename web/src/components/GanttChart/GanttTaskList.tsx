@@ -48,6 +48,28 @@ function getStatusIcon(status: string, className: string = 'w-3.5 h-3.5') {
   }
 }
 
+function getFollowUpBadgeClass(followUpOn?: string | null): string {
+  if (!followUpOn) return 'border-slate-200 bg-slate-100 text-slate-500';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(`${followUpOn}T00:00:00`);
+  const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return 'border-red-200 bg-red-50 text-red-700';
+  if (diffDays <= 1) return 'border-amber-200 bg-amber-50 text-amber-700';
+  return 'border-sky-200 bg-sky-50 text-sky-700';
+}
+
+function formatFollowUpLabel(followUpOn?: string | null): string {
+  if (!followUpOn) return '';
+  const [year, month, day] = followUpOn.split('-');
+  if (!year || !month || !day) return followUpOn;
+  return `${Number(month)}/${Number(day)}`;
+}
+
+function getBallActionDate(task: GanttTask): string | null {
+  return task.ballFollowUpOn || task.responseDeadline || null;
+}
+
 export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   tasks,
   rowHeight,
@@ -95,6 +117,14 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
   // タスクマップを作成
   const taskMap = new Map<string, GanttTask>();
   tasks.forEach(task => taskMap.set(task.id, task));
+  const earliestBallTaskId = React.useMemo(() => {
+    const actionableTasks = tasks
+      .filter((task) => task.type !== 'stage' && task.status !== 'completed')
+      .map((task) => ({ id: task.id, date: getBallActionDate(task) }))
+      .filter((entry): entry is { id: string; date: string } => Boolean(entry.date))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return actionableTasks[0]?.id ?? null;
+  }, [tasks]);
 
   // このタスクが依存しているタスクで未完了のものをチェックする関数
   const hasIncompleteDependencies = (task: GanttTask): GanttTask[] => {
@@ -371,8 +401,23 @@ export const GanttTaskList: React.FC<GanttTaskListProps> = ({
 
                   {/* タスク名 */}
                   <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onTaskClick?.(task)}>
-                    <div className={`text-sm truncate ${taskNameClass}`}>
-                      {task.name}
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`min-w-0 truncate text-sm ${taskNameClass}`}>
+                        {task.name}
+                      </div>
+                      {task.ballFollowUpOn ? (
+                        <span
+                          className={`hidden shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none md:inline-flex ${getFollowUpBadgeClass(task.ballFollowUpOn)}`}
+                          title={`催促 ${task.ballFollowUpOn}`}
+                        >
+                          催促 {formatFollowUpLabel(task.ballFollowUpOn)}
+                        </span>
+                      ) : null}
+                      {earliestBallTaskId === task.id ? (
+                        <span className="hidden shrink-0 whitespace-nowrap rounded-full border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium leading-none text-slate-500 md:inline-flex">
+                          最速
+                        </span>
+                      ) : null}
                     </div>
                   </div>
 

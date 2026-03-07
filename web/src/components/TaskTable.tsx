@@ -1,5 +1,5 @@
 import React from 'react';
-import { BellRing, CalendarPlus, Trash2 } from 'lucide-react';
+import { CalendarPlus, Trash2 } from 'lucide-react';
 import { computeProgress } from './TaskCard';
 import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
 import { formatJapaneseEra } from '../lib/date';
@@ -36,9 +36,7 @@ interface TaskTableProps {
   onToggle(id: string, checked: boolean): void;
   onRowClick?(id: string): void;
   onDelete?(id: string): void;
-  onSeedReminders?(id: string): Promise<void> | void;
   onCalendarSync?(id: string): Promise<void> | void;
-  seedBusyIds?: ReadonlySet<string>;
   calendarBusyIds?: ReadonlySet<string>;
   sortKey?: TaskTableSortKey;
   sortDirection?: TaskTableSortDirection;
@@ -50,16 +48,14 @@ export function TaskTable({
   onToggle,
   onRowClick,
   onDelete,
-  onSeedReminders,
   onCalendarSync,
-  seedBusyIds,
   calendarBusyIds,
   sortKey = 'status',
   sortDirection = 'asc',
   onSortChange,
 }: TaskTableProps) {
   const holidaySet = useJapaneseHolidaySet();
-  const showActions = Boolean(onSeedReminders || onCalendarSync || onDelete);
+  const showActions = Boolean(onCalendarSync || onDelete);
   const renderSortButton = (key: TaskTableSortKey, label: string) => {
     const active = sortKey === key;
     const nextDirection = active && sortDirection === 'asc' ? 'desc' : 'asc';
@@ -153,17 +149,6 @@ export function TaskTable({
                 {showActions ? (
                   <td className="p-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      {onSeedReminders ? (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-xs text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
-                          onClick={() => onSeedReminders(row.id)}
-                          disabled={seedBusyIds?.has(row.id)}
-                          title="通知ジョブを再生成"
-                        >
-                          <BellRing className="h-3.5 w-3.5" /> 通知
-                        </button>
-                      ) : null}
                       {onCalendarSync ? (
                         <button
                           type="button"

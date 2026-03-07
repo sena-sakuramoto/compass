@@ -52,7 +52,10 @@ export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
   const reversedToasts = [...toasts].reverse();
 
   const toastContainer = (
-    <div className="no-print toast-stack pointer-events-none fixed top-4 right-4 z-[9999] flex max-w-xs flex-col gap-3 sm:max-w-sm" style={{ position: 'fixed' }}>
+    <div
+      className="no-print toast-stack pointer-events-none fixed inset-x-3 top-[calc(env(safe-area-inset-top)+12px)] z-[9999] flex flex-col gap-3 md:inset-x-auto md:right-4 md:top-4 md:max-w-sm"
+      style={{ position: 'fixed' }}
+    >
       {reversedToasts.map((toast) => {
         const tone = toneClasses(toast.tone);
         return (

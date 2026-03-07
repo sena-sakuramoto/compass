@@ -22,6 +22,7 @@ interface Person {
 
 interface GanttChartProps {
   tasks: GanttTask[];
+  ballAnnotations?: Record<string, Pick<GanttTask, 'ballHolder' | 'responseDeadline' | 'ballNote' | 'ballFollowUpOn'>>;
   interactive?: boolean;
   onTaskClick?: (task: GanttTask) => void;
   onTaskUpdate?: (task: GanttTask, newStartDate: Date, newEndDate: Date) => void;
@@ -51,6 +52,7 @@ interface GanttChartProps {
 
 export const GanttChart: React.FC<GanttChartProps> = ({
   tasks,
+  ballAnnotations = {},
   interactive = false,
   onTaskClick,
   onTaskUpdate,
@@ -78,6 +80,10 @@ export const GanttChart: React.FC<GanttChartProps> = ({
   onTogglePersonalHoliday,
 }) => {
   const holidaySet = useJapaneseHolidaySet();
+  const annotatedTasks = useMemo(
+    () => tasks.map((task) => ({ ...task, ...(ballAnnotations[task.id] ?? {}) })),
+    [ballAnnotations, tasks]
+  );
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode);
   const [scrollLeft, setScrollLeft] = useState(0);
   const scrollLeftRef = useRef(0);
@@ -614,7 +620,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
             style={{ width: `${taskListWidth}px`, zIndex: 50 }}
           >
             <GanttTaskList
-              tasks={tasks}
+              tasks={annotatedTasks}
               rowHeight={rowHeight}
               stageRowHeight={stageRowHeight}
               taskRowHeight={taskRowHeight}
@@ -654,7 +660,7 @@ export const GanttChart: React.FC<GanttChartProps> = ({
           {/* タイムライン（右側） */}
           <div style={{ width: `${containerWidth}px` }}>
           <GanttTimeline
-            tasks={tasks}
+            tasks={annotatedTasks}
             ticks={ticks}
             dateRange={dateRange}
             containerWidth={containerWidth}

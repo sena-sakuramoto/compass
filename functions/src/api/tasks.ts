@@ -15,7 +15,7 @@ import {
   db,
 } from '../lib/firestore';
 import { getUser } from '../lib/users';
-import { enqueueCalendarSync, enqueueNotificationSeed } from '../lib/jobs';
+import { enqueueCalendarSync } from '../lib/jobs';
 import { listUserProjects } from '../lib/project-members';
 import { canDeleteTask } from '../lib/access-control';
 import { logActivity } from '../lib/activity-log';
@@ -185,8 +185,10 @@ const taskSchema = z.object({
   フェーズ: z.string().optional().nullable(),
   // ボール管理
   ballHolder: z.string().optional().nullable(),
+  ballRequestedBy: z.string().optional().nullable(),
   responseDeadline: z.string().optional().nullable(),
   ballNote: z.string().optional().nullable(),
+  ballFollowUpOn: z.string().optional().nullable(),
   // WorkItem 統合: 工程(stage)への紐づけ
   parentId: z.string().optional().nullable(),  // stageId として使用
   orderIndex: z.number().optional().nullable(),
@@ -388,15 +390,6 @@ router.post('/:id/move', async (req: any, res, next) => {
 
     // プロジェクトメンバーであれば誰でも移動可能
     await moveTaskDates(req.params.id, payload, taskOrgId);
-    res.json({ ok: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.post('/:id/seed-reminders', async (req, res, next) => {
-  try {
-    await enqueueNotificationSeed({ taskId: req.params.id, reason: 'manual' });
     res.json({ ok: true });
   } catch (error) {
     next(error);

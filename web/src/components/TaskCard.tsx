@@ -1,4 +1,4 @@
-import { BellRing, CalendarPlus, CheckCircle2, Trash2 } from 'lucide-react';
+import { CalendarPlus, CheckCircle2, Trash2 } from 'lucide-react';
 import React from 'react';
 import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
 import { formatJapaneseEra } from '../lib/date';
@@ -17,9 +17,7 @@ interface TaskCardProps {
   stageName?: string;  // 工程名
   onComplete(): void;
   onDelete?(): void;
-  onSeedReminders?(): void;
   onCalendarSync?(): void;
-  seedBusy?: boolean;
   calendarBusy?: boolean;
 }
 
@@ -35,9 +33,7 @@ export function TaskCard({
   stageName,
   onComplete,
   onDelete,
-  onSeedReminders,
   onCalendarSync,
-  seedBusy,
   calendarBusy,
 }: TaskCardProps) {
   const holidaySet = useJapaneseHolidaySet();
@@ -83,18 +79,8 @@ export function TaskCard({
       <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
         <div className="h-2 rounded-full bg-slate-800" style={{ width: `${pct}%` }} />
       </div>
-      {(onSeedReminders || onCalendarSync || onDelete) ? (
+      {(onCalendarSync || onDelete) ? (
         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-          {onSeedReminders ? (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
-              onClick={onSeedReminders}
-              disabled={seedBusy}
-            >
-              <BellRing className="h-3.5 w-3.5" /> 通知
-            </button>
-          ) : null}
           {onCalendarSync ? (
             <button
               type="button"

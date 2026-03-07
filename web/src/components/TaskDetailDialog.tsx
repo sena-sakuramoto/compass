@@ -10,7 +10,6 @@ interface TaskDetailDialogProps {
   onClose: () => void;
   onUpdate: (updates: Partial<Task>) => Promise<void>;
   onCalendarSync?: () => Promise<void>;
-  onSeedReminders?: () => Promise<void>;
 }
 
 export function TaskDetailDialog({
@@ -18,7 +17,6 @@ export function TaskDetailDialog({
   onClose,
   onUpdate,
   onCalendarSync,
-  onSeedReminders,
 }: TaskDetailDialogProps) {
   const [editing, setEditing] = useState(false);
   const existingProgress = task.progress ?? task.進捗率 ?? 0;
@@ -334,7 +332,7 @@ export function TaskDetailDialog({
           )}
 
           {/* カレンダー連携 */}
-          {!editing && (onCalendarSync || onSeedReminders) && (
+          {!editing && onCalendarSync && (
             <div className="mt-6 flex gap-3">
               {onCalendarSync && (
                 <button
@@ -343,15 +341,6 @@ export function TaskDetailDialog({
                 >
                   <Calendar className="h-4 w-4" />
                   カレンダーに同期
-                </button>
-              )}
-              {onSeedReminders && (
-                <button
-                  onClick={onSeedReminders}
-                  className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  <Bell className="h-4 w-4" />
-                  通知を設定
                 </button>
               )}
             </div>

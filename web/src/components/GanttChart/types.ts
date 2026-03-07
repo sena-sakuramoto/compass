@@ -1,14 +1,9 @@
-// ガントチャートの型定義
+import type { TaskNotificationSettings as BaseTaskNotificationSettings } from '../../lib/types';
 
 export type TaskStatus = 'not_started' | 'in_progress' | 'on_hold' | 'completed' | 'overdue';
 export type ViewMode = 'day' | 'week' | 'month';
 
-export interface TaskNotificationSettings {
-  開始日: boolean;
-  期限前日: boolean;
-  期限当日: boolean;
-  超過: boolean;
-}
+export type TaskNotificationSettings = BaseTaskNotificationSettings;
 
 export interface GanttTask {
   id: string;
@@ -17,26 +12,30 @@ export interface GanttTask {
   endDate: Date;
   assignee: string;
   assigneeAvatar?: string;
-  progress: number; // 0-100
+  progress: number;
   status: TaskStatus;
   projectId: string;
   projectName: string;
-  dependencies?: string[]; // タスクIDの配列
+  dependencies?: string[];
   milestone?: boolean;
   description?: string;
   estimatedHours?: number;
-  priority?: string; // 優先度
+  priority?: string;
   notificationSettings?: TaskNotificationSettings;
-  isPending?: boolean; // 楽観的更新中かどうか
-  type?: 'stage' | 'task'; // 工程かタスクかを区別
-  parentId?: string | null; // 親工程のID（タスクの場合のみ）
-  parentStageId?: string; // 親工程のID（後方互換性のため残す）
-  isDimmed?: boolean; // フォーカス外のタスクを薄く表示する
+  isPending?: boolean;
+  type?: 'stage' | 'task';
+  parentId?: string | null;
+  ballHolder?: string | null;
+  responseDeadline?: string | null;
+  ballNote?: string | null;
+  ballFollowUpOn?: string | null;
+  parentStageId?: string;
+  isDimmed?: boolean;
 }
 
 export interface GanttViewState {
   tasks: GanttTask[];
-  viewMode: ViewMode; // ズームレベル
+  viewMode: ViewMode;
   dateRange: { start: Date; end: Date };
   selectedTaskIds: string[];
   filters: {
@@ -60,14 +59,8 @@ export interface TaskBarPosition {
   top: number;
 }
 
-// ========================================
-// Stage ベースのガントチャート用の型定義
-// ========================================
-
-// 工程のステータス
 export type StageStatus = 'not_started' | 'in_progress' | 'done' | 'delayed';
 
-// 工程（Stage）の型定義
 export interface GanttStage {
   id: string;
   name: string;
@@ -75,53 +68,37 @@ export interface GanttStage {
   endDate: Date;
   assignee: string;
   assigneeAvatar?: string;
-  progressPct: number; // 0-100（配下タスクから自動計算）
+  progressPct: number;
   status: StageStatus;
   projectId: string;
   projectName: string;
-  tasks: GanttTask[]; // 配下のタスク
-  orderIndex?: number; // 表示順序
+  tasks: GanttTask[];
+  orderIndex?: number;
 }
 
-// ========================================
-// ヘルパー関数
-// ========================================
-
-/**
- * 工程の進捗率を計算（配下タスクの完了割合）
- * @param tasks 配下のタスク配列
- * @returns 進捗率（0-100）
- */
 export function calculateStageProgress(tasks: GanttTask[]): number {
   if (tasks.length === 0) return 0;
-  const completedTasks = tasks.filter(t => t.status === 'completed').length;
+  const completedTasks = tasks.filter((task) => task.status === 'completed').length;
   return Math.round((completedTasks / tasks.length) * 100);
 }
 
-/**
- * 工程のステータスを計算
- * @param stage 工程
- * @param tasks 配下のタスク配列
- * @returns ステータス
- */
 export function calculateStageStatus(stage: GanttStage, tasks: GanttTask[]): StageStatus {
   if (tasks.length === 0) {
-    // タスクがない場合は、工程の期間で判定
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     if (stage.endDate < today) {
-      return 'done'; // タスクがなく期間を過ぎていれば完了扱い
+      return 'done';
     }
 
     if (stage.startDate <= today && today <= stage.endDate) {
-      return 'in_progress'; // 期間内
+      return 'in_progress';
     }
 
-    return 'not_started'; // 開始前
+    return 'not_started';
   }
 
-  const allCompleted = tasks.every(t => t.status === 'completed');
+  const allCompleted = tasks.every((task) => task.status === 'completed');
   if (allCompleted) return 'done';
 
   const today = new Date();
@@ -129,10 +106,9 @@ export function calculateStageStatus(stage: GanttStage, tasks: GanttTask[]): Sta
   const isDelayed = stage.endDate < today && !allCompleted;
   if (isDelayed) return 'delayed';
 
-  const anyStarted = tasks.some(t => t.status !== 'not_started');
+  const anyStarted = tasks.some((task) => task.status !== 'not_started');
   if (anyStarted) return 'in_progress';
 
-  // 工程の開始日を過ぎていれば進行中扱い
   if (stage.startDate <= today) return 'in_progress';
 
   return 'not_started';
