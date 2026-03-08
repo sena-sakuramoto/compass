@@ -300,7 +300,9 @@ router.patch('/:id', async (req: any, res, next) => {
     }
 
     // memberロールの場合は自分が担当者のタスクのみ編集可能
-    if (membership.member.role === 'member') {
+    // ただしグローバルロールが super_admin / admin の場合はスキップ
+    const globalRole = user.role;
+    if (membership.member.role === 'member' && globalRole !== 'super_admin' && globalRole !== 'admin') {
       const isAssignee = task.担当者 === user.displayName ||
                         task.担当者 === user.email ||
                         task.assignee === req.uid;
