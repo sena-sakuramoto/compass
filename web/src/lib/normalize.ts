@@ -76,6 +76,12 @@ function normalizeTask(raw: any, index: number): Task {
   const endTimeRaw = raw.endTime;
   const startTime = typeof startTimeRaw === 'string' ? (startTimeRaw.trim() || null) : null;
   const endTime = typeof endTimeRaw === 'string' ? (endTimeRaw.trim() || null) : null;
+  const ballHolderRaw = raw.ballHolder;
+  const ballHolder = typeof ballHolderRaw === 'string' ? (ballHolderRaw.trim() || null) : ballHolderRaw ?? null;
+  const responseDeadlineRaw = raw.responseDeadline;
+  const responseDeadline = responseDeadlineRaw ? formatDate(responseDeadlineRaw) || null : null;
+  const ballNoteRaw = raw.ballNote;
+  const ballNote = typeof ballNoteRaw === 'string' ? (ballNoteRaw.trim() || null) : ballNoteRaw ?? null;
   const calendarSync =
     typeof raw.calendarSync === 'boolean'
       ? raw.calendarSync
@@ -106,6 +112,9 @@ function normalizeTask(raw: any, index: number): Task {
     'カレンダーイベントID': calendarEventId,
     startTime,
     endTime,
+    ballHolder,
+    responseDeadline,
+    ballNote,
     calendarSync,
     '通知設定': notifications,
     マイルストーン: raw['マイルストーン'] ?? raw['milestone'],
