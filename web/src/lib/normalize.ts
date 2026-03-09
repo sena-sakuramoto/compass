@@ -1,5 +1,6 @@
 import { STATUS_PROGRESS } from './constants';
 import { DAY_MS, calculateDuration, formatDate, parseDate } from './date';
+import { getTaskAssigneeLabel, normalizeBallHolderForStorage, normalizeBallLabel } from './ball';
 import type { SnapshotPayload, Project, Task, Person } from './types';
 
 export function toNumber(value: unknown): number {
@@ -76,8 +77,7 @@ function normalizeTask(raw: any, index: number): Task {
   const endTimeRaw = raw.endTime;
   const startTime = typeof startTimeRaw === 'string' ? (startTimeRaw.trim() || null) : null;
   const endTime = typeof endTimeRaw === 'string' ? (endTimeRaw.trim() || null) : null;
-  const ballHolderRaw = raw.ballHolder;
-  const ballHolder = typeof ballHolderRaw === 'string' ? (ballHolderRaw.trim() || null) : ballHolderRaw ?? null;
+  const ballHolderRaw = normalizeBallLabel(raw.ballHolder);
   const responseDeadlineRaw = raw.responseDeadline;
   const responseDeadline = responseDeadlineRaw ? formatDate(responseDeadlineRaw) || null : null;
   const ballNoteRaw = raw.ballNote;
@@ -86,6 +86,13 @@ function normalizeTask(raw: any, index: number): Task {
     typeof raw.calendarSync === 'boolean'
       ? raw.calendarSync
       : undefined;
+  const normalizedAssignee = getTaskAssigneeLabel({
+    assignee: typeof assignee === 'string' ? assignee : '',
+    担当者: raw['担当者'] ?? '',
+    担当者メール: assigneeEmail || undefined,
+    ballHolder: null,
+  });
+  const ballHolder = normalizeBallHolderForStorage(ballHolderRaw, normalizedAssignee);
 
   return {
     id: finalId,

@@ -4,6 +4,7 @@ import DatePicker from 'react-datepicker';
 import { Modal, ModalProps } from './Modal';
 import { clampToSingleDecimal, parseHoursInput } from '../../lib/number';
 import { PROJECT_ROLE_LABELS } from '../../lib/auth-types';
+import { ballHolderTracksAssignee, normalizeBallHolderForStorage, normalizeBallLabel } from '../../lib/ball';
 import { computeDiff, isDiffEmpty } from '../../lib/diff';
 import type { Project, Task, Person, TaskNotificationSettings } from '../../lib/types';
 import type { ProjectMember } from '../../lib/auth-types';
@@ -104,6 +105,7 @@ export function TaskModal({
   const taskNameInputRef = useRef<HTMLInputElement | null>(null);
   const submitIntentRef = useRef<'close' | 'continue'>('close');
   const prevProjectRef = useRef<string>('');
+  const prevAssigneeRef = useRef<string>('');
   const allowContinuous = Boolean(allowContinuousCreate && !editingTask);
   const usePreloadedMembers = Boolean(preloadedProjectMembers?.length) && project === defaultProjectId;
 
@@ -213,6 +215,7 @@ export function TaskModal({
   useEffect(() => {
     if (!open) {
       prevProjectRef.current = '';
+      prevAssigneeRef.current = '';
       return;
     }
     if (prevProjectRef.current && prevProjectRef.current !== project) {
@@ -222,6 +225,20 @@ export function TaskModal({
     }
     prevProjectRef.current = project;
   }, [open, project]);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousAssignee = normalizeBallLabel(prevAssigneeRef.current);
+    const nextAssignee = normalizeBallLabel(assignee);
+    if (
+      previousAssignee &&
+      previousAssignee !== nextAssignee &&
+      ballHolderTracksAssignee(ballHolder, previousAssignee)
+    ) {
+      setBallHolder(null);
+    }
+    prevAssigneeRef.current = nextAssignee ?? '';
+  }, [assignee, ballHolder, open]);
 
   // 担当者選択時にメールアドレスを自動入力（プロジェクトメンバーから検索）
   useEffect(() => {
@@ -312,6 +329,10 @@ export function TaskModal({
     submitIntentRef.current = 'close';
     console.log('[TaskModal] handleSubmit - isMilestone state:', isMilestone);
     try {
+      const storedBallHolder = normalizeBallHolderForStorage(
+        ballHolder,
+        taskType === 'meeting' ? null : normalizedAssignee
+      );
       const payload = {
         projectId: project,
         タスク名: name,
@@ -328,9 +349,9 @@ export function TaskModal({
         担当者メール: taskType === 'meeting' ? undefined : (assigneeEmail || undefined),
         マイルストーン: isMilestone,
         parentId: stageId || null,
-        ballHolder: ballHolder?.trim() ? ballHolder.trim() : null,
+        ballHolder: storedBallHolder,
         responseDeadline: responseDeadline || null,
-        ballNote: ballNote?.trim() ? ballNote.trim() : null,
+        ballNote: normalizeBallLabel(ballNote),
         '通知設定': {
           開始日: notifyStart,
           期限前日: notifyDayBefore,
@@ -388,9 +409,12 @@ export function TaskModal({
           担当者メール: editingTask.担当者メール || '',
           マイルストーン: editingTask.マイルストーン === true || editingTask.milestone === true,
           parentId: editingTask.parentId || null,
-          ballHolder: editingTask.ballHolder || null,
+          ballHolder: normalizeBallHolderForStorage(
+            editingTask.ballHolder || null,
+            editingTask.担当者 || editingTask.assignee || null
+          ),
           responseDeadline: editingTask.responseDeadline || null,
-          ballNote: editingTask.ballNote || null,
+          ballNote: normalizeBallLabel(editingTask.ballNote),
           '通知設定': editingTask['通知設定'] ?? {
             開始日: true,
             期限前日: true,
@@ -441,6 +465,27 @@ export function TaskModal({
       label: `${member.displayName} (${roleLabel})`,
     };
   });
+
+  const normalizedAssignee = normalizeBallLabel(assignee);
+  const normalizedCurrentUser = normalizeBallLabel(currentUserName);
+  const normalizedBallHolder = normalizeBallHolderForStorage(ballHolder, normalizedAssignee);
+  const selectedMemberBallHolder =
+    normalizedBallHolder && assigneeOptions.some((option) => option.value === normalizedBallHolder)
+      ? normalizedBallHolder
+      : '';
+  const externalBallHolder =
+    normalizedBallHolder &&
+    normalizedBallHolder !== normalizedCurrentUser &&
+    normalizedBallHolder !== 'クライアント' &&
+    normalizedBallHolder !== '施工会社' &&
+    normalizedBallHolder !== selectedMemberBallHolder
+      ? normalizedBallHolder
+      : '';
+  const effectiveBallLabel = normalizedBallHolder
+    ? normalizedBallHolder
+    : normalizedAssignee
+      ? `担当者 (${normalizedAssignee})`
+      : '未設定';
 
   const handleFormKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
     if (e.key !== 'Enter') return;
@@ -617,14 +662,31 @@ export function TaskModal({
         <div className="space-y-3 border-t border-slate-200 pt-4 mt-2">
           <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">ボール管理</h4>
           <div>
-            <label className="mb-1 block text-xs text-slate-500">今のボール</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label className="block text-xs text-slate-500">今のボール</label>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                現在: {effectiveBallLabel}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               <button
                 type="button"
-                disabled={!currentUserName?.trim()}
-                onClick={() => setBallHolder((currentUserName || '').trim() || null)}
+                disabled={!normalizedAssignee}
+                onClick={() => setBallHolder(null)}
                 className={`px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
-                  ballHolder === (currentUserName || '').trim()
+                  normalizedBallHolder == null && normalizedAssignee
+                    ? 'bg-slate-900 text-white border-slate-900'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                担当者
+              </button>
+              <button
+                type="button"
+                disabled={!normalizedCurrentUser}
+                onClick={() => setBallHolder(normalizedCurrentUser)}
+                className={`px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
+                  normalizedBallHolder === normalizedCurrentUser
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                 }`}
@@ -635,7 +697,7 @@ export function TaskModal({
                 type="button"
                 onClick={() => setBallHolder('クライアント')}
                 className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                  ballHolder === 'クライアント'
+                  normalizedBallHolder === 'クライアント'
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                 }`}
@@ -646,7 +708,7 @@ export function TaskModal({
                 type="button"
                 onClick={() => setBallHolder('施工会社')}
                 className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
-                  ballHolder === '施工会社'
+                  normalizedBallHolder === '施工会社'
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                 }`}
@@ -657,10 +719,10 @@ export function TaskModal({
             {assigneeOptions.length > 0 && (
               <select
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
-                value={ballHolder ?? ''}
+                value={selectedMemberBallHolder}
                 onChange={(e) => setBallHolder(e.target.value || null)}
               >
-                <option value="">メンバーから選択</option>
+                <option value="">メンバーを指定</option>
                 {assigneeOptions.map((option) => (
                   <option key={`ball-${option.key}`} value={option.value}>
                     {option.label}
@@ -670,11 +732,14 @@ export function TaskModal({
             )}
             <input
               type="text"
-              value={ballHolder ?? ''}
+              value={externalBallHolder}
               onChange={(e) => setBallHolder(e.target.value || null)}
               placeholder="その他（自由入力）"
               className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
             />
+            <p className="mt-2 text-xs text-slate-500">
+              未設定のまま保存すると担当者がボール保持者になります。担当者変更にも追従します。
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs text-slate-500">返答期限</label>

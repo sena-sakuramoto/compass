@@ -35,6 +35,38 @@ const listQuerySchema = z.object({
   to: z.string().optional(),
 });
 
+const BALL_EDITABLE_FIELDS = new Set(['ballHolder', 'responseDeadline', 'ballNote']);
+
+function normalizeActor(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length ? trimmed : null;
+}
+
+function getUserAliases(reqUid: string, user: { displayName?: string | null; email?: string | null }): Set<string> {
+  const aliases = new Set<string>();
+  const uid = normalizeActor(reqUid);
+  const displayName = normalizeActor(user.displayName);
+  const email = normalizeActor(user.email);
+  if (uid) aliases.add(uid);
+  if (displayName) aliases.add(displayName);
+  if (email) aliases.add(email);
+  return aliases;
+}
+
+function getTaskAssigneeActor(task: Partial<TaskInput>): string | null {
+  return normalizeActor(task.assignee ?? task.担当者 ?? task.担当者メール);
+}
+
+function getEffectiveBallActor(task: Partial<TaskInput>): string | null {
+  return normalizeActor(task.ballHolder) ?? getTaskAssigneeActor(task);
+}
+
+function isBallOnlyPatch(payload: Partial<TaskInput>): boolean {
+  const keys = Object.keys(payload);
+  return keys.length > 0 && keys.every((key) => BALL_EDITABLE_FIELDS.has(key));
+}
+
 router.get('/', async (req: any, res, next) => {
   try {
     const params = listQuerySchema.parse(req.query);
@@ -303,11 +335,18 @@ router.patch('/:id', async (req: any, res, next) => {
     // ただしグローバルロールが super_admin / admin の場合はスキップ
     const globalRole = user.role;
     if (membership.member.role === 'member' && globalRole !== 'super_admin' && globalRole !== 'admin') {
-      const isAssignee = task.担当者 === user.displayName ||
-                        task.担当者 === user.email ||
-                        task.assignee === req.uid;
+      const userAliases = getUserAliases(req.uid, user);
+      const assigneeActor = getTaskAssigneeActor(task);
+      const effectiveBallActor = getEffectiveBallActor(task);
+      const isAssignee = Boolean(assigneeActor && userAliases.has(assigneeActor));
+      const canEditBallOnly =
+        isBallOnlyPatch(payload) &&
+        Boolean(
+          (assigneeActor && userAliases.has(assigneeActor)) ||
+          (effectiveBallActor && userAliases.has(effectiveBallActor))
+        );
 
-      if (!isAssignee) {
+      if (!isAssignee && !canEditBallOnly) {
         return res.status(403).json({ error: 'Forbidden: Members can only edit their own tasks' });
       }
     }

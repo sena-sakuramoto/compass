@@ -10,6 +10,7 @@ import type {
 } from './types';
 import type { ProjectMember } from './auth-types';
 import { getCachedIdToken } from './authToken';
+import { normalizeBallHolderForStorage, normalizeBallLabel } from './ball';
 
 import { resolveApiBase } from './apiBase';
 
@@ -198,6 +199,17 @@ function normalizeTaskPayloadForApi(payload: Partial<Task>): Partial<Task> {
     const normalizedMilestone = milestoneValue === true;
     normalized.マイルストーン = normalizedMilestone;
     normalized.milestone = normalizedMilestone;
+  }
+
+  const assignee = normalizeBallLabel(normalized.assignee ?? normalized.担当者 ?? normalized.担当者メール ?? null);
+  if (Object.prototype.hasOwnProperty.call(payload, 'ballHolder')) {
+    normalized.ballHolder = normalizeBallHolderForStorage(payload.ballHolder, assignee);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'ballNote')) {
+    normalized.ballNote = normalizeBallLabel(payload.ballNote);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'responseDeadline')) {
+    normalized.responseDeadline = normalizeBallLabel(payload.responseDeadline);
   }
 
   return normalized;

@@ -83,6 +83,13 @@ import BillingGateOverlay from './components/BillingGateOverlay';
 import TrialExpiredModal from './components/TrialExpiredModal';
 import { formatDate, parseDate, todayString, DAY_MS, calculateDuration } from './lib/date';
 import { normalizeSnapshot, SAMPLE_SNAPSHOT, toNumber } from './lib/normalize';
+import {
+  ballHolderTracksAssignee,
+  getEffectiveBallHolder,
+  getTaskAssigneeLabel,
+  normalizeBallHolderForStorage,
+  normalizeBallLabel,
+} from './lib/ball';
 import type { Project, Task, Person, SnapshotPayload, TaskNotificationSettings, Stage, CompassState } from './lib/types';
 import type { ProjectMember } from './lib/auth-types';
 import { PROJECT_ROLE_LABELS } from './lib/auth-types';
@@ -1258,8 +1265,7 @@ function TasksPage({
     return aliases;
   }, [normalizedCurrentUser, normalizedCurrentUserEmail]);
   const ballCategorized = useMemo(() => {
-    const normalizeText = (v: string | null | undefined) => (v ?? '').trim();
-    const isCurrentUser = (name: string) => currentUserAliases.has(normalizeText(name).toLowerCase());
+    const isCurrentUser = (name: string) => currentUserAliases.has(normalizeBallLabel(name)?.toLowerCase() ?? '');
     const activeTasks = allTasks.filter((t) => t.ステータス !== '完了' && t.type !== 'stage');
     const mine: Task[] = [];
     const waiting: Task[] = [];
@@ -1272,12 +1278,12 @@ function TasksPage({
     };
 
     for (const task of activeTasks) {
-      const holder = normalizeText(task.ballHolder);
-      const assignee = normalizeText(task.assignee || task.担当者 || task.担当者メール);
-      const effectiveHolder = holder || assignee;
+      const assignee = getTaskAssigneeLabel(task);
+      const storedBallHolder = normalizeBallHolderForStorage(task.ballHolder, assignee);
+      const effectiveHolder = getEffectiveBallHolder(task);
       if (effectiveHolder && isCurrentUser(effectiveHolder)) {
         mine.push(task);
-      } else if (assignee && isCurrentUser(assignee) && holder && !isCurrentUser(holder)) {
+      } else if (assignee && isCurrentUser(assignee) && storedBallHolder && !isCurrentUser(effectiveHolder || '')) {
         waiting.push(task);
       }
     }
@@ -1302,10 +1308,7 @@ function TasksPage({
   };
 
   const getBallHolderLabel = (task: Task) => {
-    const normalizeText = (v: string | null | undefined) => (v ?? '').trim();
-    const holder = normalizeText(task.ballHolder);
-    const assignee = normalizeText(task.assignee || task.担当者 || task.担当者メール);
-    const effectiveHolder = holder || assignee;
+    const effectiveHolder = getEffectiveBallHolder(task);
     if (!effectiveHolder) return '未設定';
     if (currentUserAliases.has(effectiveHolder.toLowerCase())) return '自分';
     return effectiveHolder;
@@ -1475,8 +1478,9 @@ function TasksPage({
 
   const applyBallHolderWithUndo = useCallback(
     (task: Task, nextHolder: string | null, actionTitle: string) => {
-      const previousHolder = (task.ballHolder || '').trim() || null;
-      const normalizedNext = (nextHolder || '').trim() || null;
+      const assignee = getTaskAssigneeLabel(task);
+      const previousHolder = normalizeBallHolderForStorage(task.ballHolder, assignee);
+      const normalizedNext = normalizeBallHolderForStorage(nextHolder, assignee);
       if (previousHolder === normalizedNext) {
         return;
       }
@@ -1489,7 +1493,7 @@ function TasksPage({
 
   const handleBallThrow = useCallback(
     (task: Task) => {
-      const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
+      const assignee = getTaskAssigneeLabel(task);
       if (!assignee) {
         pushToast({ tone: 'info', title: '担当者が未設定のため、ボールを渡せません' });
         return;
@@ -1505,7 +1509,7 @@ function TasksPage({
 
   const handleBallPullBack = useCallback(
     (task: Task) => {
-      const myHolder = (currentUserName || currentUserEmail || '').trim();
+      const myHolder = normalizeBallLabel(currentUserName || currentUserEmail || null);
       if (!myHolder) {
         pushToast({ tone: 'info', title: 'ユーザー情報が未取得のため、ボールを戻せません' });
         return;
@@ -1524,7 +1528,7 @@ function TasksPage({
           <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-normal text-slate-500">{tasks.length}</span>
         </h3>
         {tasks.map((task) => {
-          const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
+          const assignee = getTaskAssigneeLabel(task);
           const canThrow = Boolean(assignee) && !currentUserAliases.has(assignee.toLowerCase());
           const canPullBack = Boolean((currentUserName || currentUserEmail || '').trim());
           return (
@@ -1634,8 +1638,8 @@ function TasksPage({
       <div className="grid gap-3 md:hidden">
         {sortedRows.map((row) => {
           const task = filteredTasks.find(t => t.id === row.id)!;
-          const assignee = (task.assignee || task.担当者 || task.担当者メール || '').trim();
-          const holder = (task.ballHolder || '').trim();
+          const assignee = getTaskAssigneeLabel(task);
+          const holder = normalizeBallHolderForStorage(task.ballHolder, assignee);
           const effectiveHolder = holder || assignee;
           const isMine = Boolean(effectiveHolder) && currentUserAliases.has(effectiveHolder.toLowerCase());
           const isWaiting = Boolean(assignee) && currentUserAliases.has(assignee.toLowerCase()) && Boolean(holder) && !currentUserAliases.has(holder.toLowerCase());
@@ -5139,11 +5143,32 @@ function App() {
     // 一時IDの場合はAPIを呼び出さない（作成中のタスク）
     if (taskId.startsWith('temp-')) {
       console.warn('[handleTaskUpdate] Skipping API call for temp task:', taskId);
+      const currentTask = state.tasks.find((task) => task.id === taskId);
+      const normalizedTempUpdates: Partial<Task> = { ...updates };
+      if (currentTask) {
+        const nextAssignee = getTaskAssigneeLabel({ ...currentTask, ...normalizedTempUpdates });
+        if (
+          Object.prototype.hasOwnProperty.call(updates, 'ballHolder') ||
+          Object.prototype.hasOwnProperty.call(updates, '担当者') ||
+          Object.prototype.hasOwnProperty.call(updates, 'assignee')
+        ) {
+          normalizedTempUpdates.ballHolder = normalizeBallHolderForStorage(
+            normalizedTempUpdates.ballHolder ?? currentTask.ballHolder ?? null,
+            nextAssignee
+          );
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, 'ballNote')) {
+        normalizedTempUpdates.ballNote = normalizeBallLabel(updates.ballNote) ?? null;
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, 'responseDeadline')) {
+        normalizedTempUpdates.responseDeadline = normalizeBallLabel(updates.responseDeadline) ?? null;
+      }
       // ローカルのみ更新
       setState((current) => ({
         ...current,
         tasks: current.tasks.map((task) =>
-          task.id === taskId ? { ...task, ...updates, updatedAt: new Date().toISOString() } : task
+          task.id === taskId ? { ...task, ...normalizedTempUpdates, updatedAt: new Date().toISOString() } : task
         ),
       }));
       return;
@@ -5174,6 +5199,27 @@ function App() {
       normalizedUpdates.progress = updates.進捗率;
     } else if (hasEnglishProgress && !hasJapaneseProgress) {
       normalizedUpdates.進捗率 = updates.progress;
+    }
+
+    const currentTask = state.tasks.find((task) => task.id === taskId);
+    const hasBallHolderUpdate = Object.prototype.hasOwnProperty.call(updates, 'ballHolder');
+    if (currentTask && (hasJapaneseAssignee || hasEnglishAssignee || hasBallHolderUpdate)) {
+      const currentAssignee = getTaskAssigneeLabel(currentTask);
+      const mergedTask = { ...currentTask, ...normalizedUpdates };
+      const nextAssignee = getTaskAssigneeLabel(mergedTask);
+      const currentBallHolder = normalizeBallLabel(currentTask.ballHolder);
+      const nextBallHolder = hasBallHolderUpdate
+        ? normalizedUpdates.ballHolder
+        : ballHolderTracksAssignee(currentBallHolder, currentAssignee)
+          ? null
+          : currentBallHolder;
+      normalizedUpdates.ballHolder = normalizeBallHolderForStorage(nextBallHolder, nextAssignee);
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'ballNote')) {
+      normalizedUpdates.ballNote = normalizeBallLabel(updates.ballNote) ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'responseDeadline')) {
+      normalizedUpdates.responseDeadline = normalizeBallLabel(updates.responseDeadline) ?? null;
     }
 
     const updatesWithTimestamp = {
@@ -5247,19 +5293,19 @@ function App() {
       return;
     }
 
-    const normalizedAssignee = payload.assignee ?? payload.担当者 ?? undefined;
+    const normalizedAssignee = normalizeBallLabel(payload.assignee ?? payload.担当者 ?? null) ?? undefined;
     const normalizedMilestone = payload.milestone === true || payload.マイルストーン === true;
-    const normalizedBallHolder = (payload.ballHolder || '').trim();
-    const normalizedBallNote = (payload.ballNote || '').trim();
+    const normalizedBallHolder = normalizeBallHolderForStorage(payload.ballHolder, normalizedAssignee);
+    const normalizedBallNote = normalizeBallLabel(payload.ballNote);
     const payloadForApi: Partial<Task> = {
       ...payload,
       担当者: normalizedAssignee,
       assignee: normalizedAssignee,
       マイルストーン: normalizedMilestone,
       milestone: normalizedMilestone,
-      ballHolder: normalizedBallHolder || null,
+      ballHolder: normalizedBallHolder,
       responseDeadline: payload.responseDeadline || null,
-      ballNote: normalizedBallNote || null,
+      ballNote: normalizedBallNote,
       進捗率: (payload as any).進捗率 ?? 0,
     };
 
@@ -5286,9 +5332,9 @@ function App() {
         ['工数見積(h)']: payload['工数見積(h)'],
         '通知設定': payload['通知設定'],
         parentId: payload.parentId,
-        ballHolder: normalizedBallHolder || null,
+        ballHolder: normalizedBallHolder,
         responseDeadline: payload.responseDeadline || null,
-        ballNote: normalizedBallNote || null,
+        ballNote: normalizedBallNote,
         progress: normalizedProgress,
         進捗率: normalizedProgress,
         createdAt: now,
@@ -5321,9 +5367,9 @@ function App() {
         ['工数見積(h)']: payload['工数見積(h)'],
         '通知設定': payload['通知設定'],
         parentId: payload.parentId,
-        ballHolder: normalizedBallHolder || null,
+        ballHolder: normalizedBallHolder,
         responseDeadline: payload.responseDeadline || null,
-        ballNote: normalizedBallNote || null,
+        ballNote: normalizedBallNote,
         マイルストーン: normalizedMilestone,
         milestone: normalizedMilestone,
         progress: normalizedProgress,

@@ -75,6 +75,32 @@ function normalizeAssigneeEmail(value?: string | null): string | null {
   return trimmed.length ? trimmed : null;
 }
 
+function normalizeBallLabel(value?: string | null): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function getTaskAssigneeLabel(task: Partial<TaskInput>): string | null {
+  return normalizeBallLabel(task.assignee ?? task.担当者 ?? task.担当者メール ?? null);
+}
+
+function normalizeBallHolderForStorage(ballHolder?: string | null, assignee?: string | null): string | null {
+  const normalizedBallHolder = normalizeBallLabel(ballHolder);
+  const normalizedAssignee = normalizeBallLabel(assignee);
+  if (!normalizedBallHolder) return null;
+  if (normalizedAssignee && normalizedBallHolder === normalizedAssignee) {
+    return null;
+  }
+  return normalizedBallHolder;
+}
+
+function ballHolderTracksAssignee(ballHolder?: string | null, assignee?: string | null): boolean {
+  const normalizedBallHolder = normalizeBallLabel(ballHolder);
+  const normalizedAssignee = normalizeBallLabel(assignee);
+  return Boolean(normalizedBallHolder && normalizedAssignee && normalizedBallHolder === normalizedAssignee);
+}
+
 export async function listProjects(orgId?: string, includeDeleted = false) {
   const targetOrgId = orgId ?? ORG_ID;
   const snap = await db.collection('orgs').doc(targetOrgId).collection('projects').orderBy('updatedAt', 'desc').get();
@@ -488,6 +514,8 @@ export async function createTask(payload: TaskInput, orgId?: string) {
   const notifications = normalizeNotificationSettings(payload['通知設定']);
   const dependencies = normalizeDependencies(payload['依存タスク']);
   const assigneeEmail = normalizeAssigneeEmail(payload.担当者メール);
+  const normalizedBallHolder = normalizeBallHolderForStorage(payload.ballHolder, getTaskAssigneeLabel(payload));
+  const normalizedBallNote = normalizeBallLabel(payload.ballNote);
   const derived = deriveTaskFields(payload);
 
   // payloadからidとTaskIDを除外してから保存
@@ -498,6 +526,9 @@ export async function createTask(payload: TaskInput, orgId?: string) {
     '通知設定': notifications,
     '依存タスク': dependencies,
     担当者メール: assigneeEmail,
+    ballHolder: normalizedBallHolder,
+    responseDeadline: normalizeBallLabel(payload.responseDeadline),
+    ballNote: normalizedBallNote,
     ...derived,
     id: taskId,
     TaskID: taskId,
@@ -527,7 +558,29 @@ export async function updateTask(taskId: string, payload: Partial<TaskInput>, or
     normalizedPayload.担当者メール = normalizeAssigneeEmail(payload.担当者メール ?? null);
   }
 
-  const merged = { ...(snapshot.data() as TaskInput), ...normalizedPayload };
+  const existingTask = snapshot.data() as TaskInput;
+  const hadAssigneeUpdate =
+    Object.prototype.hasOwnProperty.call(payload, '担当者') ||
+    Object.prototype.hasOwnProperty.call(payload, 'assignee');
+  const hadBallHolderUpdate = Object.prototype.hasOwnProperty.call(payload, 'ballHolder');
+  if (Object.prototype.hasOwnProperty.call(payload, 'ballNote')) {
+    normalizedPayload.ballNote = normalizeBallLabel(payload.ballNote);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'responseDeadline')) {
+    normalizedPayload.responseDeadline = normalizeBallLabel(payload.responseDeadline);
+  }
+  if (hadAssigneeUpdate || hadBallHolderUpdate) {
+    const existingAssignee = getTaskAssigneeLabel(existingTask);
+    const nextAssignee = getTaskAssigneeLabel({ ...existingTask, ...normalizedPayload });
+    const nextBallHolder = hadBallHolderUpdate
+      ? normalizedPayload.ballHolder
+      : ballHolderTracksAssignee(existingTask.ballHolder, existingAssignee)
+        ? null
+        : existingTask.ballHolder;
+    normalizedPayload.ballHolder = normalizeBallHolderForStorage(nextBallHolder, nextAssignee);
+  }
+
+  const merged = { ...existingTask, ...normalizedPayload };
   const derived = deriveTaskFields(merged);
 
   const updateData = {
@@ -670,6 +723,7 @@ export async function importSnapshot(payload: SnapshotPayload) {
     );
     const dependencies = normalizeDependencies((task as TaskInput)['依存タスク']);
     const assigneeEmail = normalizeAssigneeEmail((task as TaskInput).担当者メール ?? null);
+    const normalizedBallHolder = normalizeBallHolderForStorage((task as TaskInput).ballHolder, getTaskAssigneeLabel(task));
     const derived = deriveTaskFields({ ...task, projectId } as TaskInput);
     batch.set(
       ref,
@@ -681,6 +735,9 @@ export async function importSnapshot(payload: SnapshotPayload) {
         担当者メール: assigneeEmail,
         '通知設定': notifications,
         '依存タスク': dependencies,
+        ballHolder: normalizedBallHolder,
+        responseDeadline: normalizeBallLabel((task as TaskInput).responseDeadline),
+        ballNote: normalizeBallLabel((task as TaskInput).ballNote),
         ...derived,
         createdAt: now,
         updatedAt: now,
