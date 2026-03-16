@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { format } from 'date-fns';
 import DatePicker from 'react-datepicker';
 import { Modal, ModalProps } from './Modal';
-import { clampToSingleDecimal, parseHoursInput } from '../../lib/number';
+import { clampToSingleDecimal, ESTIMATE_HOUR_PRESETS, formatEstimateHours, parseHoursInput } from '../../lib/number';
 import { PROJECT_ROLE_LABELS } from '../../lib/auth-types';
 import { ballHolderTracksAssignee, normalizeBallHolderForStorage, normalizeBallLabel } from '../../lib/ball';
 import { computeDiff, isDiffEmpty } from '../../lib/diff';
@@ -21,6 +21,9 @@ type ToastInput = {
   description?: string;
   duration?: number;
 };
+
+const hasPresetEstimate = (value: number) =>
+  ESTIMATE_HOUR_PRESETS.some((preset) => Math.abs(preset - value) < 0.001);
 
 export interface TaskModalProps extends ModalProps {
   projects: Project[];
@@ -93,6 +96,7 @@ export function TaskModal({
   const [status, setStatus] = useState('未着手');
   const [progress, setProgress] = useState(0);
   const [estimate, setEstimate] = useState(4);
+  const [showCustomEstimate, setShowCustomEstimate] = useState(false);
   const [notifyStart, setNotifyStart] = useState(true);
   const [notifyDayBefore, setNotifyDayBefore] = useState(true);
   const [notifyDue, setNotifyDue] = useState(true);
@@ -148,6 +152,7 @@ export function TaskModal({
     setStatus('未着手');
     setProgress(0);
     setEstimate(4);
+    setShowCustomEstimate(false);
     setNotifyStart(true);
     setNotifyDayBefore(true);
     setNotifyDue(true);
@@ -188,6 +193,7 @@ export function TaskModal({
       setProgress(existingProgress > 1 ? existingProgress : existingProgress * 100);
       const existingEstimate = editingTask['工数見積(h)'];
       setEstimate(existingEstimate != null ? clampToSingleDecimal(existingEstimate) : 4);
+      setShowCustomEstimate(existingEstimate != null ? !hasPresetEstimate(clampToSingleDecimal(existingEstimate)) : false);
 
       const notif = editingTask['通知設定'];
       setNotifyStart(notif?.開始日 ?? true);
@@ -788,6 +794,65 @@ export function TaskModal({
         </div>
 
         {/* マイルストーンチェックボックス */}
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">想定時間</label>
+              <p className="mt-1 text-[11px] text-slate-500">今日どこに入るかの目安です。ざっくりで構いません。</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCustomEstimate((current) => !current)}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              {showCustomEstimate ? '簡単入力に戻す' : '細かく入力'}
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {ESTIMATE_HOUR_PRESETS.map((preset) => {
+              const selected = Math.abs(estimate - preset) < 0.001;
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    setEstimate(preset);
+                    if (showCustomEstimate && hasPresetEstimate(preset)) {
+                      setShowCustomEstimate(false);
+                    }
+                  }}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    selected
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                  }`}
+                >
+                  {formatEstimateHours(preset)}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="text-sm font-medium text-slate-900">いまの想定: {formatEstimateHours(estimate)}</p>
+            {!hasPresetEstimate(estimate) ? (
+              <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-slate-500">カスタム</span>
+            ) : null}
+          </div>
+          {(showCustomEstimate || !hasPresetEstimate(estimate)) ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+              <input
+                type="number"
+                min="0"
+                step="0.1"
+                inputMode="decimal"
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                value={estimate}
+                onChange={(e) => setEstimate(parseHoursInput(e.target.value))}
+              />
+              <span className="text-[11px] text-slate-500">時間単位で細かく入れられます</span>
+            </div>
+          ) : null}
+        </div>
         <div className={`flex items-center gap-2 p-2 rounded-lg border ${isMilestoneCheckboxEnabled
           ? 'bg-red-50 border-red-200'
           : 'bg-gray-50 border-gray-200'
@@ -959,7 +1024,7 @@ export function TaskModal({
             }}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="hidden">
           <div>
             <label className="mb-1 block text-xs text-slate-500">工数見積(h)</label>
             <input

@@ -1442,6 +1442,51 @@ function TasksPage({
     return sorted;
   }, [rows, sortKey, sortDirection]);
 
+  const taskLookup = useMemo(
+    () =>
+      filteredTasks.reduce<Record<string, Task>>((acc, task) => {
+        acc[task.id] = task;
+        return acc;
+      }, {}),
+    [filteredTasks]
+  );
+
+  const mobileTaskSections = useMemo(() => {
+    const items = sortedRows
+      .map((row) => {
+        const task = taskLookup[row.id];
+        if (!task) return null;
+        const assignee = getTaskAssigneeLabel(task);
+        const holder = normalizeBallHolderForStorage(task.ballHolder, assignee);
+        const effectiveHolder = holder || assignee;
+        const isMine = typeof effectiveHolder === 'string' && currentUserAliases.has(effectiveHolder.toLowerCase());
+        const isWaiting =
+          typeof assignee === 'string' &&
+          currentUserAliases.has(assignee.toLowerCase()) &&
+          typeof holder === 'string' &&
+          !currentUserAliases.has(holder.toLowerCase());
+
+        return {
+          row,
+          task,
+          isMine,
+          isWaiting,
+          hasSchedule: Boolean(row.scheduleStart || row.scheduleEnd),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    return {
+      active: items.filter((item) => item.hasSchedule || item.isMine || item.isWaiting),
+      later: items.filter((item) => !item.hasSchedule && !item.isMine && !item.isWaiting),
+    };
+  }, [currentUserAliases, sortedRows, taskLookup]);
+
+  const mobileOrderedRows = useMemo(() => {
+    const laterIds = new Set(mobileTaskSections.later.map(({ row }) => row.id));
+    return [...sortedRows].sort((a, b) => Number(laterIds.has(a.id)) - Number(laterIds.has(b.id)));
+  }, [mobileTaskSections.later, sortedRows]);
+
   const showBallUndoToast = useCallback(
     (task: Task, previousHolder: string | null, actionTitle: string) => {
       toast(
@@ -1529,7 +1574,7 @@ function TasksPage({
         </h3>
         {tasks.map((task) => {
           const assignee = getTaskAssigneeLabel(task);
-          const canThrow = Boolean(assignee) && !currentUserAliases.has(assignee.toLowerCase());
+          const canThrow = typeof assignee === 'string' && !currentUserAliases.has(assignee.toLowerCase());
           const canPullBack = Boolean((currentUserName || currentUserEmail || '').trim());
           return (
             <SwipeBallCard
@@ -1635,14 +1680,23 @@ function TasksPage({
           <div className="hidden md:block" />
         </div>
       </div>
-      <div className="grid gap-3 md:hidden">
-        {sortedRows.map((row) => {
+      {mobileTaskSections.later.length > 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 md:hidden">
+          あとで整理: まだ日付を決めていない項目が {mobileTaskSections.later.length} 件あります。
+        </div>
+      ) : null}
+      <div className="grid gap-4 md:hidden">
+        {mobileOrderedRows.map((row) => {
           const task = filteredTasks.find(t => t.id === row.id)!;
           const assignee = getTaskAssigneeLabel(task);
           const holder = normalizeBallHolderForStorage(task.ballHolder, assignee);
           const effectiveHolder = holder || assignee;
-          const isMine = Boolean(effectiveHolder) && currentUserAliases.has(effectiveHolder.toLowerCase());
-          const isWaiting = Boolean(assignee) && currentUserAliases.has(assignee.toLowerCase()) && Boolean(holder) && !currentUserAliases.has(holder.toLowerCase());
+          const isMine = typeof effectiveHolder === 'string' && currentUserAliases.has(effectiveHolder.toLowerCase());
+          const isWaiting =
+            typeof assignee === 'string' &&
+            currentUserAliases.has(assignee.toLowerCase()) &&
+            typeof holder === 'string' &&
+            !currentUserAliases.has(holder.toLowerCase());
           return (
             <SwipeBallCard
               key={row.id}
@@ -1658,6 +1712,7 @@ function TasksPage({
                 schedule={row.schedule}
                 scheduleStart={row.scheduleStart}
                 scheduleEnd={row.scheduleEnd}
+                effort={task['工数見積(h)'] ?? null}
                 status={row.status}
                 progress={row.progress}
                 onComplete={() => onComplete(task, true)}

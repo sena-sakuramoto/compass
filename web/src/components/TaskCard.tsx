@@ -3,6 +3,7 @@ import React from 'react';
 import { useJapaneseHolidaySet, isJapaneseHoliday } from '../lib/japaneseHolidays';
 import { formatJapaneseEra } from '../lib/date';
 import { STATUS_PROGRESS } from '../lib/constants';
+import { formatEstimateHours } from '../lib/number';
 
 interface TaskCardProps {
   id: string;
@@ -12,6 +13,7 @@ interface TaskCardProps {
   schedule: string;
   scheduleStart?: string | null;
   scheduleEnd?: string | null;
+  effort?: number | null;
   status: string;
   progress?: number;
   stageName?: string;  // 工程名
@@ -30,6 +32,7 @@ export function TaskCard({
   schedule,
   scheduleStart,
   scheduleEnd,
+  effort,
   progress,
   status,
   stageName,
@@ -71,6 +74,11 @@ export function TaskCard({
       </div>
       <div className="mt-1 text-xs text-slate-500 flex items-center gap-2 flex-wrap">
         <span>{schedule}</span>
+        {typeof effort === 'number' && effort > 0 ? (
+          <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+            {formatEstimateHours(effort)}
+          </span>
+        ) : null}
         {isHoliday && (
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-700">
             祝日
