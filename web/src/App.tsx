@@ -56,7 +56,7 @@ import {
 import type { BillingAccessInfo } from './lib/api';
 import { Filters } from './components/Filters';
 import { ProjectCard } from './components/ProjectCard';
-import { TaskCard, computeProgress } from './components/TaskCard';
+import { computeProgress } from './components/TaskCard';
 import { TaskTable, TaskTableRow, TaskTableSortDirection, TaskTableSortKey } from './components/TaskTable';
 import { GanttDatum } from './components/GanttChart';
 import { GanttChart as NewGanttChart, GanttTask } from './components/GanttChart/GanttChart';
@@ -73,6 +73,7 @@ import { UserManagement } from './components/UserManagement';
 import { BottomNavBar } from './components/BottomNavBar';
 import { SettingsMenuPage } from './components/SettingsMenuPage';
 import { SwipeBallCard } from './components/SwipeBallCard';
+import { TodayView } from './components/today/TodayView';
 import { HelpPage } from './pages/HelpPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { CommercialTransactionPage } from './pages/CommercialTransactionPage';
@@ -96,10 +97,9 @@ import { PROJECT_ROLE_LABELS } from './lib/auth-types';
 import { isArchivedProjectStatus, isClosedProjectStatus, STATUS_PROGRESS } from './lib/constants';
 import { clampToSingleDecimal, parseHoursInput } from './lib/number';
 import { getCachedIdToken } from './lib/authToken';
+import { isLocalPreviewEnabled } from './lib/localPreview';
 import {
   format,
-  startOfWeek,
-  endOfWeek,
   startOfMonth,
   endOfMonth,
   startOfYear,
@@ -110,7 +110,6 @@ import {
   addWeeks,
   addMonths,
   addYears,
-  eachDayOfInterval,
   eachWeekOfInterval,
   eachMonthOfInterval,
   startOfDay,
@@ -123,6 +122,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 
 // 日本語ロケールを登録
 registerLocale('ja', ja);
+
 import {
   ResponsiveContainer as WorkloadResponsiveContainer,
   BarChart as WorkloadBarChart,
@@ -304,6 +304,7 @@ function AppLayout({
   errorReport: { type: string; message: string } | null;
   onErrorReportHandled(): void;
 }) {
+  const location = useLocation();
   const navLinks = [
     { path: '/', label: '工程表' },
     { path: '/summary', label: 'プロジェクト' },
@@ -312,6 +313,7 @@ function AppLayout({
     { path: '/users', label: '人員管理' },
   ];
   const offline = !authSupported || !user;
+  const simplifyMobileToday = location.pathname === '/tasks';
 
   return (
     <div className="app-root h-screen flex flex-col bg-slate-50">
@@ -366,13 +368,13 @@ function AppLayout({
             </div>
           </div>
           {!authSupported && !DEMO_MODE ? (
-            <div className="bg-amber-50 text-amber-700">
+            <div className={`bg-amber-50 text-amber-700 ${simplifyMobileToday ? 'hidden md:block' : ''}`}>
               <div className="mx-auto max-w-6xl px-4 py-2 text-xs">
                 Firebase Auth が未設定です。ローカルデータとして表示しています。
               </div>
             </div>
           ) : authReady && !user && !DEMO_MODE ? (
-            <div className="bg-slate-900 text-slate-100">
+            <div className={`bg-slate-900 text-slate-100 ${simplifyMobileToday ? 'hidden md:block' : ''}`}>
               <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2 text-xs">
                 <span>Google でサインインすると、Firestore にリアルタイム同期されます。</span>
                 <button
@@ -390,7 +392,7 @@ function AppLayout({
           ) : null}
         </header>
         {offline && !DEMO_MODE ? (
-          <div className="flex-shrink-0 border-b border-slate-200 bg-slate-100/80">
+          <div className={`flex-shrink-0 border-b border-slate-200 bg-slate-100/80 ${simplifyMobileToday ? 'hidden md:block' : ''}`}>
             <div className="mx-auto max-w-7xl px-4 py-2">
               <p className="text-[11px] text-slate-600">
                 ローカルモードで閲覧中です。編集内容はブラウザに保存されます。
@@ -1222,6 +1224,7 @@ function TasksPage({
   onEditTask,
   onSeedReminders,
   onCalendarSync,
+  onCreateTask,
   pushToast,
   canEdit,
   canSync,
@@ -1242,6 +1245,7 @@ function TasksPage({
   onEditTask(task: Task): void;
   onSeedReminders?(taskId: string): Promise<void>;
   onCalendarSync?(taskId: string): Promise<void>;
+  onCreateTask(title: string, estimateMinutes: number | null): void;
   pushToast: (toast: ToastInput) => void;
   canEdit: boolean;
   canSync: boolean;
@@ -1451,42 +1455,6 @@ function TasksPage({
     [filteredTasks]
   );
 
-  const mobileTaskSections = useMemo(() => {
-    const items = sortedRows
-      .map((row) => {
-        const task = taskLookup[row.id];
-        if (!task) return null;
-        const assignee = getTaskAssigneeLabel(task);
-        const holder = normalizeBallHolderForStorage(task.ballHolder, assignee);
-        const effectiveHolder = holder || assignee;
-        const isMine = typeof effectiveHolder === 'string' && currentUserAliases.has(effectiveHolder.toLowerCase());
-        const isWaiting =
-          typeof assignee === 'string' &&
-          currentUserAliases.has(assignee.toLowerCase()) &&
-          typeof holder === 'string' &&
-          !currentUserAliases.has(holder.toLowerCase());
-
-        return {
-          row,
-          task,
-          isMine,
-          isWaiting,
-          hasSchedule: Boolean(row.scheduleStart || row.scheduleEnd),
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item));
-
-    return {
-      active: items.filter((item) => item.hasSchedule || item.isMine || item.isWaiting),
-      later: items.filter((item) => !item.hasSchedule && !item.isMine && !item.isWaiting),
-    };
-  }, [currentUserAliases, sortedRows, taskLookup]);
-
-  const mobileOrderedRows = useMemo(() => {
-    const laterIds = new Set(mobileTaskSections.later.map(({ row }) => row.id));
-    return [...sortedRows].sort((a, b) => Number(laterIds.has(a.id)) - Number(laterIds.has(b.id)));
-  }, [mobileTaskSections.later, sortedRows]);
-
   const showBallUndoToast = useCallback(
     (task: Task, previousHolder: string | null, actionTitle: string) => {
       toast(
@@ -1652,15 +1620,16 @@ function TasksPage({
 
   return (
     <div className="space-y-4">
-      <WorkerMonitor tasks={filteredTasks} canSync={canSync} />
+      <div className="hidden md:block">
+        <WorkerMonitor tasks={filteredTasks} canSync={canSync} />
+      </div>
       {!canSync ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-500">
+        <div className="hidden rounded-2xl border border-dashed border-slate-300 bg-white px-3 py-2 text-[11px] text-slate-500 md:block">
           通知・カレンダー連携はサインイン後にご利用いただけます。
         </div>
       ) : null}
 
-      {/* Task list */}
-      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-center">
+      <div className="hidden flex-col justify-between gap-2 md:flex md:flex-row md:items-center">
         <div className="flex items-center gap-2">
           <select
             value={sortKey}
@@ -1677,53 +1646,23 @@ function TasksPage({
             <option value="priority">並替: 優先度</option>
             <option value="completed">並替: 完了</option>
           </select>
-          <div className="hidden md:block" />
         </div>
       </div>
-      {mobileTaskSections.later.length > 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-600 md:hidden">
-          あとで整理: まだ日付を決めていない項目が {mobileTaskSections.later.length} 件あります。
-        </div>
-      ) : null}
-      <div className="grid gap-4 md:hidden">
-        {mobileOrderedRows.map((row) => {
-          const task = filteredTasks.find(t => t.id === row.id)!;
-          const assignee = getTaskAssigneeLabel(task);
-          const holder = normalizeBallHolderForStorage(task.ballHolder, assignee);
-          const effectiveHolder = holder || assignee;
-          const isMine = typeof effectiveHolder === 'string' && currentUserAliases.has(effectiveHolder.toLowerCase());
-          const isWaiting =
-            typeof assignee === 'string' &&
-            currentUserAliases.has(assignee.toLowerCase()) &&
-            typeof holder === 'string' &&
-            !currentUserAliases.has(holder.toLowerCase());
-          return (
-            <SwipeBallCard
-              key={row.id}
-              ariaLabel={`${row.name} のタスクカード`}
-              onThrow={isMine ? () => handleBallThrow(task) : undefined}
-              onPullBack={isWaiting ? () => handleBallPullBack(task) : undefined}
-            >
-              <TaskCard
-                id={row.id}
-                name={row.name}
-                projectLabel={row.projectLabel}
-                assignee={row.assignee}
-                schedule={row.schedule}
-                scheduleStart={row.scheduleStart}
-                scheduleEnd={row.scheduleEnd}
-                effort={task['工数見積(h)'] ?? null}
-                status={row.status}
-                progress={row.progress}
-                onComplete={() => onComplete(task, true)}
-                onSeedReminders={onSeedReminders ? () => handleSeedReminders(row.id) : undefined}
-                onCalendarSync={onCalendarSync ? () => handleCalendarSync(row.id) : undefined}
-                seedBusy={seedBusyIds.has(row.id)}
-                calendarBusy={calendarBusyIds.has(row.id)}
-              />
-            </SwipeBallCard>
-          );
-        })}
+
+      {/* Mobile: TodayView */}
+      <div className="md:hidden h-full">
+        <TodayView
+          tasks={filteredTasks}
+          currentUserName={currentUserName}
+          currentUserEmail={currentUserEmail ?? ''}
+          currentUserAliases={currentUserAliases}
+          onCompleteTask={(task) => onComplete(task, true)}
+          onThrowBall={(task) => handleBallThrow(task)}
+          onPullBackBall={(task) => handleBallPullBack(task)}
+          onUpdateTask={(id, updates) => updateTask(id, updates)}
+          onCreateTask={onCreateTask}
+          onOpenTask={(task) => onEditTask(task)}
+        />
       </div>
       <div className="hidden md:block">
         <TaskTable
@@ -1751,7 +1690,7 @@ function TasksPage({
 
       {/* Ball sections (scroll to see) */}
       {(ballCategorized.mine.length > 0 || ballCategorized.waiting.length > 0) && (
-        <div className="space-y-6 border-t border-slate-200 pt-6">
+        <div className="hidden space-y-6 border-t border-slate-200 pt-6 md:block">
           {renderBallSection('自分ボール', ballCategorized.mine, 'mine')}
           {renderBallSection('相手ボール', ballCategorized.waiting, 'waiting')}
         </div>
@@ -3521,6 +3460,7 @@ function App() {
   const [state, setState, undo, redo, canUndo, canRedo] = useSnapshot();
   const queryClient = useQueryClient();
   const location = useLocation();
+  const localPreview = useMemo(() => isLocalPreviewEnabled(location.search), [location.search]);
   const isSetupRoute = location.pathname.startsWith('/setup');
   const [privateSettings, setPrivateSettings] = useState<PrivateSettings>(() => loadPrivateSettings());
   const [personalHolidaySet, setPersonalHolidaySet] = useState<Set<string>>(() => loadPersonalHolidaySet());
@@ -3677,7 +3617,7 @@ function App() {
   // 楽観的更新のためのPending Overlayストア
   const { addPending, ackPending, rollbackPending, pending, deletedTasks, addPendingProject, ackPendingProject, rollbackPendingProject, pendingProjects } = usePendingOverlay();
 
-  const canSync = !DEMO_MODE && authSupported && Boolean(user);
+  const canSync = !DEMO_MODE && !localPreview && authSupported && Boolean(user);
 
   const showErrorReportPrompt = useCallback(
     (info: { method?: string; url?: string; status?: number; message: string; source?: string }) => {
@@ -3963,7 +3903,7 @@ function App() {
 
   const loading = useRemoteData(
     setState,
-    !DEMO_MODE && authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
+    !DEMO_MODE && !localPreview && authSupported && Boolean(user) && !subscriptionRequired && !orgSetupRequired
   );
 
   // トライアル終了モーダル表示状態
@@ -6184,7 +6124,7 @@ function App() {
   }
 
   // 認証準備中（デモモードではスキップ）
-  if (!authReady && !DEMO_MODE) {
+  if (!authReady && !DEMO_MODE && !localPreview) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -6196,7 +6136,7 @@ function App() {
   }
 
   // 未認証（デモモードではスキップ）
-  if (authSupported && !user && !DEMO_MODE) {
+  if (authSupported && !user && !DEMO_MODE && !localPreview) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center max-w-md p-8 bg-white rounded-lg shadow-lg">
@@ -6716,6 +6656,17 @@ function App() {
                 onEditTask={(task) => setEditingTask(task)}
                 onSeedReminders={canSync ? handleSeedReminders : undefined}
                 onCalendarSync={canSync ? handleCalendarSync : undefined}
+                onCreateTask={(title, estMinutes) => {
+                  const defaultProjectId = state.projects[0]?.id;
+                  if (!defaultProjectId) return;
+                  handleCreateTask({
+                    projectId: defaultProjectId,
+                    タスク名: title,
+                    '工数見積(h)': estMinutes ? estMinutes / 60 : undefined,
+                    優先度: '中',
+                    ステータス: '未着手',
+                  });
+                }}
                 pushToast={pushToast}
                 canEdit={canEdit}
                 canSync={canSync}
