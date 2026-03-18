@@ -73,13 +73,18 @@ export function SettingsMenuPage({ user, onSignOut }: SettingsMenuPageProps) {
             onChange={(e) => handleEndChange(Number(e.target.value))}
             className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
           >
-            {HOUR_OPTIONS.map((h) => (
-              <option key={h} value={h}>{`${h}:00`}</option>
-            ))}
+            {HOUR_OPTIONS.map((h) => {
+              const isNextDay = h <= workHrs.startHour && h !== workHrs.startHour;
+              return (
+                <option key={h} value={h}>
+                  {isNextDay ? `翌${h}:00` : `${h}:00`}
+                </option>
+              );
+            })}
           </select>
         </div>
         {isOvernight && (
-          <p className="mt-2 text-xs text-slate-500">日をまたぐ設定です（翌日の {workHrs.endHour}:00 まで）</p>
+          <p className="mt-2 text-xs text-slate-500">翌日の {workHrs.endHour}:00 まで表示されます</p>
         )}
       </div>
 
