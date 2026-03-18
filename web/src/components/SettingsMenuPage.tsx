@@ -73,8 +73,9 @@ export function SettingsMenuPage({ user, onSignOut }: SettingsMenuPageProps) {
             onChange={(e) => handleEndChange(Number(e.target.value))}
             className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
           >
-            {HOUR_OPTIONS.map((h) => {
-              const isNextDay = h <= workHrs.startHour && h !== workHrs.startHour;
+            {/* Start from startHour+1, wrap around, "翌" after midnight */}
+            {Array.from({ length: 23 }, (_, i) => (workHrs.startHour + 1 + i) % 24).map((h) => {
+              const isNextDay = h <= workHrs.startHour;
               return (
                 <option key={h} value={h}>
                   {isNextDay ? `翌${h}:00` : `${h}:00`}
