@@ -31,17 +31,20 @@ export function SettingsMenuPage({ user, onSignOut }: SettingsMenuPageProps) {
 
   const handleStartChange = (h: number) => {
     const next = { ...workHrs, startHour: h };
-    if (h >= workHrs.endHour) next.endHour = Math.min(h + 1, 23);
+    // Only prevent same hour (0-length day)
+    if (h === workHrs.endHour) next.endHour = (h + 1) % 24;
     setWorkHrs(next);
     setWorkHours(next);
   };
 
   const handleEndChange = (h: number) => {
     const next = { ...workHrs, endHour: h };
-    if (h <= workHrs.startHour) next.startHour = Math.max(h - 1, 0);
+    if (h === workHrs.startHour) next.startHour = (h + 23) % 24; // -1 wrapped
     setWorkHrs(next);
     setWorkHours(next);
   };
+
+  const isOvernight = workHrs.startHour > workHrs.endHour;
 
   return (
     <div className="mx-auto max-w-lg px-4 py-6">
@@ -75,6 +78,9 @@ export function SettingsMenuPage({ user, onSignOut }: SettingsMenuPageProps) {
             ))}
           </select>
         </div>
+        {isOvernight && (
+          <p className="mt-2 text-xs text-slate-500">日をまたぐ設定です（翌日の {workHrs.endHour}:00 まで）</p>
+        )}
       </div>
 
       <div className="space-y-1">
