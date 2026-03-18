@@ -1490,7 +1490,7 @@ function TasksPage({
   );
 
   const applyBallHolderWithUndo = useCallback(
-    (task: Task, nextHolder: string | null, actionTitle: string) => {
+    (task: Task, nextHolder: string | null, actionTitle: string, silent?: boolean) => {
       const assignee = getTaskAssigneeLabel(task);
       const previousHolder = normalizeBallHolderForStorage(task.ballHolder, assignee);
       const normalizedNext = normalizeBallHolderForStorage(nextHolder, assignee);
@@ -1498,14 +1498,16 @@ function TasksPage({
         return;
       }
       updateTask(task.id, { ballHolder: normalizedNext });
-      pushToast({ tone: 'success', title: actionTitle });
-      showBallUndoToast(task, previousHolder, `${actionTitle}（5秒以内なら取り消せます）`);
+      if (!silent) {
+        pushToast({ tone: 'success', title: actionTitle });
+        showBallUndoToast(task, previousHolder, `${actionTitle}（5秒以内なら取り消せます）`);
+      }
     },
     [pushToast, showBallUndoToast, updateTask]
   );
 
   const handleBallThrow = useCallback(
-    (task: Task) => {
+    (task: Task, silent?: boolean) => {
       const assignee = getTaskAssigneeLabel(task);
       if (!assignee) {
         pushToast({ tone: 'info', title: '担当者が未設定のため、ボールを渡せません' });
@@ -1515,19 +1517,19 @@ function TasksPage({
         pushToast({ tone: 'info', title: '自分宛てのため、ボールを渡せません' });
         return;
       }
-      applyBallHolderWithUndo(task, assignee, 'ボールを相手に渡しました');
+      applyBallHolderWithUndo(task, assignee, 'ボールを相手に渡しました', silent);
     },
     [applyBallHolderWithUndo, currentUserAliases, pushToast]
   );
 
   const handleBallPullBack = useCallback(
-    (task: Task) => {
+    (task: Task, silent?: boolean) => {
       const myHolder = normalizeBallLabel(currentUserName || currentUserEmail || null);
       if (!myHolder) {
         pushToast({ tone: 'info', title: 'ユーザー情報が未取得のため、ボールを戻せません' });
         return;
       }
-      applyBallHolderWithUndo(task, myHolder, 'ボールを自分に戻しました');
+      applyBallHolderWithUndo(task, myHolder, 'ボールを自分に戻しました', silent);
     },
     [applyBallHolderWithUndo, currentUserEmail, currentUserName, pushToast]
   );
@@ -1657,8 +1659,8 @@ function TasksPage({
           currentUserEmail={currentUserEmail ?? ''}
           currentUserAliases={currentUserAliases}
           onCompleteTask={(task) => onComplete(task, true)}
-          onThrowBall={(task) => handleBallThrow(task)}
-          onPullBackBall={(task) => handleBallPullBack(task)}
+          onThrowBall={(task) => handleBallThrow(task, true)}
+          onPullBackBall={(task) => handleBallPullBack(task, true)}
           onUpdateTask={(id, updates) => updateTask(id, updates)}
           onCreateTask={onCreateTask}
           onOpenTask={(task) => onEditTask(task)}
