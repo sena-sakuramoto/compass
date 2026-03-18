@@ -6,6 +6,7 @@ interface BottomSheetItemProps {
   estimateLabel?: string | null;
   waitingFor?: string | null;    // e.g., "田中" — shows "→ 田中"
   deadlineLabel?: string | null; // e.g., "催促3/20"
+  overdue?: boolean;
   onComplete: () => void;
   onThrow?: () => void;
   onPullBack?: () => void;
@@ -13,7 +14,7 @@ interface BottomSheetItemProps {
 }
 
 export function BottomSheetItem({
-  name, estimateLabel, waitingFor, deadlineLabel,
+  name, estimateLabel, waitingFor, deadlineLabel, overdue,
   onComplete, onThrow, onPullBack, onTap,
 }: BottomSheetItemProps) {
   return (
@@ -31,7 +32,9 @@ export function BottomSheetItem({
             </>
           ) : (
             <>
-              <span className="text-sm text-gray-900 truncate block">{name}</span>
+              <span className={`text-sm truncate block ${overdue ? 'text-red-500' : 'text-gray-900'}`}>
+                {name}
+              </span>
               {estimateLabel && <span className="text-xs text-gray-400">{estimateLabel}</span>}
             </>
           )}

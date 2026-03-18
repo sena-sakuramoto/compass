@@ -251,6 +251,7 @@ export function TodayView({
                   ? `催促${t.responseDeadline.slice(5).replace('-', '/')}`
                   : null
               }
+              overdue={Boolean(t['期限'] && new Date(t['期限']) < new Date())}
               onComplete={() => {
                 onCompleteTask(t);
                 feedback.push({ type: 'complete', undoFn: null });

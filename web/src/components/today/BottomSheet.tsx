@@ -56,7 +56,13 @@ export function BottomSheet({ title, count, children, peekHeight = 56 }: BottomS
       {/* Content (only visible when expanded) */}
       {expanded && (
         <div className="overflow-y-auto px-5 pb-4" style={{ maxHeight: 'calc(60vh - 80px)' }}>
-          {children}
+          {count === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">
+              ＋ボタンで何でも入れておけます
+            </p>
+          ) : (
+            children
+          )}
         </div>
       )}
     </div>

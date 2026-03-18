@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { TimelineCard } from './TimelineCard';
 import { FreeSlot } from './FreeSlot';
 import { CurrentTimeLine } from './CurrentTimeLine';
@@ -31,6 +31,13 @@ export function Timeline({
   tasks, trayItems, dayStart, dayEnd, gap, isToday, onChipPlace,
 }: TimelineProps) {
   const [animatingOut, setAnimatingOut] = useState<Record<string, 'complete' | 'pass'>>({});
+  const nowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (nowRef.current) {
+      nowRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, []);
 
   const placements = useMemo(
     () => computeTimelinePlacements(tasks, dayStart, dayEnd, gap),
@@ -91,7 +98,7 @@ export function Timeline({
 
       {entries.map((entry, i) => {
         if (entry.type === 'now') {
-          return <CurrentTimeLine key="now" />;
+          return <div key="now" ref={nowRef}><CurrentTimeLine /></div>;
         }
 
         if (entry.type === 'free') {
