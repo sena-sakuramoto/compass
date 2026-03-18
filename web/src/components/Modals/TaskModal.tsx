@@ -506,9 +506,371 @@ export function TaskModal({
     }
   };
 
+  const [showBallSection, setShowBallSection] = useState(false);
+  const [showDetailSection, setShowDetailSection] = useState(false);
+
   return (
     <Modal open={open} onOpenChange={onOpenChange} title={editingTask ? "タスク編集" : "タスク追加"}>
       <form className="space-y-3" onSubmit={handleSubmit} onKeyDown={handleFormKeyDown}>
+
+        {/* ===== MOBILE LAYOUT: 3-section accordion ===== */}
+        <div className="md:hidden space-y-3">
+          {/* -- 基本セクション（常に表示） -- */}
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">タスク名</label>
+            <input
+              ref={taskNameInputRef}
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <label className="block text-xs font-semibold text-slate-700">想定時間</label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {ESTIMATE_HOUR_PRESETS.map((preset) => {
+                const selected = Math.abs(estimate - preset) < 0.001;
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setEstimate(preset)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                      selected
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    {formatEstimateHours(preset)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">開始日</label>
+              <input
+                type="date"
+                value={startDate ? format(startDate, 'yyyy-MM-dd') : ''}
+                onChange={(e) => {
+                  const d = e.target.value ? new Date(e.target.value + 'T00:00:00') : null;
+                  setStartDate(d);
+                  if (d && !endDate) setEndDate(d);
+                }}
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">終了日</label>
+              <input
+                type="date"
+                value={endDate ? format(endDate, 'yyyy-MM-dd') : ''}
+                onChange={(e) => {
+                  const d = e.target.value ? new Date(e.target.value + 'T00:00:00') : null;
+                  setEndDate(d);
+                }}
+                className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          {taskType === 'task' && (
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">担当者</label>
+              {!project ? (
+                <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
+                  プロジェクトを選択してください
+                </div>
+              ) : membersLoading ? (
+                <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
+                  読み込み中...
+                </div>
+              ) : assigneeOptions.length > 0 ? (
+                <select
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  value={assignee}
+                  onChange={(e) => setAssignee(e.target.value)}
+                >
+                  <option value="">選択</option>
+                  {assigneeOptions.map((option) => (
+                    <option key={option.key} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="w-full px-3 py-2 border border-slate-200 rounded-2xl text-sm text-slate-400">
+                  担当者候補なし
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* -- ボールセクション（折りたたみ） -- */}
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-2xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+            onClick={() => setShowBallSection(!showBallSection)}
+          >
+            <span>ボール管理</span>
+            <span className="text-xs text-slate-400">{normalizedBallHolder ? `→ ${effectiveBallLabel}` : '未設定'}</span>
+          </button>
+          {showBallSection && (
+            <div className="space-y-3 pl-1">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={!normalizedAssignee}
+                  onClick={() => setBallHolder(null)}
+                  className={`px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
+                    normalizedBallHolder == null && normalizedAssignee
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-slate-200'
+                  }`}
+                >
+                  担当者
+                </button>
+                <button
+                  type="button"
+                  disabled={!normalizedCurrentUser}
+                  onClick={() => setBallHolder(normalizedCurrentUser)}
+                  className={`px-3 py-1.5 text-xs rounded-lg border transition-colors disabled:opacity-50 ${
+                    normalizedBallHolder === normalizedCurrentUser
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-slate-200'
+                  }`}
+                >
+                  自分
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBallHolder('クライアント')}
+                  className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                    normalizedBallHolder === 'クライアント'
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-slate-200'
+                  }`}
+                >
+                  クライアント
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBallHolder('施工会社')}
+                  className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                    normalizedBallHolder === '施工会社'
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-slate-200'
+                  }`}
+                >
+                  施工会社
+                </button>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">メモ</label>
+                <input
+                  type="text"
+                  value={ballNote ?? ''}
+                  onChange={(e) => setBallNote(e.target.value || null)}
+                  placeholder="例: クライアントの承認待ち"
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">返答期限</label>
+                <input
+                  type="date"
+                  value={responseDeadline ?? ''}
+                  onChange={(e) => setResponseDeadline(e.target.value || null)}
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* -- 詳細セクション（折りたたみ） -- */}
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-2xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+            onClick={() => setShowDetailSection(!showDetailSection)}
+          >
+            <span>詳細設定</span>
+            <span className="text-xs text-slate-400">{showDetailSection ? '閉じる' : '開く'}</span>
+          </button>
+          {showDetailSection && (
+            <div className="space-y-3 pl-1">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">プロジェクト</label>
+                {lockProject && project ? (
+                  <div className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                    {projects.find(p => p.id === project)?.物件名 || project}
+                  </div>
+                ) : (
+                  <select
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={project}
+                    onChange={(e) => setProject(e.target.value)}
+                    required
+                  >
+                    <option value="">選択</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.物件名 || p.id}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">工程</label>
+                <select
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  value={stageId}
+                  onChange={(e) => setStageId(e.target.value)}
+                >
+                  <option value="">未割り当て</option>
+                  {stages.map((stage) => (
+                    <option key={stage.id} value={stage.id}>
+                      {stage.タスク名}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">種別</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTaskType('task')}
+                    className={`flex-1 px-3 py-2 text-sm rounded-2xl border transition-colors ${
+                      taskType === 'task'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    タスク
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTaskType('meeting')}
+                    className={`flex-1 px-3 py-2 text-sm rounded-2xl border transition-colors ${
+                      taskType === 'meeting'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    打合せ
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">優先度</label>
+                  <select
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value)}
+                  >
+                    <option value="高">高</option>
+                    <option value="中">中</option>
+                    <option value="低">低</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">ステータス</label>
+                  <select
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={status}
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      setStatus(newStatus);
+                      if (newStatus === '完了') setProgress(100);
+                    }}
+                  >
+                    <option value="未着手">未着手</option>
+                    <option value="進行中">進行中</option>
+                    <option value="確認待ち">確認待ち</option>
+                    <option value="保留">保留</option>
+                    <option value="完了">完了</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">開始時刻</label>
+                  <input
+                    type="time"
+                    value={startTime ?? ''}
+                    onChange={(e) => setStartTime(e.target.value || null)}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">終了時刻</label>
+                  <input
+                    type="time"
+                    value={endTime ?? ''}
+                    onChange={(e) => setEndTime(e.target.value || null)}
+                    className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">通知送信先メール</label>
+                <input
+                  type="email"
+                  className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                  value={assigneeEmail}
+                  onChange={(e) => setAssigneeEmail(e.target.value)}
+                  placeholder="担当者メールアドレス"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* -- モバイル: 保存/削除ボタン -- */}
+          <div className="flex items-center justify-between pt-2">
+            {editingTask && onDelete ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!editingTask) return;
+                  if (!confirm(`タスク「${editingTask.タスク名}」を削除しますか？`)) return;
+                  try {
+                    await onDelete(editingTask.id);
+                    onOpenChange(false);
+                  } catch (err) {
+                    console.error(err);
+                    onNotify?.({ tone: 'error', title: '削除に失敗しました' });
+                  }
+                }}
+                className="rounded-2xl bg-red-600 px-4 py-1.5 text-sm font-semibold text-white"
+              >
+                削除
+              </button>
+            ) : (
+              <div />
+            )}
+            <div className="flex gap-2">
+              <button type="button" className="rounded-2xl border px-4 py-1.5 text-sm" onClick={() => onOpenChange(false)}>
+                キャンセル
+              </button>
+              <button
+                type="submit"
+                className="rounded-2xl bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white"
+                onClick={() => { submitIntentRef.current = 'close'; }}
+              >
+                {editingTask ? '保存' : '追加'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ===== DESKTOP LAYOUT: original full form ===== */}
+        <div className="hidden md:block space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs text-slate-500">プロジェクト</label>
@@ -1112,6 +1474,7 @@ export function TaskModal({
             </button>
           </div>
         </div>
+        </div>{/* end hidden md:block */}
       </form>
     </Modal>
   );
