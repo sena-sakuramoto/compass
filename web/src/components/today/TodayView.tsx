@@ -9,6 +9,7 @@ import { QuickAddSheet } from './QuickAddSheet';
 import { useFeedbackBar } from '../../hooks/useFeedbackBar';
 import { getEffectiveBallHolder, getTaskAssigneeLabel } from '../../lib/ball';
 import { formatDuration, type ChipCandidate } from '../../lib/timeline';
+import { getWorkHours, workHoursToMinutes } from '../../lib/workHours';
 import type { Task } from '../../lib/types';
 
 interface TodayViewProps {
@@ -24,8 +25,6 @@ interface TodayViewProps {
   onOpenTask: (task: Task) => void;
 }
 
-const DAY_START = 8 * 60;
-const DAY_END = 20 * 60;
 const GAP = 20;
 
 /**
@@ -96,6 +95,7 @@ export function TodayView({
 }: TodayViewProps) {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const feedback = useFeedbackBar();
+  const { dayStart: DAY_START, dayEnd: DAY_END } = useMemo(() => workHoursToMinutes(getWorkHours()), []);
   const [animatingOut, setAnimatingOut] = useState<Record<string, 'complete' | 'pass'>>({});
   const pendingActions = useRef<Record<string, () => void>>({});
 

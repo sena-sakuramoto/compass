@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   BarChart3,
@@ -5,9 +6,11 @@ import {
   HelpCircle,
   LogOut,
   ChevronRight,
+  Clock,
   MessageSquare,
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
+import { getWorkHours, setWorkHours } from '../lib/workHours';
 
 interface SettingsMenuPageProps {
   user?: User | null;
@@ -21,10 +24,58 @@ const menuItems = [
   { path: '/help', label: 'ヘルプ', icon: HelpCircle },
 ] as const;
 
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
+
 export function SettingsMenuPage({ user, onSignOut }: SettingsMenuPageProps) {
+  const [workHrs, setWorkHrs] = useState(getWorkHours);
+
+  const handleStartChange = (h: number) => {
+    const next = { ...workHrs, startHour: h };
+    if (h >= workHrs.endHour) next.endHour = Math.min(h + 1, 23);
+    setWorkHrs(next);
+    setWorkHours(next);
+  };
+
+  const handleEndChange = (h: number) => {
+    const next = { ...workHrs, endHour: h };
+    if (h <= workHrs.startHour) next.startHour = Math.max(h - 1, 0);
+    setWorkHrs(next);
+    setWorkHours(next);
+  };
+
   return (
     <div className="mx-auto max-w-lg px-4 py-6">
       <h2 className="mb-4 text-lg font-bold text-slate-900">設定</h2>
+
+      {/* 業務時間 */}
+      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Clock size={18} className="text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-900">業務時間</h3>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">「今日」画面のタイムラインに反映されます</p>
+        <div className="flex items-center gap-3">
+          <select
+            value={workHrs.startHour}
+            onChange={(e) => handleStartChange(Number(e.target.value))}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          >
+            {HOUR_OPTIONS.map((h) => (
+              <option key={h} value={h}>{`${h}:00`}</option>
+            ))}
+          </select>
+          <span className="text-sm text-slate-400">〜</span>
+          <select
+            value={workHrs.endHour}
+            onChange={(e) => handleEndChange(Number(e.target.value))}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          >
+            {HOUR_OPTIONS.map((h) => (
+              <option key={h} value={h}>{`${h}:00`}</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       <div className="space-y-1">
         {menuItems.map(({ path, label, icon: Icon }) => (
