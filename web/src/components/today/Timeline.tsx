@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useCallback, useRef, useEffect } from 'react';
 import { TimelineCard } from './TimelineCard';
 import { FreeSlot } from './FreeSlot';
 import { CurrentTimeLine } from './CurrentTimeLine';
@@ -25,12 +25,16 @@ interface TimelineProps {
   gap: number;
   isToday: boolean;
   onChipPlace: (item: ChipCandidate, startMinutes: number) => void;
+  /** Externally triggered animation state per task id */
+  animatingOut?: Record<string, 'complete' | 'pass'>;
+  onAnimationEnd?: (id: string) => void;
 }
 
 export function Timeline({
   tasks, trayItems, dayStart, dayEnd, gap, isToday, onChipPlace,
+  animatingOut: externalAnimatingOut, onAnimationEnd: externalOnAnimationEnd,
 }: TimelineProps) {
-  const [animatingOut, setAnimatingOut] = useState<Record<string, 'complete' | 'pass'>>({});
+  const animatingOut = externalAnimatingOut ?? {};
   const nowRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,9 +53,17 @@ export function Timeline({
     [placements, dayStart, dayEnd],
   );
 
-  const nowMinutes = useMemo(() => {
+  const [nowMinutes, setNowMinutes] = React.useState(() => {
     const d = new Date();
     return d.getHours() * 60 + d.getMinutes();
+  });
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const d = new Date();
+      setNowMinutes(d.getHours() * 60 + d.getMinutes());
+    }, 60_000);
+    return () => clearInterval(id);
   }, []);
 
   type Entry =
@@ -81,12 +93,8 @@ export function Timeline({
   }, [placements, freeSlots, tasks, isToday, nowMinutes, dayStart, dayEnd]);
 
   const handleAnimationEnd = useCallback((id: string) => {
-    setAnimatingOut(prev => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
-  }, []);
+    externalOnAnimationEnd?.(id);
+  }, [externalOnAnimationEnd]);
 
   return (
     <div className="px-5 pb-4">

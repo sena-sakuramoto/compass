@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import { isSameDay, parseISO } from 'date-fns';
 import { DateHeader } from './DateHeader';
 import { Timeline } from './Timeline';
@@ -96,6 +96,8 @@ export function TodayView({
 }: TodayViewProps) {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const feedback = useFeedbackBar();
+  const [animatingOut, setAnimatingOut] = useState<Record<string, 'complete' | 'pass'>>({});
+  const pendingActions = useRef<Record<string, () => void>>({});
 
   // ---- Categorize tasks ----
   const { timelineTasks, trayItems } = useMemo(() => {
@@ -143,13 +145,20 @@ export function TodayView({
             ? Math.round(t['工数見積(h)'] * 60)
             : null,
         onComplete: () => {
-          onCompleteTask(t);
-          feedback.push({ type: 'complete', undoFn: null });
+          // Trigger animation, then execute after it ends
+          setAnimatingOut(prev => ({ ...prev, [t.id]: 'complete' }));
+          pendingActions.current[t.id] = () => {
+            onCompleteTask(t);
+            feedback.push({ type: 'complete', undoFn: null });
+          };
         },
         onThrow: userHoldsBall(t, currentUserAliases)
           ? () => {
-              onThrowBall(t);
-              feedback.push({ type: 'pass', undoFn: null });
+              setAnimatingOut(prev => ({ ...prev, [t.id]: 'pass' }));
+              pendingActions.current[t.id] = () => {
+                onThrowBall(t);
+                feedback.push({ type: 'pass', undoFn: null });
+              };
             }
           : undefined,
         onTap: () => onOpenTask(t),
@@ -188,6 +197,19 @@ export function TodayView({
     [onUpdateTask, selectedDate],
   );
 
+  const handleAnimationEnd = useCallback((id: string) => {
+    setAnimatingOut(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    const action = pendingActions.current[id];
+    if (action) {
+      delete pendingActions.current[id];
+      action();
+    }
+  }, []);
+
   const handleQuickAdd = useCallback(
     (title: string, estimateMinutes: number | null, _scheduled: boolean) => {
       onCreateTask(title, estimateMinutes);
@@ -219,6 +241,8 @@ export function TodayView({
           gap={GAP}
           isToday={isToday}
           onChipPlace={handleChipPlace}
+          animatingOut={animatingOut}
+          onAnimationEnd={handleAnimationEnd}
         />
       </div>
 

@@ -1238,7 +1238,7 @@ function TasksPage({
   filteredTasks: Task[];
   projectMap: Record<string, Project>;
   people: Person[];
-  onComplete(task: Task, done: boolean): void;
+  onComplete(task: Task, done: boolean, silent?: boolean): void;
   onTaskUpdate(taskId: string, updates: Partial<Task>): void;
   onDeleteTask(taskId: string): Promise<void>;
   onOpenTask(): void;
@@ -1660,7 +1660,7 @@ function TasksPage({
           currentUserName={currentUserName}
           currentUserEmail={currentUserEmail ?? ''}
           currentUserAliases={currentUserAliases}
-          onCompleteTask={(task) => onComplete(task, true)}
+          onCompleteTask={(task) => onComplete(task, true, true)}
           onThrowBall={(task) => handleBallThrow(task, true)}
           onPullBackBall={(task) => handleBallPullBack(task, true)}
           onUpdateTask={(id, updates) => updateTask(id, updates)}
@@ -5091,7 +5091,7 @@ function App() {
     );
   }, [editingProjectId, state.tasks]);
 
-  const handleComplete = async (task: Task, done: boolean) => {
+  const handleComplete = async (task: Task, done: boolean, silent?: boolean) => {
     const nextStatus = done
       ? '完了'
       : task.ステータス === '完了'
@@ -5109,10 +5109,12 @@ function App() {
     }));
 
     if (!canSync) {
-      pushToast({
-        tone: 'success',
-        title: done ? 'タスクを完了にしました（ローカル保存）' : 'タスクを再オープンしました（ローカル保存）',
-      });
+      if (!silent) {
+        pushToast({
+          tone: 'success',
+          title: done ? 'タスクを完了にしました（ローカル保存）' : 'タスクを再オープンしました（ローカル保存）',
+        });
+      }
       return;
     }
 
@@ -5121,10 +5123,12 @@ function App() {
     try {
       await completeTask(task.id, done);
       ackPending(task.id, opId);
-      pushToast({
-        tone: 'success',
-        title: done ? 'タスクを完了にしました' : 'タスクを再オープンしました',
-      });
+      if (!silent) {
+        pushToast({
+          tone: 'success',
+          title: done ? 'タスクを完了にしました' : 'タスクを再オープンしました',
+        });
+      }
       cacheDeleteByPrefix(CACHE_KEY_TASKS).catch(() => {});
       requestSnapshotReload('task:complete');
     } catch (err) {
