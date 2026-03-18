@@ -333,7 +333,7 @@ function AppLayout({
         />
       </div>
       <div className="app-content flex-1 flex flex-col lg:pl-56 min-h-0">
-        <header className="no-print flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur">
+        <header className={`no-print flex-shrink-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur ${simplifyMobileToday ? 'hidden md:block' : ''}`}>
           <div className="flex items-center justify-between gap-2 px-4 py-1 lg:px-6">
             {/* 左側：タイトル */}
             <div className="flex items-center gap-2 min-w-0 pl-12 lg:pl-0">
@@ -400,21 +400,23 @@ function AppLayout({
             </div>
           </div>
         ) : null}
-        <main className="flex-1 min-h-0 overflow-y-auto px-4 pb-20 md:pb-4 lg:px-8">
+        <main className={`flex-1 min-h-0 overflow-y-auto lg:px-8 ${simplifyMobileToday ? 'px-0 pb-0' : 'px-4 pb-20 md:pb-4'}`}>
           {children}
         </main>
-        <BottomBar
-          onOpenTask={onOpenTask}
-          onOpenProject={onOpenProject}
-          onOpenPerson={onOpenPerson}
-          user={user}
-          authSupported={authSupported}
-          authReady={authReady}
-          onSignIn={onSignIn}
-          onSignOut={onSignOut}
-          authError={authError}
-          canEdit={canEdit}
-        />
+        {!simplifyMobileToday && (
+          <BottomBar
+            onOpenTask={onOpenTask}
+            onOpenProject={onOpenProject}
+            onOpenPerson={onOpenPerson}
+            user={user}
+            authSupported={authSupported}
+            authReady={authReady}
+            onSignIn={onSignIn}
+            onSignOut={onSignOut}
+            authError={authError}
+            canEdit={canEdit}
+          />
+        )}
         <BottomNavBar />
       </div>
     </div>
