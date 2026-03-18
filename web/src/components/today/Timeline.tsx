@@ -112,12 +112,18 @@ export function Timeline({
         if (entry.type === 'free') {
           const chips = suggestChips(trayItems, entry.slot.durationMinutes);
           return (
-            <FreeSlot
-              key={`free-${entry.slot.startMinutes}`}
-              durationMinutes={entry.slot.durationMinutes}
-              chips={chips}
-              onChipTap={(chip) => onChipPlace(chip, entry.slot.startMinutes)}
-            />
+            <div key={`free-${entry.slot.startMinutes}`} className="flex items-start gap-3 mb-2">
+              <span className="text-xs text-gray-400 w-12 pt-4 text-right shrink-0">
+                {formatMinutesAsTime(entry.slot.startMinutes)}
+              </span>
+              <div className="flex-1">
+                <FreeSlot
+                  durationMinutes={entry.slot.durationMinutes}
+                  chips={chips}
+                  onChipTap={(chip) => onChipPlace(chip, entry.slot.startMinutes)}
+                />
+              </div>
+            </div>
           );
         }
 
