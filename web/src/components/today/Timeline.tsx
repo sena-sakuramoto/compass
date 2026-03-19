@@ -81,11 +81,29 @@ export function Timeline({
       }
     }
 
+    const showNow = isToday && nowMinutes >= dayStart && nowMinutes <= dayEnd;
+
     for (const slot of freeSlots) {
-      items.push({ type: 'free', slot, sortKey: slot.startMinutes });
+      // Split free slot at current time so the now-line appears inside it
+      if (showNow && nowMinutes > slot.startMinutes && nowMinutes < slot.endMinutes) {
+        items.push({
+          type: 'free',
+          slot: { startMinutes: slot.startMinutes, endMinutes: nowMinutes, durationMinutes: nowMinutes - slot.startMinutes },
+          sortKey: slot.startMinutes,
+        });
+        items.push({ type: 'now', sortKey: nowMinutes });
+        items.push({
+          type: 'free',
+          slot: { startMinutes: nowMinutes, endMinutes: slot.endMinutes, durationMinutes: slot.endMinutes - nowMinutes },
+          sortKey: nowMinutes + 0.1, // just after the now line
+        });
+      } else {
+        items.push({ type: 'free', slot, sortKey: slot.startMinutes });
+      }
     }
 
-    if (isToday && nowMinutes >= dayStart && nowMinutes <= dayEnd) {
+    // If now doesn't fall inside a free slot, still show it
+    if (showNow && !items.some(e => e.type === 'now')) {
       items.push({ type: 'now', sortKey: nowMinutes });
     }
 
