@@ -578,6 +578,17 @@ export function TaskModal({
             </div>
           </div>
 
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">開始時刻</label>
+            <input
+              type="time"
+              value={startTime ?? ''}
+              onChange={(e) => setStartTime(e.target.value || null)}
+              className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+              placeholder="未設定"
+            />
+          </div>
+
           {taskType === 'task' && (
             <div>
               <label className="mb-1 block text-xs text-slate-500">担当者</label>
