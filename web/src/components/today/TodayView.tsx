@@ -32,7 +32,7 @@ const GAP = 20;
  */
 function userHoldsBall(task: Task, aliases: Set<string>): boolean {
   const holder = getEffectiveBallHolder(task);
-  if (!holder) return false;
+  if (!holder) return true; // no holder = unassigned = mine to act on
   return aliases.has(holder.toLowerCase());
 }
 
@@ -55,23 +55,21 @@ function isWaitingTask(task: Task, aliases: Set<string>): boolean {
 function isScheduledForDate(task: Task, date: Date): boolean {
   const startStr = task.予定開始日 ?? task.start;
   const endStr = task.期限 ?? task.end;
-
-  // If the task has a startTime date component that matches, it counts.
-  if (task.startTime) {
-    try {
-      const parsed = parseISO(task.startTime);
-      if (isSameDay(parsed, date)) return true;
-    } catch {
-      // ignore parse errors
-    }
-  }
-
-  if (!startStr && !endStr) return false;
-
   const dateStr = formatDateYMD(date);
-  const s = startStr ?? endStr!;
-  const e = endStr ?? startStr!;
-  return s <= dateStr && e >= dateStr;
+
+  // If start date matches today, it's scheduled regardless of end date
+  if (startStr && startStr === dateStr) return true;
+
+  // If end date matches today, it's scheduled
+  if (endStr && endStr === dateStr) return true;
+
+  // Date range: start <= today <= end
+  if (startStr && endStr && startStr <= dateStr && endStr >= dateStr) return true;
+
+  // Task has a time-only startTime (e.g. "16:46") AND a matching start date
+  if (task.startTime && startStr === dateStr) return true;
+
+  return false;
 }
 
 function formatDateYMD(d: Date): string {
@@ -123,7 +121,7 @@ export function TodayView({
           }
         })();
 
-      if ((mine && scheduled) || followUpToday) {
+      if (scheduled || followUpToday) {
         timeline.push(t);
       } else {
         tray.push(t);
@@ -231,7 +229,7 @@ export function TodayView({
       {/* Date header */}
       <DateHeader selectedDate={selectedDate} onDateChange={setSelectedDate} />
 
-      {/* Scrollable: timeline + tray */}
+      {/* Timeline area (scrollable) */}
       <div className="flex-1 overflow-y-auto pb-20">
         <Timeline
           tasks={timelineTasksWithHandlers}
@@ -244,12 +242,13 @@ export function TodayView({
           animatingOut={animatingOut}
           onAnimationEnd={handleAnimationEnd}
         />
+      </div>
 
-        {/* Tray — flows right below timeline */}
-        <BottomSheet
-          title="あとで整理"
-          count={trayItems.length}
-        >
+      {/* Bottom sheet — tray items */}
+      <BottomSheet
+        title="あとで整理"
+        count={trayItems.length}
+      >
         {trayItems.map((t) => {
           const waiting = isWaitingTask(t, currentUserAliases);
           const mine = userHoldsBall(t, currentUserAliases);
@@ -286,7 +285,6 @@ export function TodayView({
           );
         })}
       </BottomSheet>
-      </div>{/* end scrollable area */}
 
       {/* Feedback bar */}
       <FeedbackBar state={feedback.state} onUndo={feedback.undoLast} />
