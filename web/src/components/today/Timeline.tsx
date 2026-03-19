@@ -175,13 +175,40 @@ export function Timeline({
         );
       })}
 
-      {/* Day end marker — always visible */}
-      <div className="flex items-center gap-3 mt-2">
-        <span className="text-xs text-gray-300 w-12 text-right shrink-0">
-          {formatMinutesAsTime(dayEnd)}
-        </span>
-        <div className="flex-1 border-t border-gray-200" />
-      </div>
+      {/* Trailing free time + day end marker */}
+      {(() => {
+        // Find the latest end time from all entries
+        let lastEnd = dayStart;
+        for (const e of entries) {
+          if (e.type === 'task') lastEnd = Math.max(lastEnd, e.placement.endMinutes);
+          if (e.type === 'free') lastEnd = Math.max(lastEnd, e.slot.endMinutes);
+        }
+        const remaining = dayEnd - lastEnd;
+        return (
+          <>
+            {remaining > 0 && (
+              <div className="flex items-start gap-3">
+                <span className="text-xs text-gray-400 w-12 pt-4 text-right shrink-0">
+                  {formatMinutesAsTime(lastEnd)}
+                </span>
+                <div className="flex-1">
+                  <FreeSlot
+                    durationMinutes={remaining}
+                    chips={suggestChips(trayItems, remaining)}
+                    onChipTap={(chip) => onChipPlace(chip, lastEnd)}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="flex items-center gap-3 mt-1">
+              <span className="text-xs text-gray-300 w-12 text-right shrink-0">
+                {formatMinutesAsTime(dayEnd)}
+              </span>
+              <div className="flex-1 border-t border-gray-200" />
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
