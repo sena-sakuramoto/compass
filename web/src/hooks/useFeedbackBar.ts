@@ -17,7 +17,7 @@ export function useFeedbackBar(autoDismissMs = 3000) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const state: FeedbackBarState = {
-    visible: entries.length > 1, // Only show bar on 2nd+ action
+    visible: entries.length > 0, // Show bar on any action (undo always available)
     completeCount: entries.filter(e => e.type === 'complete').length,
     passCount: entries.filter(e => e.type === 'pass').length,
     totalCount: entries.length,
