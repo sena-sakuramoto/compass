@@ -174,6 +174,14 @@ export function Timeline({
           </div>
         );
       })}
+
+      {/* Day end marker — always visible */}
+      <div className="flex items-center gap-3 mt-2">
+        <span className="text-xs text-gray-300 w-12 text-right shrink-0">
+          {formatMinutesAsTime(dayEnd)}
+        </span>
+        <div className="flex-1 border-t border-gray-200" />
+      </div>
     </div>
   );
 }
