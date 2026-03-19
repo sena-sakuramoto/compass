@@ -231,7 +231,7 @@ export function TodayView({
       {/* Date header */}
       <DateHeader selectedDate={selectedDate} onDateChange={setSelectedDate} />
 
-      {/* Timeline area (scrollable) */}
+      {/* Scrollable: timeline + tray */}
       <div className="flex-1 overflow-y-auto pb-20">
         <Timeline
           tasks={timelineTasksWithHandlers}
@@ -244,13 +244,12 @@ export function TodayView({
           animatingOut={animatingOut}
           onAnimationEnd={handleAnimationEnd}
         />
-      </div>
 
-      {/* Bottom sheet — tray items */}
-      <BottomSheet
-        title="あとで整理"
-        count={trayItems.length}
-      >
+        {/* Tray — flows right below timeline */}
+        <BottomSheet
+          title="あとで整理"
+          count={trayItems.length}
+        >
         {trayItems.map((t) => {
           const waiting = isWaitingTask(t, currentUserAliases);
           const mine = userHoldsBall(t, currentUserAliases);
@@ -287,6 +286,7 @@ export function TodayView({
           );
         })}
       </BottomSheet>
+      </div>{/* end scrollable area */}
 
       {/* Feedback bar */}
       <FeedbackBar state={feedback.state} onUndo={feedback.undoLast} />
