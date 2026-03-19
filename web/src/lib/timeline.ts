@@ -101,9 +101,14 @@ export function computeTimelinePlacements(
     placementMap.set(p.id, p);
   }
 
+  // Clamp endMinutes to dayEnd so one huge task doesn't eat the whole timeline
   return tasks
     .map(t => placementMap.get(t.id))
-    .filter((p): p is TimelinePlacement => p !== undefined);
+    .filter((p): p is TimelinePlacement => p !== undefined)
+    .map(p => ({
+      ...p,
+      endMinutes: Math.min(p.endMinutes, dayEnd),
+    }));
 }
 
 /**
