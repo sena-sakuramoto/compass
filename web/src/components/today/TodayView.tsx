@@ -8,7 +8,7 @@ import { FeedbackBar } from './FeedbackBar';
 import { QuickAddSheet } from './QuickAddSheet';
 import { useFeedbackBar } from '../../hooks/useFeedbackBar';
 import { getEffectiveBallHolder, getTaskAssigneeLabel } from '../../lib/ball';
-import { formatDuration, type ChipCandidate } from '../../lib/timeline';
+import { formatDuration, computeTimelinePlacements, computeFreeSlots, type ChipCandidate } from '../../lib/timeline';
 import { getWorkHours, workHoursToMinutes } from '../../lib/workHours';
 import type { Task } from '../../lib/types';
 
@@ -228,6 +228,28 @@ export function TodayView({
     <div className="flex flex-col h-full relative">
       {/* Date header */}
       <DateHeader selectedDate={selectedDate} onDateChange={setSelectedDate} />
+
+      {/* Free time summary — always visible */}
+      {(() => {
+        const placements = computeTimelinePlacements(
+          timelineTasksWithHandlers.map(t => ({
+            id: t.id, name: t.name, startTime: t.startTime, estimateMinutes: t.estimateMinutes,
+          })),
+          DAY_START, DAY_END, GAP,
+        );
+        const freeSlots = computeFreeSlots(placements, DAY_START, DAY_END);
+        const totalFree = freeSlots.reduce((sum, s) => sum + s.durationMinutes, 0);
+        return (
+          <div className="px-5 py-2 flex items-center justify-between">
+            <span className="text-xs text-gray-400">
+              {timelineTasks.length}件の予定
+            </span>
+            <span className="text-xs text-gray-400">
+              空き {formatDuration(totalFree)}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Timeline area (scrollable) */}
       <div className="flex-1 overflow-y-auto pb-20">
