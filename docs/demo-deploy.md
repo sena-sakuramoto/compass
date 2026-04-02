@@ -40,6 +40,12 @@ Deploy:
 firebase deploy -c firebase.demo.json --only hosting
 ```
 
+If demo users call the shared Functions API, include the demo host in `functions/.env` `CORS_ORIGIN` before deploying functions:
+
+```env
+CORS_ORIGIN=https://compass-31e9e.web.app,https://compass-demo.web.app
+```
+
 ## 3) Optional local preview
 
 ```bash

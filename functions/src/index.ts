@@ -35,6 +35,7 @@ import googleIntegrationRouter from './api/google-integration';
 import googleOAuthRouter from './api/google-oauth';
 import bulkImportRouter from './api/bulk-import';
 import feedbackRouter from './api/feedback';
+import { shareAuthRouter, sharePublicRouter } from './api/share';
 import { processPendingJobs } from './lib/jobProcessor';
 import { runDailyTaskReminders } from './scheduled/taskReminders';
 import { cleanupDeletedItems } from './cleanupDeletedItems';
@@ -47,6 +48,7 @@ const app = express();
 // This allows any origin to access the checkout API
 app.use('/api/public', checkoutRouter);
 app.use('/api/public', enterpriseInquiryRouter);
+app.use('/api/public', sharePublicRouter);
 
 // CORS configuration with strict origin validation
 const allowedOrigins = process.env.CORS_ORIGIN
@@ -54,6 +56,8 @@ const allowedOrigins = process.env.CORS_ORIGIN
   : [
       'https://compass-31e9e.web.app',
       'https://compass-31e9e.firebaseapp.com',
+      'https://compass-demo.web.app',
+      'https://compass-demo.firebaseapp.com',
       'https://compass-lp.web.app',
       'https://compass-lp.firebaseapp.com',
       'https://compass-lp.vercel.app',
@@ -117,6 +121,7 @@ app.use('/api/org/google-integration', googleIntegrationRouter);
 app.use('/api/google', googleOAuthRouter);
 app.use('/api', bulkImportRouter);
 app.use('/api/feedback', feedbackRouter);
+app.use('/api', shareAuthRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
